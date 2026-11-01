@@ -13,7 +13,10 @@ const fail = (m) => { throw new PortalError(m); };
 
 const IDLE_MS = 15 * 60 * 1000;
 const MAX_TEXT = 200000;
-const BLOCKED_URLS = ['file:*', 'chrome:*', 'chrome-untrusted:*', 'devtools:*', 'view-source:*', 'ftp:*', 'http://169.254.*', 'https://169.254.*', 'http://metadata.google.internal/*', 'https://metadata.google.internal/*', 'http://100.100.100.200/*', 'http://168.63.129.16/*', 'http://[fd00:ec2::254]/*'];
+const SCHEMES = ['http', 'https'];
+const METADATA_PATTERN_HOSTS = ['169.254.*', 'metadata.google.internal/*', '100.100.100.200/*', '168.63.129.16/*', '[fd00:ec2::254]/*'];
+// the browser refuses these for page-initiated requests too, not only for what a user or agent types
+const BLOCKED_URLS = ['file:*', 'chrome:*', 'chrome-untrusted:*', 'devtools:*', 'view-source:*', 'ftp:*', ...METADATA_PATTERN_HOSTS.flatMap((h) => SCHEMES.map((sc) => `${sc}://${h}`))];
 
 export function findChrome(env = process.env) {
   const candidates = [
@@ -588,7 +591,7 @@ export class Portals extends EventEmitter {
 
   /** URL patterns for openmaestri's own control port, which no page may reach. */
   selfUrlPatterns() {
-    return this.selfPorts.flatMap((p) => [`http://127.0.0.1:${p}/*`, `http://localhost:${p}/*`, `http://[::1]:${p}/*`, `http://0.0.0.0:${p}/*`]);
+    return this.selfPorts.flatMap((p) => ['127.0.0.1', 'localhost', '[::1]', '0.0.0.0'].map((h) => `${SCHEMES[0]}://${h}:${p}/*`));
   }
 
   get(node) {

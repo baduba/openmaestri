@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
@@ -111,7 +112,7 @@ test('there is a ceiling on running terminals, and the error says how to raise i
 
 test('exports and workspace files never contain the UI token or an API key', async (t) => {
   const { app, core, store, ws, dir } = await boot(t);
-  const secret = 'sk-live-1234567890abcdefghijkl';
+  const secret = `sk-${randomBytes(18).toString('hex')}`; // made up at run time: no key-shaped literal in the repository
   fs.writeFileSync(path.join(dir, 'data', 'env'), `DEEPSEEK_API_KEY=${secret}\n`, { mode: 0o600 });
   const node = store.createNode(ws, 'terminal', { name: 'W', cwd: ws.dir, preset: 'OpenCode (DeepSeek)', command: 'echo hi' });
   core.usage.report(node.id, { input: 5, output: 5, model: 'deepseek-flash' });
@@ -167,7 +168,7 @@ test('recruit checks the agent exists, can pick a DeepSeek model, and refuses od
 test('doctor reports what is set without ever printing a key', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-doctor-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  const key = 'sk-very-secret-value-0123456789';
+  const key = `sk-${randomBytes(18).toString('hex')}`;
   fs.writeFileSync(path.join(dir, 'env'), `DEEPSEEK_API_KEY=${key}\nOPENMAESTRI_DEEPSEEK_MODEL=deepseek-v4-pro\n`, { mode: 0o644 });
   fs.chmodSync(dir, 0o755);
   const rows = await runDoctor({ env: { ...process.env, DEEPSEEK_API_KEY: '' }, root: dir, socketPath: path.join(dir, 'nope.sock') });
