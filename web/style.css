@@ -114,3 +114,10 @@ dialog.pal { width: min(560px, 92vw); padding: 0; top: 14vh; margin-top: 0; }
 #floor-status { cursor: pointer; }
 .muted { color: var(--muted); margin: 0 0 8px; }
 dialog select { width: 100%; margin-top: 3px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; color: var(--text); }
+
+.node .pv-stage { position: relative; height: calc(100% - 28px); background: #fff; }
+.node canvas.pv { width: 100%; height: 100%; object-fit: contain; display: block; outline: none; background: #fff; cursor: default; }
+.node canvas.pv:focus { box-shadow: inset 0 0 0 2px var(--accent); }
+.pv-stage .portal-msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; background: var(--panel); }
+.urlbar button:disabled { opacity: .35; cursor: default; }
+.urlbar button { padding: 0 8px; }

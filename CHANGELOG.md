@@ -4,6 +4,11 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-01
+
+### Added
+- Portals are real Chromium browsers shared by the human and agents: `portal snapshot|click|fill|type|key|select|check|scroll|drag|upload|wait|evaluate|logs|screenshot|resize|ua|...`; live view with mouse and keyboard in the canvas (docs/portals.md)
+
 ## [0.2.0] - 2026-11-01
 
 ### Added

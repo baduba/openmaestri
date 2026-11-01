@@ -34,7 +34,7 @@ An agent sees only what is connected to it. A **Maestro** terminal sees the whol
 | `portal create URL ["Name"] [--size WxH]` | Web pane (http/https only) |
 | `portal edit "P" --url URL` · `portal close "P"` · `portal info "P"` | Manage |
 
-Page automation (click, fill, snapshot) is not implemented yet.
+Portals are real browsers you and your agents share: `snapshot`, `click`, `fill`, `type`, `key`, `select`, `check`, `wait`, `evaluate`, `screenshot`, `upload` and more. See [Portals](portals.html) for every command and the safety rules.
 
 ## Orchestration (Maestro)
 

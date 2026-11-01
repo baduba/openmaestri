@@ -23,8 +23,10 @@ Usage:
   openmaestri note edit "Note" "old" "new"
   openmaestri note delete "Note" | note delete --stack "Stack"
   openmaestri note create "text" --stack ["Stack"] | note stack "Note" ["Stack"] | note unstack "Note"
-  openmaestri portal create URL ["Name"] [--size WxH]
-  openmaestri portal edit "Portal" --url URL | close "Portal" | info "Portal"
+  openmaestri portal create URL ["Name"] [--size WxH] | edit "Portal" --url URL | close "Portal"
+  openmaestri portal snapshot|info|html|text|screenshot|check|logs-start|logs|reload|back|forward "Portal" [...]
+  openmaestri portal click|hover|focus|fill|type|key|select|check|uncheck|clear|selectall|scroll|drag|upload|wait|evaluate|navigate|resize|ua "Portal" ...
+      targets: @e3 (from snapshot) | CSS selector | x,y     e.g.  portal fill "App" @e2 "hello"  /  portal key "App" ctrl+a
   openmaestri arrange ["Name" [--name N] [--color C] [--icon I]]
   Maestro terminals only:
   openmaestri recruit "Name" [--preset P] [--role R] [--dir PATH] [--command C] [--color C]
@@ -108,13 +110,19 @@ export function build({ pos, flags }) {
       }
     }
     case 'portal': {
-      const [a, b] = rest;
+      const [a, b, ...more] = rest;
       switch (c1) {
-        case 'create': need(a, 'portal create URL ["Name"] [--size WxH]'); return { cmd: 'portal.create', args: { url: a, name: b, size: flags.size } };
+        case undefined: throw new Error('usage: portal <command> "Portal" ... (see: openmaestri help)');
+        case 'create':
+          if (flags.simulator) throw new Error('Android device portals are not implemented yet');
+          need(a, 'portal create URL ["Name"] [--size WxH]');
+          return { cmd: 'portal.create', args: { url: a, name: b, size: flags.size } };
         case 'edit': need(a && flags.url, 'portal edit "Portal" --url URL'); return { cmd: 'portal.edit', args: { name: a, url: flags.url } };
         case 'close': need(a, 'portal close "Portal"'); return { cmd: 'portal.close', args: { name: a } };
-        case 'info': need(a, 'portal info "Portal"'); return { cmd: 'portal.info', args: { name: a } };
-        default: throw new Error(`portal ${c1 ?? ''}: page automation is not implemented in openmaestri yet (supported: create, edit, close, info)`);
+        case 'devices': throw new Error('Android device portals are not implemented yet');
+        default:
+          need(a, `portal ${c1} "Portal" ...`);
+          return { cmd: 'portal.act', args: { op: c1, name: a, rest: [b, ...more].filter((x) => x !== undefined) } };
       }
     }
     case 'arrange': return { cmd: 'arrange', args: { name: c1, newName: flags.name, color: flags.color, icon: flags.icon, kind: ['agent', 'note', 'band', 'fichario'].find((k) => flags[k]) } };

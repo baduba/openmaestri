@@ -27,7 +27,7 @@ Legenda: [x] feito · [ ] pendente
 ## D. Produto
 - [x] 15. Floors com git worktree (criar, status, land/merge, apagar). Falta: hooks e snapshots
 - [x] 16. Partituras: salvar e reinserir layouts (agentes, notas, conexões)
-- [ ] 17. Automação de portal (snapshot/click/fill) via Chromium/Playwright ou CDP
+- [x] 17. Automação de portal (snapshot/click/fill) via CDP por pipe
 - [ ] 18. Empacotar em Electron (janela única, bandeja, notificações do SO) mantendo o modo navegador
 
 ## E. Distribuição e comunidade
@@ -42,5 +42,5 @@ Legenda: [x] feito · [ ] pendente
 ## F. Fase 1 de paridade (feito em feature/canvas-parity)
 - [x] Fichários (stacks), bands, partituras, desfazer/refazer, tidy, snap, paleta Ctrl+K, exportar/importar workspace
 - [ ] Fase 2: floors com git worktree, landing, hooks; depois revisão de PRs
-- [ ] Fase 3: automação de portal (CDP)
+- [x] Fase 3: automação de portal (CDP)
 - [ ] Fase 4: chat com memória (say/recall), prompter, prompts salvos, uso dos agentes, descoberta de roles

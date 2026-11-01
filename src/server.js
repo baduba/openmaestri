@@ -137,11 +137,14 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
   });
   core.on('workspace-list', () => broadcast({ t: 'summary', ...core.summary() }));
   core.on('notify', (n) => broadcast({ t: 'notify', ...n }));
+  core.portals.on('frame', (id, f) => broadcast({ t: 'portal.frame', id, ...f }, (c) => c.portalViews?.has(id)));
+  core.portals.on('nav', (id, nav) => broadcast({ t: 'portal.nav', id, ...nav }, (c) => c.portalViews?.has(id)));
   core.on('term-data', (id, data) => broadcast({ t: 'term.out', id, data }, (c) => c.attached?.has(id)));
   core.on('term-status', (id, status, code) => broadcast({ t: 'term.status', id, status, code }));
 
   wss.on('connection', (ws) => {
     ws.attached = new Set();
+    ws.portalViews = new Set();
     send(ws, { t: 'summary', ...core.summary() });
     const active = core.store.workspaces.get(core.store.settings.activeWorkspaceId);
     if (active) send(ws, { t: 'workspace', ws: core.payload(active) });
@@ -153,7 +156,11 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
         send(ws, { t: 'error', message: e.message, reqId: m.reqId });
       }
     });
-    ws.on('close', () => ws.attached.clear());
+    ws.on('close', () => {
+      ws.attached.clear();
+      for (const id of ws.portalViews) core.portals.detach(id).catch(() => { /* browser already closed */ });
+      ws.portalViews.clear();
+    });
   });
 
   async function handleUi(ws, m) {
@@ -258,6 +265,42 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
         break;
       }
       case 'term.detach': ws.attached.delete(m.id); break;
+      case 'portal.attach': {
+        const w = wsOf();
+        const node = core.nodeOrFail(w, m.id);
+        if (node.kind !== 'portal' || !core.portals.available) break;
+        if (ws.portalViews.has(node.id)) break;
+        ws.portalViews.add(node.id);
+        try {
+          const p = await core.portals.attach(node);
+          send(ws, { t: 'portal.nav', id: node.id, ...p.nav });
+        } catch (e) {
+          ws.portalViews.delete(node.id);
+          await core.portals.detach(node.id);
+          send(ws, { t: 'portal.error', id: node.id, message: e.message });
+        }
+        break;
+      }
+      case 'portal.detach': if (ws.portalViews.delete(m.id)) await core.portals.detach(m.id); break;
+      case 'portal.input': {
+        if (!ws.portalViews.has(m.id)) break;
+        const w = wsOf();
+        const p = core.portals.get(core.nodeOrFail(w, m.id));
+        await p.input(m.event || {});
+        break;
+      }
+      case 'portal.go': {
+        const w = wsOf();
+        const node = core.nodeOrFail(w, m.id);
+        if (node.kind !== 'portal') break;
+        const p = core.portals.get(node);
+        if (m.action === 'back') await p.history(-1);
+        else if (m.action === 'forward') await p.history(1);
+        else if (m.action === 'reload') await p.reload();
+        else if (m.action === 'navigate') await p.navigate(String(m.url ?? ''));
+        s.saveWorkspace(w.id);
+        break;
+      }
       case 'term.in': core.terminals.write(m.id, String(m.data)); break;
       case 'term.resize': core.terminals.resize(m.id, m.cols, m.rows); break;
       case 'term.restart': {

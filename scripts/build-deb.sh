@@ -44,7 +44,7 @@ Section: devel
 Priority: optional
 Architecture: ${ARCH}
 Depends: nodejs (>= 20)
-Recommends: git, xdg-utils
+Recommends: git, xdg-utils, chromium | chromium-browser | google-chrome-stable
 Installed-Size: ${SIZE_KB}
 Maintainer: openmaestri contributors <https://github.com/baduba/openmaestri/issues>
 Homepage: https://github.com/baduba/openmaestri
