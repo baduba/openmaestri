@@ -161,3 +161,20 @@ dialog select { width: 100%; margin-top: 3px; background: var(--bg); border: 1px
 .md { opacity: .6; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .preview-box { border-top: 1px solid var(--line); padding: 8px 10px; background: var(--bg); }
 .preview-box pre { max-height: 200px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; margin: 6px 0; }
+
+.prompts { border-top: 1px solid var(--line); background: var(--bg); max-height: 40%; display: flex; flex-direction: column; min-height: 0; }
+.prompts[hidden] { display: none; }
+.prompts-h { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; }
+.prompts-h button { margin-left: 4px; }
+#chat-lib-list { list-style: none; margin: 0; padding: 0 8px 8px; overflow: auto; }
+.lib-item { display: flex; gap: 4px; margin-bottom: 4px; }
+.lib-main { flex: 1; text-align: left; display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; }
+.lib-prev { flex-basis: 100%; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-scope { font-size: 10px; text-transform: uppercase; color: var(--muted); }
+.lib-scope.global { color: var(--accent); }
+.lib-del { padding: 0 8px; color: var(--muted); }
+.lib-empty { color: var(--muted); padding: 8px; }
+.undo { display: flex; justify-content: space-between; align-items: center; margin: 0 10px 6px; padding: 4px 8px; border-radius: 6px; background: var(--panel); border: 1px solid var(--line); }
+.undo[hidden] { display: none; }
+
+.node .usage { color: var(--muted); font-size: 11px; white-space: nowrap; }

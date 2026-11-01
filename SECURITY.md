@@ -36,6 +36,8 @@ Only the latest release receives fixes while the project is 0.x.
 | Workspace files | Path traversal through ids | ids must be canonical UUIDs (`safeId`) |
 | Your API keys | Ending up in repositories | read from `~/.openmaestri/env`, never written to workspace files; a warning is printed if the file is group or world readable |
 | The human's attention | A looping agent spamming notifications | 20 notifications per minute per terminal |
+| Roles | Persistent instructions planted through a repository or a symlink | dry run by default, backup, marked block, symlink and outside-workspace targets refused, repository roles need --trust, Maestro only |
+| Saved prompts and prices | Path tricks in names; hostile numbers in the prices file | strict name rule, O_NOFOLLOW reads, 64 KB cap; prices file is validated as plain numbers |
 | Mentions | Reading files or notes the user did not intend to share with the agent | `@file:` only inside the workspace, 32 KB, never secret-looking, symlinks refused, preview before sending, notes limited by wiring for agents |
 | Chat | Script injection through agent text; leaking files through attachments; keystrokes smuggled to the Maestro | text rendered with `textContent`; attachments only from the workspace, never secret-looking files, copied to a `0600` vault; control characters stripped; rate limit; thread ACL |
 | Portal browsers | A page or an agent reaching local files or other processes | only http/https; `file:`/`chrome:`/`devtools:` blocked in the browser; DevTools over a pipe (no TCP port); throwaway profile per portal; uploads limited to workspace folders |

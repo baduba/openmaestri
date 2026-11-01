@@ -159,6 +159,37 @@ export function createChat({ state, send, wsId, toast, $, el }) {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
   });
   sendBtn.onclick = submit;
+  // ----- saved prompts -----
+  const drawer = $('#chat-prompts');
+  const libList = $('#chat-lib-list');
+  const requestPrompts = () => send({ t: 'prompts.list', workspaceId: wsId() });
+  function renderPrompts(items) {
+    libList.replaceChildren();
+    if (!items.length) libList.append(el('li', 'lib-empty', 'Nothing saved yet. Type a message, then press Save current.'));
+    for (const p of items) {
+      const li = el('li', 'lib-item');
+      const main = el('button', 'lib-main');
+      main.append(el('b', null, p.name), el('span', `lib-scope ${p.scope}`, p.scope), el('span', 'lib-prev', p.preview));
+      main.onclick = () => send({ t: 'prompts.get', workspaceId: wsId(), name: p.name, scope: p.scope });
+      const del = el('button', 'lib-del', '×');
+      del.title = `Delete "${p.name}" (you can undo)`;
+      del.onclick = () => send({ t: 'prompts.delete', workspaceId: wsId(), name: p.name, scope: p.scope });
+      li.append(main, del);
+      libList.append(li);
+    }
+  }
+  $('#chat-lib').onclick = () => { drawer.hidden = !drawer.hidden; if (!drawer.hidden) requestPrompts(); };
+  $('#chat-lib-close').onclick = () => { drawer.hidden = true; };
+  $('#chat-lib-save').onclick = () => {
+    const text = input.value.trim();
+    if (!text) { toast('Type the prompt in the message box first', 'prompts', true); return; }
+    const name = prompt('Name for this prompt (letters, digits, spaces, dots, dashes)');
+    if (!name) return;
+    const global = confirm('Keep it for every workspace?\n\nOK = every workspace, Cancel = only this one');
+    send({ t: 'prompts.save', workspaceId: wsId(), name, text, global });
+  };
+  $('#chat-undo-btn').onclick = () => { send({ t: 'prompts.undo', workspaceId: wsId() }); $('#chat-undo').hidden = true; };
+
   $('#chat-preview').onclick = () => { const text = input.value.trim(); if (text) send({ t: 'prompter.preview', workspaceId: wsId(), requestId: ++searchId, text }); };
   $('#chat-preview-close').onclick = () => { $('#chat-preview-box').hidden = true; };
   $('#chat-close').onclick = () => setOpen(false);
@@ -214,6 +245,18 @@ export function createChat({ state, send, wsId, toast, $, el }) {
           return true;
         case 'chat.state':
           if (m.workspaceId === wsId() && state.ws) { state.ws.chat = m.chat; this.sync(); window.dispatchEvent(new CustomEvent('om-chat-state')); }
+          return true;
+        case 'prompts.list': renderPrompts(m.items); return true;
+        case 'prompts.changed': if (!drawer.hidden) requestPrompts(); return true;
+        case 'prompts.item': {
+          const sep = input.value && !input.value.endsWith('\n') ? '\n' : '';
+          input.value += sep + m.text;
+          input.focus();
+          return true;
+        }
+        case 'prompts.deleted':
+          $('#chat-undo-text').textContent = `Deleted "${m.name}".`;
+          $('#chat-undo').hidden = false;
           return true;
         case 'prompter.mentions':
           if (m.requestId !== mentionId || !activeMention(input.value, input.selectionStart)) return true;

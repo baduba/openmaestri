@@ -42,12 +42,12 @@ export const DEFAULT_PRESETS = [
   { name: 'Codex', command: 'codex', maestro: false },
   { name: 'Gemini', command: 'gemini', maestro: false },
   { name: 'OpenCode', command: 'opencode', maestro: false },
-  // The model comes from OPENMAESTRI_DEEPSEEK_MODEL (see docs/deepseek.md); `opencode models deepseek` lists valid ids.
-  { name: 'OpenCode (DeepSeek)', command: 'opencode -m "deepseek/${OPENMAESTRI_DEEPSEEK_MODEL:-deepseek-chat}"', maestro: false },
-  { name: 'Aider (DeepSeek)', command: 'aider --model "deepseek/${OPENMAESTRI_DEEPSEEK_MODEL:-deepseek-chat}"', maestro: false },
+  // The model comes from OPENMAESTRI_DEEPSEEK_MODEL (default deepseek-flash, a model DeepSeek's API lists); `opencode models deepseek` shows valid ids.
+  { name: 'OpenCode (DeepSeek)', command: 'opencode -m "deepseek/${OPENMAESTRI_DEEPSEEK_MODEL:-deepseek-flash}"', maestro: false },
+  { name: 'Aider (DeepSeek)', command: 'aider --model "deepseek/${OPENMAESTRI_DEEPSEEK_MODEL:-deepseek-flash}"', maestro: false },
   { name: 'Aider', command: 'aider', maestro: false },
   { name: 'Goose', command: 'goose', maestro: false },
-  { name: 'Maestro (OpenCode + DeepSeek)', command: 'opencode -m "deepseek/${OPENMAESTRI_DEEPSEEK_MODEL:-deepseek-chat}"', maestro: true },
+  { name: 'Maestro (OpenCode + DeepSeek)', command: 'opencode -m "deepseek/${OPENMAESTRI_DEEPSEEK_MODEL:-deepseek-flash}"', maestro: true },
   { name: 'Maestro (Claude)', command: 'claude', maestro: true },
 ];
 

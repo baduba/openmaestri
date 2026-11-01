@@ -38,7 +38,7 @@ Running three agents in three terminals means you are the message bus: copy this
 
 ```bash
 # Node.js 20+ is required (https://nodejs.org or NodeSource)
-sudo apt install ./openmaestri_0.5.0_amd64.deb
+sudo apt install ./openmaestri_0.6.0_amd64.deb
 openmaestri serve --open
 ```
 
@@ -83,7 +83,7 @@ openmaestri does not call any model itself. Your agent CLI does, so any model th
 mkdir -p ~/.openmaestri && install -m 600 /dev/null ~/.openmaestri/env
 cat >> ~/.openmaestri/env <<'ENV'
 DEEPSEEK_API_KEY=sk-...
-OPENMAESTRI_DEEPSEEK_MODEL=deepseek-chat
+OPENMAESTRI_DEEPSEEK_MODEL=deepseek-flash
 ENV
 ```
 

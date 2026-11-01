@@ -215,6 +215,7 @@ export class Terminals extends EventEmitter {
   deliver(id, text, { submit = true } = {}) {
     const rt = this.rt.get(id);
     if (!rt || rt.status !== 'running') throw new Error('terminal is not running');
+    this.emit('turn', id);
     const bracketed = rt.term.modes.bracketedPasteMode;
     const body = bracketed ? `\x1b[200~${text}\x1b[201~` : text.replace(/\r?\n/g, '\r');
     rt.proc.write(body);

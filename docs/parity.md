@@ -27,8 +27,8 @@ Legend: done = works and is tested · partial = some of it · missing = not star
 | Portals (web panes) | 12 | done | a real Chromium per portal shared by the human and agents: snapshot with refs, click, fill, type, key, select, check, scroll, drag, upload, wait, evaluate, logs, screenshot, resize, user-agent presets; see [portals](portals.html). Missing: design mode |
 | Android devices | 7 | missing | |
 | Maestri Chat (threads, `say`, `recall`) | 28 | partial | seven threads, JSONL history, `say`/`recall`/`recall list`/`recall attachment`, panel with progress, unread, attention badges, search, interrupt, attachment vault; see [chat](chat.html). Missing: summarised long-term memory, drag-and-drop attachments, thread copy/archive |
-| Prompter (composer with @mentions, file index) and saved prompts | 16 | partial | `@agent:`/`@note:`/`@file:` tokens, popup with keyboard, cancellable file index, 32 KB materialisation with a preview, `prompt parse/materialize`. Missing: saved prompts, drag-and-drop files |
-| Agent accounts, usage and identity | 41 | missing | multiple accounts per agent, usage/cost tracking |
+| Prompter (composer with @mentions, file index) and saved prompts | 16 | done | `@agent:`/`@note:`/`@file:` tokens, popup with keyboard, cancellable file index, 32 KB materialisation with a preview, saved prompts with undo and live updates; see [chat](chat.html) and [agents](agents.html). Missing: drag-and-drop files |
+| Agent accounts, usage and identity | 41 | partial | usage per terminal with tokens, cost estimate (reported or parsed, never guessed), DeepSeek prices with peak hours, `usage report`; role discovery and install with dry run. Missing: multiple accounts per agent, keychain, identity |
 | Sandboxes, Docker, WSL, remote tunnels | 18+ | missing | |
 | Auto-layout (tidy/snap), command palette | 4 | done | tidy by depth from the Maestro, snap to grid, Ctrl+K palette. Missing: drawing recognition |
 | App shell (window, tray, preferences, onboarding, updates) | 40 | partial | runs in the browser; `.deb` ships updates through apt. Missing: Electron shell, tray, preferences screen, onboarding |

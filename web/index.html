@@ -56,11 +56,16 @@
     <div id="chat-tabs" class="ctabs"></div>
     <input id="chat-search" placeholder="Search all threads…" autocomplete="off" aria-label="Search chat">
     <div id="chat-list" class="chat-list" aria-live="polite"></div>
+    <div id="chat-prompts" class="prompts" hidden>
+      <div class="prompts-h"><b>Saved prompts</b><span><button id="chat-lib-save" title="Save what you typed as a prompt">Save current</button><button id="chat-lib-close" title="Close">×</button></span></div>
+      <div id="chat-undo" class="undo" hidden><span id="chat-undo-text"></span><button id="chat-undo-btn">Undo</button></div>
+      <ul id="chat-lib-list"></ul>
+    </div>
     <div id="chat-preview-box" class="preview-box" hidden><b>The Maestro will receive:</b><pre id="chat-preview-text"></pre><button id="chat-preview-close">Close</button></div>
     <div class="chat-compose">
       <ul id="chat-mentions" class="mentions" hidden role="listbox" aria-label="Mentions"></ul>
       <textarea id="chat-input" rows="3" placeholder="Message your Maestro. Enter sends, Shift+Enter adds a line." aria-label="Message"></textarea>
-      <div class="chat-btns"><button id="chat-preview" title="Show exactly what the Maestro will receive">Preview</button><button id="chat-send" class="primary">Send</button></div>
+      <div class="chat-btns"><button id="chat-lib" title="Saved prompts">Prompts</button><button id="chat-preview" title="Show exactly what the Maestro will receive">Preview</button><button id="chat-send" class="primary">Send</button></div>
     </div>
   </aside>
   <div id="toasts"></div>
