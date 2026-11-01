@@ -19,6 +19,7 @@ const KEEP_VERSIONS = 10;
 const HIDDEN = new Set(['.git', '.openmaestri']);
 
 const NONBLOCK = fs.constants.O_NONBLOCK ?? 0;
+const NOFOLLOW = fs.constants.O_NOFOLLOW ?? 0;
 
 /** Split a client path into safe segments; throws on anything that could leave the root. */
 export function segments(rel) {
@@ -123,13 +124,19 @@ export class Files {
     if (typeof text !== 'string') fail('nothing to save');
     if (Buffer.byteLength(text) > MAX_EDIT_BYTES) fail('files over 1 MB are not edited here');
     const { abs, base, parts } = this.confine(root, rel);
-    const lst = fs.lstatSync(abs);
-    if (lst.isSymbolicLink()) fail('that file is a symbolic link; it is not written through');
-    if (!lst.isFile()) fail('that is not a file');
-    if (expectedMtime !== undefined && Math.abs(lst.mtimeMs - expectedMtime) > 1) fail('the file changed on disk since you opened it. Reload it, or copy your text first');
-    this.keepVersion(wsId, base, parts, fs.readFileSync(abs));
+    // one descriptor for the checks and the backup; O_NOFOLLOW refuses a symlink leaf, O_NONBLOCK keeps a FIFO from hanging us
+    let fd;
+    try { fd = fs.openSync(abs, fs.constants.O_RDONLY | NOFOLLOW | NONBLOCK); } catch (e) { return fail(e.code === 'ELOOP' ? 'that file is a symbolic link; it is not written through' : 'cannot open that file'); }
+    let mode;
+    try {
+      const st0 = fs.fstatSync(fd);
+      if (!st0.isFile()) fail('that is not a file');
+      if (expectedMtime !== undefined && Math.abs(st0.mtimeMs - expectedMtime) > 1) fail('the file changed on disk since you opened it. Reload it, or copy your text first');
+      mode = st0.mode & 0o777;
+      this.keepVersion(wsId, base, parts, fs.readFileSync(fd));
+    } finally { fs.closeSync(fd); }
     const tmp = `${abs}.om-${process.pid}.tmp`;
-    fs.writeFileSync(tmp, text, { mode: lst.mode & 0o777, flag: 'wx' });
+    fs.writeFileSync(tmp, text, { mode, flag: 'wx' });
     fs.renameSync(tmp, abs);
     const st = fs.statSync(abs);
     return { mtimeMs: st.mtimeMs, size: st.size };

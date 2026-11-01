@@ -56,7 +56,7 @@ test('UI: Files node browses, edits, saves with Ctrl+S, previews markdown safely
   assert.equal(await page.locator('.fpreview strong').textContent(), 'bold');
   assert.equal(await page.locator('.fpreview img').count(), 0, 'raw HTML in markdown is text, not markup');
   assert.equal(await page.locator('.fpreview a').count(), 1, 'only http(s) links become links');
-  assert.equal(await page.locator('.fpreview a').getAttribute('href'), 'https://example.com');
+  assert.equal(await page.locator('.fpreview a').getAttribute('href'), 'https://example.com/');
   assert.equal(await page.evaluate(() => window.__xss), undefined);
   assert.equal(await page.locator('.fpreview li').count(), 2);
   assert.deepEqual(errors, []);

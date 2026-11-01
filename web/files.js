@@ -23,11 +23,16 @@ export function renderMarkdown(src, into) {
       else if (t.startsWith('*')) parent.append(el('em', null, t.slice(1, -1)));
       else {
         const close = t.indexOf('](');
-        const a = el('a', null, t.slice(1, close));
-        a.href = t.slice(close + 2, -1);
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-        parent.append(a);
+        const label = t.slice(1, close);
+        let url = null;
+        try { url = new URL(t.slice(close + 2, -1)); } catch { /* not a URL: plain text */ }
+        if (url && (url.protocol === 'https:' || url.protocol === 'http:')) {
+          const a = el('a', null, label);
+          a.href = url.href;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          parent.append(a);
+        } else parent.append(label);
       }
       last = m.index + t.length;
     }
