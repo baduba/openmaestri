@@ -21,7 +21,8 @@ Usage:
   openmaestri note read "Note" [offset] [limit]
   openmaestri note write "Note" "content"
   openmaestri note edit "Note" "old" "new"
-  openmaestri note delete "Note"
+  openmaestri note delete "Note" | note delete --stack "Stack"
+  openmaestri note create "text" --stack ["Stack"] | note stack "Note" ["Stack"] | note unstack "Note"
   openmaestri portal create URL ["Name"] [--size WxH]
   openmaestri portal edit "Portal" --url URL | close "Portal" | info "Portal"
   openmaestri arrange ["Name" [--name N] [--color C] [--icon I]]
@@ -29,7 +30,9 @@ Usage:
   openmaestri recruit "Name" [--preset P] [--role R] [--dir PATH] [--command C] [--color C]
   openmaestri recruit "New" --preset P --replace "Old"
   openmaestri dismiss "Name"
-  openmaestri connect "From" "To"   |   disconnect "From" "To"
+  openmaestri connect "From" "To" [--agent|--band|--note|--fichario|--portal]   |   disconnect "From" "To"
+  openmaestri band create "Name" ["Agent" ...] [--without-me] | add "Band" "Agent" | remove "Band" "Agent" | dissolve "Band"
+  openmaestri partitura list | insert "Name" | create "Name" ["Agent" ...] [--commands on|off] [--note-text on|off] [--scope current|global] | update ... | delete "Name"
   openmaestri preset list|show|create|set|delete ...
   openmaestri role list|show|create|write|edit|assign|delete ...
   openmaestri routine list|show|create|edit|enable|disable|run|delete ...
@@ -91,12 +94,14 @@ export function build({ pos, flags }) {
     case 'note': {
       const [name, ...more] = rest;
       switch (c1) {
-        case 'create': return { cmd: 'note.create', args: { content: name ?? '', name: flags.name, color: flags.color } };
+        case 'create': return { cmd: 'note.create', args: { content: name ?? '', name: flags.name, color: flags.color, stack: flags.stack } };
+        case 'stack': need(name, 'note stack "Note" ["Stack"]'); return { cmd: 'note.stack', args: { name, stack: more[0] } };
+        case 'unstack': need(name, 'note unstack "Note"'); return { cmd: 'note.unstack', args: { name } };
         case 'read': need(name, 'note read "Note" [offset] [limit]'); return { cmd: 'note.read', args: { name, offset: more[0] ? Number(more[0]) : undefined, limit: more[1] ? Number(more[1]) : undefined } };
         case 'write': need(name && more.length, 'note write "Note" "content"'); return { cmd: 'note.write', args: { name, content: more.join(' ') } };
         case 'edit': need(name && more.length >= 2, 'note edit "Note" "old" "new"'); return { cmd: 'note.edit', args: { name, old: more[0], new: more[1] } };
-        case 'delete': need(name, 'note delete "Note"'); return { cmd: 'note.delete', args: { name } };
-        default: throw new Error('usage: note create|read|write|edit|delete');
+        case 'delete': need(name || flags.stack, 'note delete "Note" | note delete --stack "Stack"'); return { cmd: 'note.delete', args: { name, stack: flags.stack } };
+        default: throw new Error('usage: note create|read|write|edit|stack|unstack|delete');
       }
     }
     case 'portal': {
@@ -109,10 +114,32 @@ export function build({ pos, flags }) {
         default: throw new Error(`portal ${c1 ?? ''}: page automation is not implemented in openmaestri yet (supported: create, edit, close, info)`);
       }
     }
-    case 'arrange': return { cmd: 'arrange', args: { name: c1, newName: flags.name, color: flags.color, icon: flags.icon } };
+    case 'arrange': return { cmd: 'arrange', args: { name: c1, newName: flags.name, color: flags.color, icon: flags.icon, kind: ['agent', 'note', 'band', 'fichario'].find((k) => flags[k]) } };
+    case 'band': {
+      const [a, b] = rest;
+      switch (c1) {
+        case 'create': need(a, 'band create "Name" ["Agent" ...] [--without-me]'); return { cmd: 'band.create', args: { name: a, agents: rest.slice(1), withoutMe: !!flags['without-me'], color: flags.color, icon: flags.icon } };
+        case 'add': need(a && b, 'band add "Band" "Agent"'); return { cmd: 'band.add', args: { band: a, agent: b } };
+        case 'remove': need(a && b, 'band remove "Band" "Agent"'); return { cmd: 'band.remove', args: { band: a, agent: b } };
+        case 'dissolve': need(a, 'band dissolve "Band"'); return { cmd: 'band.dissolve', args: { band: a } };
+        default: throw new Error('usage: band create|add|remove|dissolve');
+      }
+    }
+    case 'partitura': {
+      const [a] = rest;
+      const common = { agents: rest.slice(1), withoutMe: !!flags['without-me'], commands: onOff(flags.commands), noteText: onOff(flags['note-text']), description: flags.description, icon: flags.icon, color: flags.color, scope: flags.scope };
+      switch (c1) {
+        case 'list': return { cmd: 'partitura.list', args: {} };
+        case 'insert': need(a, 'partitura insert "Name"'); return { cmd: 'partitura.insert', args: { name: a } };
+        case 'create': need(a, 'partitura create "Name" ["Agent" ...] [--commands on|off] [--note-text on|off] [--description D] [--scope current|global]'); return { cmd: 'partitura.create', args: { name: a, ...common } };
+        case 'update': need(a, 'partitura update "Name" ["Agent" ...] [--name N] [flags]'); return { cmd: 'partitura.update', args: { name: a, newName: flags.name, ...common } };
+        case 'delete': need(a, 'partitura delete "Name"'); return { cmd: 'partitura.delete', args: { name: a } };
+        default: throw new Error('usage: partitura list|insert|create|update|delete');
+      }
+    }
     case 'recruit': return { cmd: 'recruit', args: { name: c1, preset: flags.preset, role: flags.role, dir: flags.dir, command: flags.command, color: flags.color, icon: flags.icon, replace: flags.replace, account: flags.account } };
     case 'dismiss': need(c1, 'dismiss "Name"'); return { cmd: 'dismiss', args: { name: c1 } };
-    case 'connect': need(c1 && rest[0], 'connect "From" "To"'); return { cmd: 'connect', args: { from: c1, to: rest[0] } };
+    case 'connect': need(c1 && rest[0], 'connect "From" "To" [--agent|--band|--note|--fichario|--portal]'); return { cmd: 'connect', args: { from: c1, to: rest[0], kind: ['agent', 'band', 'note', 'fichario', 'portal'].find((k) => flags[k]) } };
     case 'disconnect': need(c1 && rest[0], 'disconnect "From" "To"'); return { cmd: 'disconnect', args: { from: c1, to: rest[0] } };
     case 'preset': {
       const [name] = rest;

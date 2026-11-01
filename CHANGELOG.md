@@ -2,6 +2,13 @@
 
 All notable changes are documented here. Format: [Keep a Changelog](https://keepachangelog.com), versions follow [SemVer](https://semver.org).
 
+## [Unreleased]
+
+### Added
+- Stacks (fichários), bands, partituras (saved layouts), undo/redo with a note trash, tidy auto-layout, snap to grid, Ctrl+K command palette
+- Workspace export and import. Imported files are untrusted: ids are regenerated, fields are re-validated and terminal commands stay unrun until you click Trust
+- CLI: `note stack|unstack|create --stack|delete --stack`, `band`, `partitura`, `connect --band|--fichario|...`
+
 ## [0.1.0] - 2026-11-01
 
 First public version.

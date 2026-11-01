@@ -39,7 +39,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 #links path { fill: none; stroke: var(--muted); stroke-width: 2; opacity: .75; pointer-events: stroke; cursor: pointer; }
 #links path:hover { stroke: var(--err); opacity: 1; stroke-width: 3; }
 
-#toolbar { position: absolute; z-index: 50; top: 10px; left: 10px; right: 10px; display: flex; gap: 6px; align-items: center; pointer-events: none; }
+#toolbar { position: absolute; z-index: 50; top: 10px; left: 10px; right: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; pointer-events: none; }
 #toolbar > * { pointer-events: auto; }
 #toolbar .sep { width: 8px; }
 #floor-status { margin-left: auto; padding: 3px 10px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); display: none; }
@@ -83,3 +83,24 @@ dialog label { display: block; margin: 8px 0; color: var(--muted); }
 dialog label input:not([type=checkbox]), dialog label select { display: block; width: 100%; margin-top: 3px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; color: var(--text); }
 dialog .chk { color: var(--text); }
 dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+#toolbar button:disabled { opacity: .4; cursor: default; }
+#toolbar button.on { border-color: var(--accent); color: var(--accent); }
+.band { position: absolute; z-index: 0; border: 2px dashed var(--nodecolor, var(--accent)); border-radius: 16px; background: color-mix(in srgb, var(--nodecolor, var(--accent)) 7%, transparent); pointer-events: none; }
+.band-label { position: absolute; top: 0; left: 0; right: 0; height: 28px; display: flex; align-items: center; gap: 6px; padding: 0 10px; cursor: move; pointer-events: auto; user-select: none; color: var(--nodecolor, var(--accent)); font-weight: 700; }
+.band-label .title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.band-label .ibtn { color: inherit; }
+.tabs { display: flex; flex-wrap: wrap; gap: 2px; padding: 4px 6px 0; border-bottom: 1px solid var(--line); background: var(--bg2); }
+.tab { display: inline-flex; align-items: center; border: 1px solid var(--line); border-bottom: 0; border-radius: 6px 6px 0 0; background: var(--bg); }
+.tab.on { background: var(--panel); border-color: var(--accent); }
+.tab-label, .tabx, .tab.add { border: 0; background: none; padding: 2px 8px; cursor: pointer; }
+.tab.add { border: 1px dashed var(--line); border-radius: 6px 6px 0 0; }
+.tabx { padding: 2px 4px; color: var(--muted); }
+.node .body .tabs + textarea { height: calc(100% - 34px); }
+.members { max-height: 220px; overflow: auto; margin: 8px 0; }
+dialog.pal { width: min(560px, 92vw); padding: 0; top: 14vh; margin-top: 0; }
+#pal-input { width: 100%; border: 0; border-bottom: 1px solid var(--line); background: transparent; padding: 14px 16px; font-size: 15px; outline: none; }
+#pal-list { list-style: none; margin: 0; padding: 6px; max-height: 50vh; overflow: auto; }
+#pal-list li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 10px; border-radius: 6px; cursor: pointer; }
+#pal-list li.on { background: var(--accent); color: #fff; }
+#pal-list .ph { opacity: .65; font-size: 11px; align-self: center; }

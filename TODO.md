@@ -26,7 +26,7 @@ Legenda: [x] feito · [ ] pendente
 
 ## D. Produto
 - [ ] 15. Floors com git worktree (criar, status, land/merge, apagar)
-- [ ] 16. Partituras: salvar e reinserir layouts (agentes, notas, conexões)
+- [x] 16. Partituras: salvar e reinserir layouts (agentes, notas, conexões)
 - [ ] 17. Automação de portal (snapshot/click/fill) via Chromium/Playwright ou CDP
 - [ ] 18. Empacotar em Electron (janela única, bandeja, notificações do SO) mantendo o modo navegador
 
@@ -38,3 +38,9 @@ Legenda: [x] feito · [ ] pendente
 - [x] 23. Templates de issue (bug com diagnóstico `openmaestri debug`, feature, pergunta) + guia "como reportar bug"
 - [x] 24. CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, PR template, labels `good first issue`, licença MIT
 - [ ] 25. Código publicado (PR #1 aberto, CI verde); falta merge, tag v0.1.0 e Release com o .deb
+
+## F. Fase 1 de paridade (feito em feature/canvas-parity)
+- [x] Fichários (stacks), bands, partituras, desfazer/refazer, tidy, snap, paleta Ctrl+K, exportar/importar workspace
+- [ ] Fase 2: floors com git worktree, landing, hooks; depois revisão de PRs
+- [ ] Fase 3: automação de portal (CDP)
+- [ ] Fase 4: chat com memória (say/recall), prompter, prompts salvos, uso dos agentes, descoberta de roles

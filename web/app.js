@@ -19,6 +19,8 @@ const state = {
   vp: { x: 0, y: 0, z: 1 },
   selected: null,
   linkFrom: null,
+  stackNote: null,
+  snap: (() => { try { return localStorage.getItem('om.snap') === '1'; } catch { return false; } })(),
 };
 
 // ---------- socket ----------
@@ -48,7 +50,9 @@ function onMessage(m) {
     case 'note': {
       if (m.workspaceId !== wsId()) break;
       state.ws.notes.set(m.id, m.text);
-      state.views.get(m.id)?.setNote?.(m.text);
+      state.views.get(m.id)?.setNote?.(m.text, m.id);
+      const owner = state.ws.nodes.find((x) => x.id === m.id)?.stackId;
+      if (owner) state.views.get(owner)?.setNote?.(m.text, m.id);
       break;
     }
     case 'term.snapshot': state.views.get(m.id)?.snapshot?.(m.data); break;
@@ -81,12 +85,13 @@ function applyWorkspace(ws, switching) {
   for (const n of ws.nodes) {
     seen.add(n.id);
     let v = state.views.get(n.id);
-    if (!v) { v = makeView(n); state.views.set(n.id, v); $('#world').append(v.root); }
+    if (!v) { v = n.kind === 'band' ? makeBandView(n) : makeView(n); state.views.set(n.id, v); $('#world').append(v.root); }
     v.update(n);
   }
   for (const [id, v] of [...state.views]) if (!seen.has(id)) { v.destroy(); state.views.delete(id); }
   renderLinks();
   renderSidebar();
+  syncHistoryButtons();
   const fs = $('#floor-status');
   if (ws.floorStatus) { fs.textContent = `${ws.floorStatus.state}${ws.floorStatus.progress ? ` ${ws.floorStatus.progress}` : ''}: ${ws.floorStatus.text}`; fs.title = `by ${ws.floorStatus.by}`; fs.classList.add('on'); }
   else fs.classList.remove('on');
@@ -101,7 +106,10 @@ function renderSidebar() {
     const x = el('button', 'x', '×');
     x.title = 'Delete workspace';
     x.onclick = (e) => { e.stopPropagation(); if (confirm(`Delete workspace "${w.name}" and everything in it?`)) send({ t: 'workspace.delete', id: w.id }); };
-    li.append(x);
+    const exp = el('button', 'x', '⭳');
+    exp.title = 'Export this workspace to a file';
+    exp.onclick = (e) => { e.stopPropagation(); location.href = `/export/${w.id}.json`; };
+    li.append(exp, x);
     li.title = w.dir;
     li.onclick = () => send({ t: 'workspace.select', id: w.id });
     li.ondblclick = () => { const name = prompt('Rename workspace', w.name); if (name) send({ t: 'workspace.rename', id: w.id, name }); };
@@ -186,7 +194,7 @@ function renderLinks() {
   const ns = new Map(state.ws.nodes.map((n) => [n.id, n]));
   for (const c of state.ws.connections) {
     const a = ns.get(c.from), b = ns.get(c.to);
-    if (!a || !b) continue;
+    if (!a || !b || a.stackId || b.stackId) continue;
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     path.setAttribute('d', linkPath(a, b));
     const t = document.createElementNS('http://www.w3.org/2000/svg', 'title');
@@ -242,7 +250,9 @@ function makeView(n) {
   link.title = 'Connect to another node';
   const close = el('button', 'ibtn', '×');
   close.title = 'Remove';
-  head.append(dot, title, kind, link, close);
+  const fileBtn = n.kind === 'note' ? el('button', 'ibtn', '▤') : null;
+  if (fileBtn) fileBtn.title = 'File this note into a stack';
+  head.append(dot, title, kind, ...(fileBtn ? [fileBtn] : []), link, close);
   const body = el('div', 'body');
   const rz = el('div', 'resize');
   root.append(head, body, rz);
@@ -258,6 +268,7 @@ function makeView(n) {
     root.style.left = `${node.x}px`; root.style.top = `${node.y}px`;
     root.style.width = `${node.w}px`; root.style.height = `${node.h}px`;
     root.style.setProperty('--nodecolor', cssColor(node.color));
+    root.style.display = node.stackId ? 'none' : '';
   };
 
   // drag by header
@@ -270,8 +281,8 @@ function makeView(n) {
     head.setPointerCapture(e.pointerId);
     let last = 0;
     const move = (ev) => {
-      node.x = Math.round(s.nx + (ev.clientX - s.x) / state.vp.z); node.y = Math.round(s.ny + (ev.clientY - s.y) / state.vp.z);
-      layout(); renderLinks();
+      node.x = snapV(Math.round(s.nx + (ev.clientX - s.x) / state.vp.z)); node.y = snapV(Math.round(s.ny + (ev.clientY - s.y) / state.vp.z));
+      layout(); refreshBandsLocal(); renderLinks();
       if (Date.now() - last > 100) { last = Date.now(); patch({ x: node.x, y: node.y }, false); }
     };
     const up = () => { head.removeEventListener('pointermove', move); head.removeEventListener('pointerup', up); patch({ x: node.x, y: node.y }, false); };
@@ -280,6 +291,7 @@ function makeView(n) {
   });
   // clicking the body while linking, or to select
   root.addEventListener('pointerdown', (e) => {
+    if (state.stackNote && node.kind === 'stack') { e.preventDefault(); e.stopPropagation(); send({ t: 'note.stack', workspaceId: wsId(), noteId: state.stackNote, stackId: node.id }); setStackNote(null); return; }
     if (state.linkFrom && state.linkFrom !== node.id) { e.preventDefault(); e.stopPropagation(); send({ t: 'conn.create', workspaceId: wsId(), from: state.linkFrom, to: node.id }); setLinkFrom(null); return; }
     select(node.id);
   }, true);
@@ -289,16 +301,22 @@ function makeView(n) {
     const s = { x: e.clientX, y: e.clientY, w: node.w, h: node.h };
     rz.setPointerCapture(e.pointerId);
     const move = (ev) => {
-      node.w = Math.max(200, Math.round(s.w + (ev.clientX - s.x) / state.vp.z)); node.h = Math.max(120, Math.round(s.h + (ev.clientY - s.y) / state.vp.z));
-      layout(); renderLinks(); view.resized?.();
+      node.w = Math.max(200, snapV(Math.round(s.w + (ev.clientX - s.x) / state.vp.z))); node.h = Math.max(120, snapV(Math.round(s.h + (ev.clientY - s.y) / state.vp.z)));
+      layout(); refreshBandsLocal(); renderLinks(); view.resized?.();
     };
     const up = () => { rz.removeEventListener('pointermove', move); rz.removeEventListener('pointerup', up); patch({ w: node.w, h: node.h }, false); };
     rz.addEventListener('pointermove', move);
     rz.addEventListener('pointerup', up);
   });
   link.onclick = () => setLinkFrom(state.linkFrom === node.id ? null : node.id);
+  if (fileBtn) fileBtn.onclick = () => setStackNote(state.stackNote === node.id ? null : node.id);
   close.onclick = () => {
     if (node.kind === 'terminal' && !confirm(`Stop and remove "${node.name}"?`)) return;
+    if (node.kind === 'stack' && node.order.length) {
+      const del = confirm(`Delete stack "${node.name}" AND its ${node.order.length} note(s)?\n\nOK = delete the notes too. Cancel = keep the notes and remove only the stack.`);
+      send({ t: 'node.delete', workspaceId: wsId(), id: node.id, keepNotes: !del });
+      return;
+    }
     send({ t: 'node.delete', workspaceId: wsId(), id: node.id });
   };
   title.ondblclick = () => {
@@ -320,6 +338,7 @@ function makeView(n) {
 
   if (n.kind === 'terminal') buildTerminal(view, body, dot, () => node, baseUpdate);
   else if (n.kind === 'note') buildNote(view, body, dot, () => node, baseUpdate, (p) => patch(p, false));
+  else if (n.kind === 'stack') buildStack(view, body, dot, () => node, baseUpdate);
   else buildPortal(view, body, dot, () => node, baseUpdate, (p) => patch(p, false));
   const origDestroy = view.destroy;
   view.destroy = () => { view.cleanup?.(); origDestroy(); };
@@ -364,9 +383,18 @@ function buildTerminal(view, body, dot, getNode, baseUpdate) {
   };
   restart.onclick = () => send({ t: 'term.restart', workspaceId: wsId(), id: getNode().id });
   view.cleanup = () => { ro.disconnect(); send({ t: 'term.detach', id: getNode().id }); term.dispose(); };
+  const held = el('div', 'exited');
+  const heldText = el('div');
+  heldText.style.cssText = 'padding:0 16px;text-align:center;max-width:100%;overflow-wrap:anywhere';
+  const runIt = el('button', 'primary', 'Trust and run it');
+  held.append(heldText, runIt);
+  body.append(held);
+  runIt.onclick = () => send({ t: 'term.trust', workspaceId: wsId(), id: getNode().id });
   view.update = (next) => {
     baseUpdate(next);
     view.setStatus(state.ws.status.get(next.id) || 'idle');
+    held.classList.toggle('on', !!next.untrusted);
+    if (next.untrusted) heldText.textContent = `This terminal came from an imported file. Its command was NOT run: ${next.command}`;
   };
   // first update must run before attach so getNode().id is set
   view.attach();
@@ -495,6 +523,289 @@ function maybeSystemNotify(m) {
   if (Notification.permission === 'granted') new Notification(m.from, { body: m.message });
   else if (Notification.permission === 'default') Notification.requestPermission();
 }
+
+
+// ---------- stacks, bands ----------
+const snapV = (v) => (state.snap ? Math.round(v / 20) * 20 : v);
+const BAND_PAD = 28;
+
+/** Same rule as the server: a band's frame hugs its members. */
+function refreshBandsLocal() {
+  if (!state.ws) return;
+  for (const b of state.ws.nodes.filter((n) => n.kind === 'band')) {
+    const ms = state.ws.nodes.filter((n) => b.members.includes(n.id));
+    if (!ms.length) continue;
+    const x0 = Math.min(...ms.map((m) => m.x)), y0 = Math.min(...ms.map((m) => m.y));
+    const x1 = Math.max(...ms.map((m) => m.x + m.w)), y1 = Math.max(...ms.map((m) => m.y + m.h));
+    Object.assign(b, { x: x0 - BAND_PAD, y: y0 - BAND_PAD - 22, w: x1 - x0 + BAND_PAD * 2, h: y1 - y0 + BAND_PAD * 2 + 22 });
+    state.views.get(b.id)?.update(b);
+  }
+}
+
+function setStackNote(id) {
+  state.stackNote = id;
+  for (const [nid, v] of state.views) v.root.classList.toggle('linkable', !!id && v.node.kind === 'stack' && nid !== id);
+  const h = $('#hint');
+  h.classList.toggle('on', !!id);
+  h.textContent = id ? 'Click a stack to file this note in it — Esc to cancel' : '';
+}
+addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.stackNote) setStackNote(null); });
+
+function makeBandView(n) {
+  const root = el('div', 'band');
+  const label = el('div', 'band-label');
+  const title = el('span', 'title');
+  const link = el('button', 'ibtn', '⚭');
+  link.title = 'Connect this band: every member gets the connection';
+  const add = el('button', 'ibtn', '+');
+  add.title = 'Add an agent to this band';
+  const close = el('button', 'ibtn', '×');
+  close.title = 'Dissolve band (agents keep running)';
+  label.append(title, link, add, close);
+  root.append(label);
+  let node = n;
+  const view = {
+    root, node,
+    update(next) {
+      node = Object.assign(node, next);
+      view.node = node;
+      if (!title.firstChild || title.firstChild.nodeType === 3) title.textContent = node.name;
+      root.style.left = `${node.x}px`; root.style.top = `${node.y}px`;
+      root.style.width = `${node.w}px`; root.style.height = `${node.h}px`;
+      root.style.setProperty('--nodecolor', cssColor(node.color) || 'var(--accent)');
+    },
+    destroy() { root.remove(); },
+  };
+  link.onclick = () => setLinkFrom(state.linkFrom === node.id ? null : node.id);
+  close.onclick = () => { if (confirm(`Dissolve band "${node.name}"? Its agents keep running.`)) send({ t: 'band.dissolve', workspaceId: wsId(), id: node.id }); };
+  add.onclick = () => {
+    const free = state.ws.nodes.filter((x) => x.kind === 'terminal' && !state.ws.nodes.some((b) => b.kind === 'band' && b.members.includes(x.id)));
+    if (!free.length) { toast('Every agent is already in a band', 'band', true); return; }
+    const pick = prompt(`Add which agent?\n${free.map((x) => `- ${x.name}`).join('\n')}`);
+    const t = free.find((x) => x.name.toLowerCase() === String(pick).trim().toLowerCase());
+    if (t) send({ t: 'band.add', workspaceId: wsId(), id: node.id, terminalId: t.id });
+  };
+  title.ondblclick = () => {
+    const name = prompt('Rename band', node.name);
+    if (name && name.trim()) send({ t: 'node.patch', workspaceId: wsId(), id: node.id, patch: { name: name.trim() } });
+  };
+  label.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button')) return;
+    e.stopPropagation();
+    if (state.linkFrom && state.linkFrom !== node.id) { send({ t: 'conn.create', workspaceId: wsId(), from: state.linkFrom, to: node.id }); setLinkFrom(null); return; }
+    const members = state.ws.nodes.filter((x) => node.members.includes(x.id));
+    const start = { x: e.clientX, y: e.clientY, pos: members.map((m) => [m, m.x, m.y]) };
+    let dx = 0, dy = 0;
+    label.setPointerCapture(e.pointerId);
+    const move = (ev) => {
+      dx = Math.round((ev.clientX - start.x) / state.vp.z); dy = Math.round((ev.clientY - start.y) / state.vp.z);
+      for (const [m, x, y] of start.pos) { m.x = x + dx; m.y = y + dy; state.views.get(m.id)?.update(m); }
+      refreshBandsLocal(); renderLinks();
+    };
+    const up = () => {
+      label.removeEventListener('pointermove', move); label.removeEventListener('pointerup', up);
+      if (dx || dy) send({ t: 'band.move', workspaceId: wsId(), id: node.id, dx, dy });
+    };
+    label.addEventListener('pointermove', move);
+    label.addEventListener('pointerup', up);
+  });
+  view.update(n);
+  return view;
+}
+
+function buildStack(view, body, dot, getNode, baseUpdate) {
+  dot.style.background = 'var(--warn)';
+  const tabs = el('div', 'tabs');
+  const ta = el('textarea', 'note-text');
+  ta.spellcheck = false;
+  ta.placeholder = 'Empty stack: press + to add a note';
+  body.append(tabs, ta);
+  let shown = null;
+  let timer;
+  const flush = () => { clearTimeout(timer); if (shown) send({ t: 'note.write', workspaceId: wsId(), id: shown, text: ta.value }); };
+  const render = () => {
+    const n = getNode();
+    tabs.replaceChildren();
+    for (const id of n.order) {
+      const note = state.ws.nodes.find((x) => x.id === id);
+      if (!note) continue;
+      const tab = el('span', `tab${id === n.front ? ' on' : ''}`);
+      const label = el('button', 'tab-label', note.name);
+      label.title = 'Click to open, double-click to rename';
+      label.onclick = () => { flush(); send({ t: 'stack.front', workspaceId: wsId(), id: n.id, noteId: id }); };
+      label.ondblclick = () => { const name = prompt('Rename note', note.name); if (name && name.trim()) send({ t: 'node.patch', workspaceId: wsId(), id, patch: { name: name.trim() } }); };
+      const out = el('button', 'tabx', '↗');
+      out.title = 'Take this note out of the stack';
+      out.onclick = () => { flush(); send({ t: 'note.unstack', workspaceId: wsId(), noteId: id }); };
+      tab.append(label, out);
+      tabs.append(tab);
+    }
+    const plus = el('button', 'tab add', '+');
+    plus.title = 'New note in this stack';
+    plus.onclick = () => send({ t: 'stack.addNote', workspaceId: wsId(), stackId: n.id });
+    tabs.append(plus);
+    ta.disabled = !n.front;
+    if (shown !== n.front) { flush(); shown = n.front; ta.value = n.front ? (state.ws.notes.get(n.front) ?? '') : ''; }
+  };
+  ta.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(flush, 300); });
+  ta.addEventListener('blur', flush);
+  view.setNote = (text, id) => { if (id === shown && document.activeElement !== ta && ta.value !== text) ta.value = text; };
+  view.update = (next) => { baseUpdate(next); render(); };
+  view.cleanup = () => clearTimeout(timer);
+}
+
+// ---------- undo, redo, tidy, snap ----------
+function syncHistoryButtons() {
+  $('#undo').disabled = !state.ws?.history?.canUndo;
+  $('#redo').disabled = !state.ws?.history?.canRedo;
+  $('#snap').classList.toggle('on', state.snap);
+}
+$('#undo').onclick = () => send({ t: 'undo', workspaceId: wsId() });
+$('#redo').onclick = () => send({ t: 'redo', workspaceId: wsId() });
+$('#tidy').onclick = () => { send({ t: 'tidy', workspaceId: wsId() }); setTimeout(() => $('#fit').click(), 250); };
+$('#snap').onclick = () => { state.snap = !state.snap; try { localStorage.setItem('om.snap', state.snap ? '1' : '0'); } catch { /* storage unavailable */ } syncHistoryButtons(); toast(state.snap ? 'Snap to grid on' : 'Snap to grid off', 'canvas'); };
+addEventListener('keydown', (e) => {
+  const typing = e.target.closest?.('input, textarea, select, .xterm');
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openPalette(); return; }
+  if (typing || !(e.ctrlKey || e.metaKey)) return;
+  if (e.key.toLowerCase() === 'z') { e.preventDefault(); send({ t: e.shiftKey ? 'redo' : 'undo', workspaceId: wsId() }); }
+  else if (e.key.toLowerCase() === 'y') { e.preventDefault(); send({ t: 'redo', workspaceId: wsId() }); }
+});
+
+// ---------- bands and stacks from the toolbar ----------
+$('#add-stack').onclick = () => send({ t: 'node.create', workspaceId: wsId(), kind: 'stack', props: nudge({ name: 'Stack' }, 360, 300) });
+const dlgBand = $('#dlg-band');
+$('#add-band').onclick = () => {
+  const free = state.ws.nodes.filter((x) => x.kind === 'terminal' && !state.ws.nodes.some((b) => b.kind === 'band' && b.members.includes(x.id)));
+  if (!free.length) { toast('There are no agents free to group', 'band', true); return; }
+  const list = $('#band-members');
+  list.replaceChildren(...free.map((x) => { const l = el('label', 'chk'); const c = el('input'); c.type = 'checkbox'; c.value = x.id; l.append(c, document.createTextNode(` ${x.name}`)); return l; }));
+  $('input[name=name]', dlgBand).value = '';
+  dlgBand.showModal();
+};
+$('#form-band').onsubmit = (e) => {
+  const f = new FormData(e.target);
+  const members = [...$('#band-members').querySelectorAll('input:checked')].map((c) => c.value);
+  if (!members.length) { e.preventDefault(); toast('Pick at least one agent', 'band', true); return; }
+  send({ t: 'band.create', workspaceId: wsId(), name: f.get('name') || 'Band', members });
+};
+
+// ---------- export / import ----------
+const fileInput = $('#import-file');
+$('#ws-import').onclick = () => fileInput.click();
+fileInput.onchange = async () => {
+  const file = fileInput.files[0];
+  fileInput.value = '';
+  if (!file) return;
+  if (file.size > 20 * 1024 * 1024) { toast('That file is too large to be a workspace', 'import', true); return; }
+  let bundle;
+  try { bundle = JSON.parse(await file.text()); } catch { toast('That is not valid JSON', 'import', true); return; }
+  const cmds = (Array.isArray(bundle?.nodes) ? bundle.nodes : []).filter((n) => n?.kind === 'terminal' && n.command);
+  const msg = `Import "${String(bundle?.workspace?.name ?? file.name).slice(0, 60)}"?\n\n${Array.isArray(bundle?.nodes) ? bundle.nodes.length : 0} nodes.` + (cmds.length ? `\n\n${cmds.length} terminal(s) carry a startup command. They will NOT run until you trust each one.` : '');
+  if (confirm(msg)) send({ t: 'workspace.import', bundle, dir: state.ws?.dir });
+};
+
+// ---------- layouts (partituras) ----------
+function saveLayout() {
+  const name = prompt('Name for this layout (saves everything on this canvas, with wiring)');
+  if (name && name.trim()) send({ t: 'partitura.save', workspaceId: wsId(), name: name.trim() });
+}
+$('#layouts').onclick = () => openPalette('layout');
+
+// ---------- command palette ----------
+const dlgPal = $('#palette');
+const palInput = $('#pal-input');
+const palList = $('#pal-list');
+let palItems = [];
+let palSel = 0;
+
+function fuzzy(query, text) {
+  if (!query) return 1;
+  const q = query.toLowerCase(), t = text.toLowerCase();
+  const at = t.indexOf(q);
+  if (at >= 0) return 1000 - at;
+  let qi = 0, score = 0, last = -2;
+  for (let i = 0; i < t.length && qi < q.length; i++) {
+    if (t[i] === q[qi]) { score += i === last + 1 ? 8 : 2; last = i; qi++; }
+  }
+  return qi === q.length ? score : 0;
+}
+
+function focusNode(n) {
+  const z = state.vp.z;
+  state.vp.x = canvas.clientWidth / 2 - (n.x + n.w / 2) * z;
+  state.vp.y = canvas.clientHeight / 2 - (n.y + n.h / 2) * z;
+  applyViewport(); saveViewport(); select(n.id);
+}
+
+function buildPaletteItems() {
+  const items = [];
+  const add = (label, hint, run) => items.push({ label, hint, run });
+  add('New terminal', 'canvas', () => $('#add-term').click());
+  add('New note', 'canvas', () => $('#add-note').click());
+  add('New portal', 'canvas', () => $('#add-portal').click());
+  add('New stack', 'canvas', () => $('#add-stack').click());
+  add('New band (group agents)', 'canvas', () => $('#add-band').click());
+  add('Undo', 'edit', () => $('#undo').click());
+  add('Redo', 'edit', () => $('#redo').click());
+  add('Tidy: auto-arrange the canvas', 'layout', () => $('#tidy').click());
+  add('Fit everything in view', 'view', () => $('#fit').click());
+  add(`Snap to grid: ${state.snap ? 'turn off' : 'turn on'}`, 'view', () => $('#snap').click());
+  add('Save this canvas as a layout', 'layout', saveLayout);
+  add('Export this workspace to a file', 'workspace', () => { location.href = `/export/${wsId()}.json`; });
+  add('Import a workspace from a file', 'workspace', () => $('#ws-import').click());
+  add('New workspace', 'workspace', () => $('#ws-add').click());
+  for (const w of state.summary.workspaces) if (w.id !== wsId()) add(`Switch to workspace: ${w.name}`, 'workspace', () => send({ t: 'workspace.select', id: w.id }));
+  for (const p of state.summary.partituras ?? []) {
+    if (p.scope !== null && p.scope !== wsId()) continue;
+    add(`Insert layout: ${p.name}`, `layout · ${p.nodes} items`, () => send({ t: 'partitura.insert', workspaceId: wsId(), id: p.id }));
+    add(`Delete layout: ${p.name}`, 'layout', () => { if (confirm(`Delete layout "${p.name}"?`)) send({ t: 'partitura.delete', id: p.id }); });
+  }
+  for (const n of state.ws?.nodes ?? []) {
+    if (n.kind === 'band' || n.stackId) continue;
+    add(`Go to: ${n.name}`, n.kind, () => focusNode(n));
+  }
+  for (const b of (state.ws?.nodes ?? []).filter((x) => x.kind === 'band')) {
+    for (const mid of b.members) {
+      const m = state.ws.nodes.find((x) => x.id === mid);
+      if (m) add(`Remove ${m.name} from band ${b.name}`, 'band', () => send({ t: 'band.remove', workspaceId: wsId(), id: b.id, terminalId: mid }));
+    }
+  }
+  return items;
+}
+
+function renderPalette() {
+  const q = palInput.value.trim();
+  const ranked = palItems.map((i) => ({ i, s: fuzzy(q, i.label) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s).slice(0, 12);
+  palList.replaceChildren();
+  palSel = Math.min(palSel, Math.max(0, ranked.length - 1));
+  ranked.forEach(({ i }, idx) => {
+    const li = el('li', idx === palSel ? 'on' : '');
+    li.append(el('span', 'pl', i.label), el('span', 'ph', i.hint));
+    li.onclick = () => { dlgPal.close(); i.run(); };
+    li.onmousemove = () => { if (palSel !== idx) { palSel = idx; renderPalette(); } };
+    palList.append(li);
+  });
+  palList.dataset.count = String(ranked.length);
+  palList._ranked = ranked;
+}
+function openPalette(prefill = '') {
+  if (!state.ws) return;
+  palItems = buildPaletteItems();
+  palInput.value = prefill;
+  palSel = 0;
+  renderPalette();
+  if (!dlgPal.open) dlgPal.showModal();
+  palInput.focus();
+}
+palInput.addEventListener('input', () => { palSel = 0; renderPalette(); });
+palInput.addEventListener('keydown', (e) => {
+  const n = palList._ranked?.length ?? 0;
+  if (e.key === 'ArrowDown') { e.preventDefault(); palSel = (palSel + 1) % Math.max(1, n); renderPalette(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); palSel = (palSel - 1 + n) % Math.max(1, n); renderPalette(); }
+  else if (e.key === 'Enter') { e.preventDefault(); const pick = palList._ranked?.[palSel]; if (pick) { dlgPal.close(); pick.i.run(); } }
+});
+$('#palette-btn').onclick = () => openPalette();
 
 // test hook (read-only view of state)
 window.__om = { state };
