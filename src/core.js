@@ -7,6 +7,7 @@ import { Store, dataDir } from './store.js';
 import { GUIDE } from './prompts.js';
 import { Terminals } from './terminals.js';
 import { Chat, ChatError, THREAD_IDS, threadId, cleanText } from './chat.js';
+import { materialize as materializeMentions, parse as parseMentions, fileIndex, rank } from './prompter.js';
 import { Portals, PortalError, checkUrl } from './portals.js';
 import { History } from './history.js';
 import { tidy as tidyLayout } from './layout.js';
@@ -891,6 +892,16 @@ const HANDLERS = {
     return { text: out.length ? out.map(fmt).join('\n') : '(nothing remembered in that range)' };
   },
 
+  'prompt.parse'(ws, me, { text }) {
+    const blocks = parseMentions(text);
+    return { text: blocks.map((b) => (b.type === 'text' ? JSON.stringify(b.text) : `${b.kind} ${JSON.stringify(b.ref)}`)).join('\n') || '(empty)', data: blocks };
+  },
+  'prompt.materialize'(ws, me, { text }) {
+    const r = materializeMentions(String(text ?? ''), this.prompterCtx(ws, me));
+    const notes = r.mentions.filter((m) => !m.ok).map((m) => `# not included: @${m.kind}:${m.ref} (${m.reason})`);
+    return { text: [r.text, ...notes].join('\n'), data: r.mentions };
+  },
+
   debug(ws, me) {
     const rt = this.terminals.get(me.id);
     return {
@@ -1103,15 +1114,45 @@ Core.prototype.chatSend = function (ws, { thread, text }) {
   const tid = threadId(thread) ?? this.chat.active(ws.id);
   const clean = cleanText(text, 8000).trim();
   if (!clean) throw new ChatError('write something first');
+  const expanded = materializeMentions(clean, this.prompterCtx(ws));
   this.startTerminal(ws, maestro);
+  // If the agent has exited, this terminal is now a plain shell and would run the message as commands
+  if (!this.terminals.agentRunning(maestro.id)) throw new ChatError(`${maestro.name} is not running an agent right now (its terminal is a plain shell, which would execute your message). Restart it, or use a preset such as "Maestro (OpenCode + DeepSeek)"`);
   const msg = this.chat.append(ws.id, tid, { role: 'human', sender: 'You', text: clean });
   this.ackAttention(ws);
   const title = this.chat.list(ws.id).find((t) => t.id === tid)?.title ?? tid;
-  const line = `[openmaestri chat, ${title}] ${clean}\n(Answer the human with: openmaestri say "your answer". For long work, send short updates with: openmaestri say --progress "...")`;
+  const line = `[openmaestri chat, ${title}] ${cleanText(expanded.text, 140000)}\n(Answer the human with: openmaestri say "your answer". For long work, send short updates with: openmaestri say --progress "...")`;
   this.terminals.deliver(maestro.id, line);
+  msg.mentions = expanded.mentions;
   return msg;
 };
 Core.prototype.chatInterrupt = function (ws) {
   const maestro = this.chatMaestro(ws);
   if (maestro) this.terminals.write(maestro.id, '\x03');
+};
+
+/** What a mention may resolve to. A Maestro or the human sees the workspace; any other agent only what is cabled to it. */
+Core.prototype.prompterCtx = function (ws, me = null) {
+  const visible = !me || me.maestro ? ws.nodes : [me, ...this.store.neighbors(ws, me.id)];
+  return {
+    roots: this.chatRoots(ws.id),
+    notes: () => visible.filter((n) => n.kind === 'note').map((n) => ({ name: n.name, text: this.store.readNote(ws.id, n.id) })),
+    agents: () => visible.filter((n) => n.kind === 'terminal').map((n) => ({ name: n.name, status: this.terminals.status(n.id) })),
+  };
+};
+/** File list for the @file picker, cached briefly so typing does not rescan the disk. */
+Core.prototype.workspaceFiles = async function (ws, signal) {
+  const hit = this.fileCache?.get(ws.id);
+  if (hit && Date.now() - hit.at < 20000) return hit.files;
+  const { files, aborted } = await fileIndex(ws.dir, { signal });
+  if (!aborted) { (this.fileCache ??= new Map()).set(ws.id, { at: Date.now(), files }); }
+  return files;
+};
+Core.prototype.mentionTargets = async function (ws, query, signal) {
+  const q = String(query ?? '');
+  const ctx = this.prompterCtx(ws);
+  const agents = rank(ctx.agents(), q, (a) => a.name, 8).map((a) => ({ kind: 'agent', ref: a.name, name: a.name, detail: a.status }));
+  const notes = rank(ctx.notes(), q, (n) => n.name, 8).map((n) => ({ kind: 'note', ref: n.name, name: n.name, detail: 'note' }));
+  const files = rank(await this.workspaceFiles(ws, signal), q, (f) => f, 14).map((f) => ({ kind: 'file', ref: f, name: path.basename(f), detail: path.dirname(f) === '.' ? '' : path.dirname(f) }));
+  return [...agents, ...notes, ...files];
 };

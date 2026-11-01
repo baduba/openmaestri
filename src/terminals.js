@@ -12,6 +12,11 @@ const require = createRequire(import.meta.url);
 const { Terminal } = require('@xterm/headless');
 const { SerializeAddon } = require('@xterm/addon-serialize');
 
+// Printed when the agent command ends, just before the fallback shell starts. The terminal
+// recognises it so that chat messages are never typed into a plain shell.
+const AGENT_EXIT_PRINTF = '\\033]777;openmaestri;agent-exit\\007';
+const AGENT_EXIT_MARK = '\x1b]777;openmaestri;agent-exit\x07';
+
 const DEFAULT_COLS = 100;
 const DEFAULT_ROWS = 30;
 const SCROLLBACK = 5000;
@@ -60,6 +65,8 @@ class Runtime {
     this.bytes = 0;
     this.status = 'running';
     this.exitCode = null;
+    this.agentExited = false;
+    this.tail = '';
   }
 }
 
@@ -74,6 +81,12 @@ export class Terminals extends EventEmitter {
   }
 
   has(id) { return this.rt.has(id); }
+
+  /** True while the terminal's agent command is the foreground program (not the fallback shell). */
+  agentRunning(id) {
+    const rt = this.rt.get(id);
+    return !!rt && rt.status === 'running' && !rt.agentExited && !!rt.node.command && !rt.node.untrusted;
+  }
   get(id) { return this.rt.get(id); }
 
   ensure(node, workspace) {
@@ -108,7 +121,7 @@ export class Terminals extends EventEmitter {
     // a command that arrived through an imported file stays unrun until the user trusts it
     const command = node.untrusted ? '' : node.command;
     const args = command
-      ? ['-i', '-c', `${command}\nexec ${shellQuote(shell)} -i`]
+      ? ['-i', '-c', `${command}\nprintf '${AGENT_EXIT_PRINTF}'\nexec ${shellQuote(shell)} -i`]
       : ['-i'];
     const proc = pty.spawn(shell, args, { name: 'xterm-256color', cols: DEFAULT_COLS, rows: DEFAULT_ROWS, cwd, env });
     const term = new Terminal({ cols: DEFAULT_COLS, rows: DEFAULT_ROWS, scrollback: SCROLLBACK, allowProposedApi: true });
@@ -118,6 +131,10 @@ export class Terminals extends EventEmitter {
     this.rt.set(node.id, rt);
 
     proc.onData((data) => {
+      if (!rt.agentExited) {
+        rt.tail = (rt.tail + data).slice(-80);
+        if (rt.tail.includes(AGENT_EXIT_MARK)) rt.agentExited = true;
+      }
       rt.lastDataAt = Date.now();
       rt.bytes += data.length;
       term.write(data);

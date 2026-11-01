@@ -14,6 +14,7 @@ import { dataDir, atomicWrite, safeId } from './store.js';
 import { startIpc, defaultSocketPath, ipcAlive } from './ipc.js';
 import { MAESTRO_BOOTSTRAP } from './prompts.js';
 import { threadId } from './chat.js';
+import { materialize as materializeMentions } from './prompter.js';
 import { exportWorkspace, importWorkspace, capturePartitura } from './transfer.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -361,7 +362,28 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
         send(ws, { t: 'chat.history', threadId: tid, messages: core.chat.history(w.id, tid, { turns: m.turns ?? 100, before: m.before }), progress: core.chat.pendingProgress(w.id, tid), chat: core.chatState(w) });
         break;
       }
-      case 'chat.send': { const w = wsOf(); core.chatSend(w, { thread: m.threadId, text: m.text }); break; }
+      case 'chat.send': {
+        const w = wsOf();
+        const sent = core.chatSend(w, { thread: m.threadId, text: m.text });
+        const bad = sent.mentions.filter((x) => !x.ok);
+        if (bad.length) send(ws, { t: 'toast', from: 'prompter', message: `Not included: ${bad.map((x) => `@${x.kind}:${x.ref} (${x.reason})`).join('; ')}` });
+        break;
+      }
+      case 'prompter.mentions': {
+        const w = wsOf();
+        ws.mentionAbort?.abort();
+        const ctl = new AbortController();
+        ws.mentionAbort = ctl;
+        const items = await core.mentionTargets(w, m.query, ctl.signal);
+        if (!ctl.signal.aborted) send(ws, { t: 'prompter.mentions', requestId: m.requestId, items });
+        break;
+      }
+      case 'prompter.preview': {
+        const w = wsOf();
+        const r = materializeMentions(String(m.text ?? '').slice(0, 8000), core.prompterCtx(w));
+        send(ws, { t: 'prompter.preview', requestId: m.requestId, text: r.text.slice(0, 200000), mentions: r.mentions });
+        break;
+      }
       case 'chat.switch': { const w = wsOf(); core.chat.setActive(w.id, m.threadId); core.chat.markRead(w.id, m.threadId); break; }
       case 'chat.rename': { const w = wsOf(); core.chat.rename(w.id, m.threadId, m.title); break; }
       case 'chat.clear': { const w = wsOf(); core.chat.clear(w.id, m.threadId); break; }

@@ -45,7 +45,8 @@ export const cleanName = (s) => (path.basename(String(s)).replace(/[^A-Za-z0-9._
 
 /** Open once, then stat and read through the same descriptor, so the file cannot change in between. */
 function readRegularFile(file, maxBytes, tooBig) {
-  const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+  // O_NONBLOCK: opening a FIFO must not hang the daemon; it is then refused as not a regular file
+  const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0));
   try {
     const st = fs.fstatSync(fd);
     if (!st.isFile()) fail('an attachment must be a regular file');
@@ -67,10 +68,11 @@ export function threadId(input) {
 
 export class Chat extends EventEmitter {
   /** @param {{store: import('./store.js').Store, allowedRoots: (wsId: string) => string[]}} deps */
-  constructor({ store, allowedRoots }) {
+  constructor({ store, allowedRoots, vaultLimit = 100 * 1024 * 1024 }) {
     super();
     this.store = store;
     this.allowedRoots = allowedRoots;
+    this.vaultLimit = vaultLimit;
     this.progress = new Map(); // `${wsId}/${thread}/${sender}` -> latest progress message (never persisted)
   }
 
@@ -146,7 +148,9 @@ export class Chat extends EventEmitter {
     }
     this.progress.delete(key);
     fs.mkdirSync(path.dirname(this.threadFile(wsId, thread)), { recursive: true, mode: 0o700 });
-    fs.appendFileSync(this.threadFile(wsId, thread), `${JSON.stringify(full)}\n`, { mode: 0o600 });
+    // fsync so an answer the human has seen is not lost if the machine dies a second later
+    const fd = fs.openSync(this.threadFile(wsId, thread), 'a', 0o600);
+    try { fs.writeSync(fd, `${JSON.stringify(full)}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
     this.trimIfLarge(wsId, thread);
     const m = this.meta(wsId);
     const t = m.threads.find((x) => x.id === thread);
@@ -249,9 +253,11 @@ export class Chat extends EventEmitter {
     const sha = crypto.createHash('sha256').update(data).digest('hex');
     const id = `att_${sha.slice(0, 16)}`;
     const dest = path.join(this.dir(wsId), 'vault', sha, name);
+    const index = this.readVault(wsId);
+    const used = new Map(Object.values(index).map((r) => [r.sha, r.size]));
+    if (!used.has(sha) && [...used.values()].reduce((a, b) => a + b, 0) + data.length > this.vaultLimit) fail(`this workspace's attachment vault is full (${Math.round(this.vaultLimit / 1024 / 1024)} MB). Clear a thread to free space`);
     fs.mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 });
     try { fs.writeFileSync(dest, data, { mode: 0o600, flag: 'wx' }); } catch (e) { if (e.code !== 'EEXIST') throw e; }
-    const index = this.readVault(wsId);
     const mime = MIME[path.extname(name).toLowerCase()] ?? 'application/octet-stream';
     index[id] = { id, sha, name, size: data.length, mime };
     atomicWrite(this.vaultIndexFile(wsId), JSON.stringify(index));

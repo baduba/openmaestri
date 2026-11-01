@@ -48,6 +48,7 @@ Usage:
   openmaestri recruit ... [--floor F]   (place the teammate on another floor; "Ground" for the ground floor)
   openmaestri say "text" [--file PATH] [--attach PATH]... [--progress] [--thread N]   Answer the human in the chat (what a Maestro does)
   openmaestri recall [thread] [--turns N | --last day|week|month | --from DATE [--to DATE] | --all] [--json] | recall list | recall attachment <id>
+  openmaestri prompt parse|materialize "text with @agent:Name @note:Name @file:path"   Expand mentions (files up to 32 KB, workspace only)
   openmaestri guide                                  How agents should use openmaestri (give this to your agent)
   openmaestri debug
 Global flags: --json (machine-readable output)`;
@@ -231,6 +232,11 @@ export function build({ pos, flags }) {
       if (c1 === 'list') return { cmd: 'recall', args: { list: true } };
       if (c1 === 'attachment') { need(rest[0], 'recall attachment <id>'); return { cmd: 'recall', args: { attachment: rest[0] } }; }
       return { cmd: 'recall', args: { ...base, thread: c1 } };
+    }
+    case 'prompt': {
+      need(c1 === 'parse' || c1 === 'materialize', 'prompt parse|materialize "text with @agent:Name @note:Name @file:path"');
+      need(rest.length, `prompt ${c1} "text"`);
+      return { cmd: `prompt.${c1}`, args: { text: rest.join(' ') } };
     }
     case 'guide': return { cmd: 'guide', args: {} };
     case 'debug': return { cmd: 'debug', args: {} };

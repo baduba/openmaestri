@@ -67,7 +67,7 @@ function onMessage(m) {
     case 'notify': toast(m.message, m.from); maybeSystemNotify(m); break;
     case 'error': toast(m.message, 'error', true); break;
     case 'toast': toast(m.message, m.from); break;
-    case 'chat.history': case 'chat.message': case 'chat.progress': case 'chat.state': case 'chat.search': chatUi.handle(m); break;
+    case 'chat.history': case 'chat.message': case 'chat.progress': case 'chat.state': case 'chat.search': case 'prompter.mentions': case 'prompter.preview': chatUi.handle(m); break;
     case 'portal.frame': state.views.get(m.id)?.frame?.(m); break;
     case 'portal.nav': state.views.get(m.id)?.nav?.(m); break;
     case 'portal.error': state.views.get(m.id)?.portalError?.(m.message); break;
