@@ -47,14 +47,14 @@ function onMessage(m) {
       break;
     case 'note': {
       if (m.workspaceId !== wsId()) break;
-      state.ws.notes[m.id] = m.text;
+      state.ws.notes.set(m.id, m.text);
       state.views.get(m.id)?.setNote?.(m.text);
       break;
     }
     case 'term.snapshot': state.views.get(m.id)?.snapshot?.(m.data); break;
     case 'term.out': state.views.get(m.id)?.write?.(m.data); break;
     case 'term.status': {
-      if (state.ws && m.status) state.ws.status[m.id] = m.status;
+      if (state.ws && m.status) state.ws.status.set(m.id, m.status);
       state.views.get(m.id)?.setStatus?.(m.status);
       break;
     }
@@ -65,6 +65,9 @@ function onMessage(m) {
 
 // ---------- workspace ----------
 function applyWorkspace(ws, switching) {
+  // keyed by ids that arrive over the wire, so Maps (no prototype keys to poison)
+  ws.notes = new Map(Object.entries(ws.notes || {}));
+  ws.status = new Map(Object.entries(ws.status || {}));
   state.ws = ws;
   if (switching) {
     for (const v of state.views.values()) v.destroy();
@@ -363,7 +366,7 @@ function buildTerminal(view, body, dot, getNode, baseUpdate) {
   view.cleanup = () => { ro.disconnect(); send({ t: 'term.detach', id: getNode().id }); term.dispose(); };
   view.update = (next) => {
     baseUpdate(next);
-    view.setStatus(state.ws.status[next.id] || 'idle');
+    view.setStatus(state.ws.status.get(next.id) || 'idle');
   };
   // first update must run before attach so getNode().id is set
   view.attach();
@@ -382,7 +385,7 @@ function buildNote(view, body, dot, getNode, baseUpdate, patch) {
   });
   ta.addEventListener('blur', () => { clearTimeout(timer); send({ t: 'note.write', workspaceId: wsId(), id: getNode().id, text: ta.value }); });
   view.setNote = (text) => { if (document.activeElement !== ta && ta.value !== text) ta.value = text; };
-  view.update = (next) => { baseUpdate(next); view.setNote(state.ws.notes[next.id] ?? ''); };
+  view.update = (next) => { baseUpdate(next); view.setNote(state.ws.notes.get(next.id) ?? ''); };
   view.cleanup = () => clearTimeout(timer);
   void patch;
 }

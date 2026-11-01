@@ -23,10 +23,13 @@ const SCROLLBACK = 5000;
 export function readUserEnv(file) {
   const out = {};
   let text;
+  let fd;
   try {
-    if (fs.statSync(file).mode & 0o077) console.warn(`[env] ${file} is readable by other users; run: chmod 600 ${file}`);
-    text = fs.readFileSync(file, 'utf8');
-  } catch { return out; }
+    // stat and read through one descriptor so the file cannot be swapped between the check and the read
+    fd = fs.openSync(file, 'r');
+    if (fs.fstatSync(fd).mode & 0o077) console.warn(`[env] ${file} is readable by other users; run: chmod 600 ${file}`);
+    text = fs.readFileSync(fd, 'utf8');
+  } catch { return out; } finally { if (fd !== undefined) fs.closeSync(fd); }
   for (const raw of text.split('\n')) {
     const line = raw.trim();
     if (!line || line.startsWith('#')) continue;

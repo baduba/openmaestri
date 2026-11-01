@@ -1,0 +1,4 @@
+name: openmaestri CodeQL config
+# Tests read the generated UI token and send it over loopback HTTP on purpose; that is not a product data flow.
+paths-ignore:
+  - test

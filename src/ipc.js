@@ -63,7 +63,7 @@ export function startIpc(core, socketPath) {
       const r = await core.command(ctx, String(cmd), args && typeof args === 'object' ? args : {});
       reply(sock, { id, ok: true, text: r.text ?? '', data: r.data });
     } catch (e) {
-      if (!(e instanceof CommandError)) console.error('[ipc]', cmd, e);
+      if (!(e instanceof CommandError)) console.error('[ipc] command failed:', JSON.stringify(String(cmd).slice(0, 64)), e);
       reply(sock, { id, ok: false, error: e instanceof CommandError ? e.message : 'internal error (see the daemon log)' });
     }
   }
