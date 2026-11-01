@@ -43,6 +43,19 @@ export function cleanText(s, max = MAX_TEXT) {
 }
 export const cleanName = (s) => (path.basename(String(s)).replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^\.+/, '').slice(0, 100) || 'file');
 
+/** Open once, then stat and read through the same descriptor, so the file cannot change in between. */
+function readRegularFile(file, maxBytes, tooBig) {
+  const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+  try {
+    const st = fs.fstatSync(fd);
+    if (!st.isFile()) fail('an attachment must be a regular file');
+    if (st.size > maxBytes) fail(tooBig);
+    return fs.readFileSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 export function isThreadId(id) { return THREAD_IDS.includes(id); }
 export function threadId(input) {
   if (input === undefined || input === null || input === '') return null;
@@ -149,8 +162,11 @@ export class Chat extends EventEmitter {
   /** Keep the file bounded: past 8 MB only the newest lines stay. */
   trimIfLarge(wsId, tid) {
     const file = this.threadFile(wsId, tid);
-    if (fs.statSync(file).size < MAX_FILE_BYTES) return;
-    const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
+    const fd = fs.openSync(file, fs.constants.O_RDONLY);
+    let raw = null;
+    try { if (fs.fstatSync(fd).size >= MAX_FILE_BYTES) raw = fs.readFileSync(fd, 'utf8'); } finally { fs.closeSync(fd); }
+    if (raw === null) return;
+    const lines = raw.split('\n').filter(Boolean);
     atomicWrite(file, `${lines.slice(-KEEP_LINES).join('\n')}\n`);
   }
 
@@ -223,19 +239,18 @@ export class Chat extends EventEmitter {
     try { real = fs.realpathSync(path.resolve(String(sourcePath))); } catch { return fail(`no such file: ${sourcePath}`); }
     const roots = this.allowedRoots(wsId);
     if (!roots.some((r) => real === r || real.startsWith(r + path.sep))) fail('attachments must come from inside the workspace or one of its floors');
-    const st = fs.statSync(real);
-    if (!st.isFile()) fail('an attachment must be a regular file');
-    if (st.size > MAX_ATTACHMENT) fail(`attachments are limited to ${MAX_ATTACHMENT / 1024 / 1024} MB`);
     const name = cleanName(originalName ?? path.basename(real));
     if (looksSecret(name) || looksSecret(real)) fail('that file looks like it holds secrets and cannot be attached');
-    const data = fs.readFileSync(real);
+    let data;
+    try { data = readRegularFile(real, MAX_ATTACHMENT, `attachments are limited to ${MAX_ATTACHMENT / 1024 / 1024} MB`); } catch (e) {
+      if (e instanceof ChatError) throw e;
+      return fail(`cannot read ${sourcePath}`);
+    }
     const sha = crypto.createHash('sha256').update(data).digest('hex');
     const id = `att_${sha.slice(0, 16)}`;
     const dest = path.join(this.dir(wsId), 'vault', sha, name);
-    if (!fs.existsSync(dest)) {
-      fs.mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 });
-      fs.writeFileSync(dest, data, { mode: 0o600 });
-    }
+    fs.mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 });
+    try { fs.writeFileSync(dest, data, { mode: 0o600, flag: 'wx' }); } catch (e) { if (e.code !== 'EEXIST') throw e; }
     const index = this.readVault(wsId);
     const mime = MIME[path.extname(name).toLowerCase()] ?? 'application/octet-stream';
     index[id] = { id, sha, name, size: data.length, mime };
