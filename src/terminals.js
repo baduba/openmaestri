@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 import pty from 'node-pty';
+import { refName } from './secrets.js';
 
 const require = createRequire(import.meta.url);
 const { Terminal } = require('@xterm/headless');
@@ -56,7 +57,7 @@ const SCROLLBACK = 5000;
  * KEY=VALUE lines from <data dir>/env (keep it chmod 600). This is where API keys such as
  * DEEPSEEK_API_KEY live, so they never end up in workspace.json or in a repository.
  */
-export function readUserEnv(file) {
+export function readUserEnv(file, resolve) {
   const out = {};
   let text;
   let fd;
@@ -73,6 +74,12 @@ export function readUserEnv(file) {
     if (!m) continue;
     let v = m[2].trim();
     if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+    if (refName(v)) {
+      // a reference to a stored secret; without the secret the variable is left out, never set to the reference text
+      const secret = resolve?.(v);
+      if (typeof secret !== 'string') { console.warn(`[env] ${m[1]} points to ${v}, which is not stored; run: openmaestri secrets set ${refName(v)}`); continue; }
+      v = secret;
+    }
     out[m[1]] = v;
   }
   return out;
@@ -136,7 +143,7 @@ export class Terminals extends EventEmitter {
     for (const k of Object.keys(env)) {
       if (k.startsWith('OPENMAESTRI_') || k.startsWith('ELECTRON_')) delete env[k];
     }
-    Object.assign(env, readUserEnv(this.env.envFile));
+    Object.assign(env, readUserEnv(this.env.envFile, this.env.resolveSecret));
     Object.assign(env, {
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',

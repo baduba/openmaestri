@@ -4,6 +4,16 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-01
+
+### Added
+- `openmaestri secrets set|list|status|rm`: named API keys in the desktop keyring (`secret-tool`) or a 0600 file; the env file can say `ANTHROPIC_API_KEY=secret://anthropic`; works for any agent, not only DeepSeek (docs/secrets.md)
+- `doctor` reports the secret store and whether a `secret://` key resolves
+
+### Security
+- The `secrets` command refuses to run inside an agent terminal; values are read from stdin or a hidden prompt, never from an argument, and are never printed
+- A `secret://` reference that cannot be resolved leaves the variable out instead of passing the reference text on
+
 ### Fixed
 - Human input into a portal is applied one event at a time, in arrival order (concurrent handlers could reorder keys)
 - The portal UI test waits for typed keys to land instead of reading the field at once (it failed about one run in three)
