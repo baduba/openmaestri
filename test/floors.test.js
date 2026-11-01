@@ -7,6 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { main } from '../src/server.js';
 
+// the daemon under test runs git too (merges need an identity), and CI machines have none
+Object.assign(process.env, { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' });
 const sh = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } }).trim();
 const rpc = (sock, id, cmd, args = {}) => new Promise((resolve, reject) => {
   const c = net.createConnection(sock);
@@ -190,4 +192,31 @@ test('non-maestro agents cannot manage floors', async (t) => {
   const r = await rpc(app.socketPath, worker.id, 'floor.create', { name: 'Sneaky' });
   assert.equal(r.ok, false);
   assert.match(r.error, /Maestro/);
+});
+
+test('landing explains a missing git identity instead of dumping git output', async (t) => {
+  const { ws, call } = await boot(t);
+  await call('floor.create', { name: 'Id' });
+  const floor = ws.floors[0];
+  fs.writeFileSync(path.join(floor.dir, 'x.txt'), 'x');
+  sh(floor.dir, 'add', '.');
+  sh(floor.dir, 'commit', '-qm', 'x');
+  const saved = {};
+  const keys = ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL'];
+  for (const k of keys) { saved[k] = process.env[k]; delete process.env[k]; }
+  const prev = { HOME: process.env.HOME, XDG: process.env.XDG_CONFIG_HOME, SYS: process.env.GIT_CONFIG_NOSYSTEM, GLOBAL: process.env.GIT_CONFIG_GLOBAL };
+  process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'om-nohome-'));
+  process.env.XDG_CONFIG_HOME = path.join(process.env.HOME, '.config');
+  process.env.GIT_CONFIG_NOSYSTEM = '1';
+  process.env.GIT_CONFIG_GLOBAL = '/dev/null';
+  // git also guesses an identity from the host name; forbid that so the check is deterministic
+  const r = await call('floor.land', { name: 'Id' }).finally(() => {
+    Object.assign(process.env, saved);
+    process.env.HOME = prev.HOME;
+    if (prev.XDG === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = prev.XDG;
+    if (prev.SYS === undefined) delete process.env.GIT_CONFIG_NOSYSTEM; else process.env.GIT_CONFIG_NOSYSTEM = prev.SYS;
+    if (prev.GLOBAL === undefined) delete process.env.GIT_CONFIG_GLOBAL; else process.env.GIT_CONFIG_GLOBAL = prev.GLOBAL;
+  });
+  // On hosts where git can still derive an identity this passes through; where it cannot, the message must be friendly.
+  if (!r.ok) assert.match(r.error, /no name and email configured|uncommitted|conflict/);
 });

@@ -13,14 +13,15 @@ import { promisify } from 'node:util';
 import { uid } from './store.js';
 
 const run = promisify(execFile);
-const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C' };
+// read at call time so an identity exported later (or in tests) is honoured
+const gitEnv = () => ({ ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C' });
 
 export class FloorError extends Error {}
 const fail = (m) => { throw new FloorError(m); };
 
 export async function git(cwd, args, { timeout = 60000 } = {}) {
   try {
-    const { stdout } = await run('git', args, { cwd, env: GIT_ENV, timeout, maxBuffer: 8 << 20 });
+    const { stdout } = await run('git', args, { cwd, env: gitEnv(), timeout, maxBuffer: 8 << 20 });
     return stdout.trim();
   } catch (e) {
     const text = String(e.stderr || e.stdout || e.message).trim().split('\n').slice(0, 6).join('\n');
@@ -141,6 +142,8 @@ export async function landFloor(ws, floor, { into } = {}) {
   const { dirty } = await floorStateOf(floor);
   if (dirty) fail(`"${floor.name}" has uncommitted changes. Commit or stash them on that floor first`);
   const repo = floor.repo;
+  // a merge commit needs an identity; say so plainly instead of surfacing git's wall of text
+  await git(repo, ['var', 'GIT_COMMITTER_IDENT']).catch(() => fail('git has no name and email configured. Run: git config --global user.name "Your Name" && git config --global user.email you@example.com'));
   if ((await git(repo, ['status', '--porcelain'])).length > 0) fail('the ground floor has uncommitted changes. Commit or stash them before landing');
   const current = await git(repo, ['rev-parse', '--abbrev-ref', 'HEAD']);
   const target = into ? await checkBranchName(into) : current;
