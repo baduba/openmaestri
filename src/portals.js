@@ -8,6 +8,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { CdpPipe, CdpError } from './cdp.js';
 
+const numberOr0 = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+
 export class PortalError extends Error {}
 const fail = (m) => { throw new PortalError(m); };
 
@@ -549,24 +551,35 @@ class Portal extends EventEmitter {
 
   async applyInput(ev) {
     await this.start();
-    const n = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
-    if (ev.kind === 'mouse') {
-      const type = { down: 'mousePressed', up: 'mouseReleased', move: 'mouseMoved', wheel: 'mouseWheel' }[ev.type];
-      if (!type) return;
-      const button = ['left', 'middle', 'right'].includes(ev.button) ? ev.button : 'left';
-      await this.mouse(type, n(ev.x), n(ev.y), type === 'mouseMoved' ? { buttons: n(ev.buttons) } : type === 'mouseWheel' ? { deltaX: n(ev.deltaX), deltaY: n(ev.deltaY) } : { button, clickCount: Math.max(1, Math.min(3, n(ev.clickCount) || 1)), buttons: type === 'mousePressed' ? 1 : 0 });
-    } else if (ev.kind === 'key') {
-      const type = ev.type === 'up' ? 'keyUp' : ev.text ? 'keyDown' : 'rawKeyDown';
-      const mods = n(ev.modifiers) & 15;
-      const k = String(ev.key ?? '').slice(0, 20);
-      let vk = Number(ev.vk);
-      if (!Number.isFinite(vk)) vk = (KEYS[k]?.[0]) ?? (k.length === 1 ? k.toUpperCase().charCodeAt(0) : 0);
-      const text = typeof ev.text === 'string' ? ev.text.slice(0, 8) : undefined;
-      const cmdName = mods & (2 | 4) && k.length === 1 ? EDIT_COMMANDS[k.toLowerCase()] : undefined;
-      await this.cmd('Input.dispatchKeyEvent', { type, key: k, code: String(ev.code ?? '').slice(0, 20), windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, modifiers: mods, ...(text && type === 'keyDown' ? { text, unmodifiedText: text } : {}), ...(cmdName && type !== 'keyUp' ? { commands: [cmdName] } : {}) });
-    } else if (ev.kind === 'paste' && typeof ev.text === 'string') {
-      await this.cmd('Input.insertText', { text: ev.text.slice(0, 100000) });
-    }
+    if (ev.kind === 'mouse') await this.humanMouse(ev);
+    else if (ev.kind === 'key') await this.humanKey(ev);
+    else if (ev.kind === 'paste' && typeof ev.text === 'string') await this.cmd('Input.insertText', { text: ev.text.slice(0, 100000) });
+  }
+
+  async humanMouse(ev) {
+    const n = numberOr0;
+    const type = { down: 'mousePressed', up: 'mouseReleased', move: 'mouseMoved', wheel: 'mouseWheel' }[ev.type];
+    if (!type) return;
+    const button = ['left', 'middle', 'right'].includes(ev.button) ? ev.button : 'left';
+    let extra;
+    if (type === 'mouseMoved') extra = { buttons: n(ev.buttons) };
+    else if (type === 'mouseWheel') extra = { deltaX: n(ev.deltaX), deltaY: n(ev.deltaY) };
+    else extra = { button, clickCount: Math.max(1, Math.min(3, n(ev.clickCount) || 1)), buttons: type === 'mousePressed' ? 1 : 0 };
+    await this.mouse(type, n(ev.x), n(ev.y), extra);
+  }
+
+  async humanKey(ev) {
+    const text = typeof ev.text === 'string' ? ev.text.slice(0, 8) : undefined;
+    const type = ev.type === 'up' ? 'keyUp' : ev.text ? 'keyDown' : 'rawKeyDown';
+    const mods = numberOr0(ev.modifiers) & 15;
+    const key = String(ev.key ?? '').slice(0, 20);
+    let vk = Number(ev.vk);
+    if (!Number.isFinite(vk)) vk = (KEYS[key]?.[0]) ?? (key.length === 1 ? key.toUpperCase().charCodeAt(0) : 0);
+    const cmdName = mods & (2 | 4) && key.length === 1 ? EDIT_COMMANDS[key.toLowerCase()] : undefined;
+    const params = { type, key, code: String(ev.code ?? '').slice(0, 20), windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, modifiers: mods };
+    if (text && type === 'keyDown') Object.assign(params, { text, unmodifiedText: text });
+    if (cmdName && type !== 'keyUp') params.commands = [cmdName];
+    await this.cmd('Input.dispatchKeyEvent', params);
   }
 
   async dispose() {
