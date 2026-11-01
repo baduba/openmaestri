@@ -14,7 +14,7 @@ Everyday commands
   openmaestri note create "text" --name N  write a shared note; note read/write/edit "N" ...
   openmaestri notify "message"             tell the human something (they get a desktop notification)
   openmaestri say "answer"                 answer the human in the chat panel (use --progress "..." for short status updates)
-  openmaestri recall [--last day]          what this thread remembers (recall list shows the seven threads)
+  openmaestri recall [--last day]          what this thread remembers, with a summary of older messages (recall list shows the seven threads; --archive reads everything)
   openmaestri floor status "text" --state working|blocked|review|done   post progress for the human
 
 Maestro-only commands

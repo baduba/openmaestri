@@ -59,6 +59,22 @@ Rules for `@file:`: inside the workspace or one of its floors only (symlinks tha
 
 A message is typed into the Maestro's terminal. If its agent has exited, that terminal is a plain shell, and typing your message there would run it as commands, so openmaestri refuses and tells you to restart it. The same applies to a Maestro that was created without an agent command.
 
+## Long threads and memory
+
+A thread that reaches 200 messages is condensed on its own: everything except the newest 40 messages is **appended to an archive file first** (`thread-N.archive.jsonl`, never deleted), then summarised, then removed from the active file. If the machine dies halfway, nothing is lost: at worst a message exists in both files and is shown once.
+
+The summary is built by fixed rules, **locally, with no model and no network**: who spoke and when, what the human asked, lines that read like decisions or rules ("we decided...", "never..."), questions that may still be open, files and attachments mentioned. It only quotes the thread, so it cannot contain anything that was not said, and obvious credentials (keys, tokens, `password=...`, private keys) are masked in it. The panel shows it above the messages ("Earlier messages are summarised"). Up to eight parts are kept; older parts stay in the archive.
+
+| Command | Does |
+|---|---|
+| `openmaestri recall` | Recent messages, preceded by the summary when there is one |
+| `recall --summary` | Only the summary |
+| `recall --archive` | Also the archived messages (a `--from` date that reaches back includes them too) |
+| `openmaestri memory status [N]` | Active, archived and summary parts per thread |
+| `openmaestri memory compress [N]` | Condense now (Maestro) |
+
+A summary written by a model is not offered: it would send your conversation to a provider, so it would have to be an explicit opt-in, and it is not built.
+
 ## Not implemented yet
 
-Dragging files into the panel, saved prompts, per-agent usage, and long-term summaries of old threads.
+Dragging files into the panel.

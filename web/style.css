@@ -178,3 +178,6 @@ dialog select { width: 100%; margin-top: 3px; background: var(--bg); border: 1px
 .undo[hidden] { display: none; }
 
 .node .usage { color: var(--muted); font-size: 11px; white-space: nowrap; }
+
+.chat-summary { background: var(--bg); border: 1px dashed var(--line); border-radius: 8px; padding: 4px 8px; color: var(--muted); }
+.chat-summary pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; margin: 6px 0 2px; }

@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 
-const BOOL = new Set(['apply', 'trust', 'global', 'overwrite', 'progress', 'all', 'existing-branch', 'copy', 'no-git', 'copy-ground', 'delete-branch', 'keep-floor', 'keep-branch', 'keep-folder', 'open', 'version', 'json', 'raw-flag', 'batch', 'force', 'none', 'clear', 'without-me', 'no-notify', 'disabled', 'reminder', 'agent', 'note', 'band', 'fichario', 'portal', 'help']);
+const BOOL = new Set(['summary', 'archive', 'apply', 'trust', 'global', 'overwrite', 'progress', 'all', 'existing-branch', 'copy', 'no-git', 'copy-ground', 'delete-branch', 'keep-floor', 'keep-branch', 'keep-folder', 'open', 'version', 'json', 'raw-flag', 'batch', 'force', 'none', 'clear', 'without-me', 'no-notify', 'disabled', 'reminder', 'agent', 'note', 'band', 'fichario', 'portal', 'help']);
 
 const HELP = `openmaestri - a spatial workspace for AI agents (open implementation)
 
@@ -48,7 +48,8 @@ Usage:
   openmaestri floor status ["Text" --state working|blocked|review|done --progress 2/5 | --clear] [--floor F]
   openmaestri recruit ... [--floor F]   (place the teammate on another floor; "Ground" for the ground floor)
   openmaestri say "text" [--file PATH] [--attach PATH]... [--progress] [--thread N]   Answer the human in the chat (what a Maestro does)
-  openmaestri recall [thread] [--turns N | --last day|week|month | --from DATE [--to DATE] | --all] [--json] | recall list | recall attachment <id>
+  openmaestri memory status [thread] | memory compress [thread]   Long threads are condensed into a local summary; the full text stays archived
+  openmaestri recall [thread] [--summary] [--archive] [--turns N | --last day|week|month | --from DATE [--to DATE] | --all] [--json] | recall list | recall attachment <id>
   openmaestri prompt list | read "name" | use "name" | save "name" "text" [--global] [--overwrite] | delete "name" | undo   Saved prompts (save/delete: Maestro)
   openmaestri prompt parse|materialize "text with @agent:Name @note:Name @file:path"   Expand mentions (files up to 32 KB, workspace only)
   openmaestri usage ["Agent"] [--days N] [--json] | usage report --in N --out N [--model M] [--cost USD] | usage reset ["Agent"]   Tokens, cost, turns
@@ -233,7 +234,7 @@ export function build({ pos, flags }) {
       return { cmd: 'say', args: { text, file: flags.file ? abs(flags.file) : undefined, attach: (flags.attach ?? []).map(abs), progress: !!flags.progress, thread: flags.thread } };
     }
     case 'recall': {
-      const base = { turns: flags.turns ? Number(flags.turns) : undefined, last: flags.last, from: flags.from, to: flags.to, all: !!flags.all, json: !!flags.json };
+      const base = { summary: !!flags.summary, archive: !!flags.archive, turns: flags.turns ? Number(flags.turns) : undefined, last: flags.last, from: flags.from, to: flags.to, all: !!flags.all, json: !!flags.json };
       if (c1 === 'list') return { cmd: 'recall', args: { list: true } };
       if (c1 === 'attachment') { need(rest[0], 'recall attachment <id>'); return { cmd: 'recall', args: { attachment: rest[0] } }; }
       return { cmd: 'recall', args: { ...base, thread: c1 } };
@@ -255,6 +256,7 @@ export function build({ pos, flags }) {
       if (c1 === 'reset') return { cmd: 'usage.reset', args: { terminal: rest[0] } };
       return { cmd: 'usage', args: { terminal: c1, days: flags.days ? Number(flags.days) : undefined, json: !!flags.json } };
     }
+    case 'memory': need(c1 === 'status' || c1 === 'compress', 'memory status [thread] | memory compress [thread]'); return { cmd: `memory.${c1}`, args: { thread: rest[0] } };
     case 'guide': return { cmd: 'guide', args: {} };
     case 'debug': return { cmd: 'debug', args: {} };
     default: throw new Error(`unknown command "${c0}". Run: openmaestri help`);

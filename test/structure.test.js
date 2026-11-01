@@ -232,3 +232,21 @@ test('untrusted terminals start a plain shell, not the imported command', async 
   while (!fs.existsSync(marker) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
   assert.equal(fs.existsSync(marker), true, 'trusted command runs');
 });
+
+test('names that must be unique are refused, not silently renamed (bands, workspaces)', async (t) => {
+  const { app, ws, store } = await boot(t);
+  const boss = term(store, ws, 'Boss', { maestro: true });
+  term(store, ws, 'A');
+  term(store, ws, 'B');
+  const call = (cmd, args) => rpc(app.socketPath, boss.id, cmd, args);
+  assert.equal((await call('band.create', { name: 'Crew', agents: ['A'], withoutMe: true })).ok, true);
+  const dup = await call('band.create', { name: 'crew', agents: ['B'], withoutMe: true });
+  assert.equal(dup.ok, false);
+  assert.match(dup.error, /a band named "crew" already exists/);
+  assert.equal(ws.nodes.filter((n) => n.kind === 'band').length, 1);
+  const dir = ws.dir;
+  assert.equal((await call('workspace.create', { name: 'Second', dir })).ok, true);
+  const again = await call('workspace.create', { name: 'second', dir });
+  assert.equal(again.ok, false);
+  assert.match(again.error, /a workspace named "second" already exists/);
+});
