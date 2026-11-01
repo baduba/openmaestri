@@ -38,7 +38,7 @@ Running three agents in three terminals means you are the message bus: copy this
 
 ```bash
 # Node.js 20+ is required (https://nodejs.org or NodeSource)
-sudo apt install ./openmaestri_0.5.0_amd64.deb
+sudo apt install ./openmaestri_0.6.0_amd64.deb
 openmaestri serve --open
 ```
 

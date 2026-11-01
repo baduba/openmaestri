@@ -105,30 +105,40 @@ export function agentKind(node) {
  * @returns {{file: string, existed: boolean, before: string, after: string, changed: boolean, backup?: string}}
  */
 export function plan({ cwd, kind, role, remove = false, apply = false, now = Date.now() }) {
+  const result = {};
   const name = AGENT_FILES[kind];
   if (!name) fail(`no instruction file is known for "${kind}". Supported: ${Object.keys(AGENT_FILES).join(', ')}`);
   const file = path.join(cwd, name);
   let before = '';
   let existed = false;
+  let fd;
   try {
-    const st = fs.lstatSync(file);
-    if (st.isSymbolicLink()) fail(`${name} is a symbolic link; refusing to write through it`);
+    // one descriptor for checking and reading; O_NOFOLLOW makes a symlink fail instead of being followed
+    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0));
+    const st = fs.fstatSync(fd);
     if (!st.isFile()) fail(`${name} is not a regular file`);
     if (st.size > 1024 * 1024) fail(`${name} is larger than 1 MB; refusing to rewrite it`);
-    before = fs.readFileSync(file, 'utf8');
+    before = fs.readFileSync(fd, 'utf8');
     existed = true;
-  } catch (e) { if (e instanceof RoleError) throw e; if (e.code !== 'ENOENT') throw e; }
+    result.mode = st.mode & 0o777;
+  } catch (e) {
+    if (e instanceof RoleError) throw e;
+    if (e.code === 'ELOOP') fail(`${name} is a symbolic link; refusing to write through it`);
+    if (e.code !== 'ENOENT') throw e;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
   const after = withBlock(before, role, { remove });
   if (after === null) fail(`the role "${role.id}" is not installed in ${name}`);
   const changed = after !== before;
-  const result = { file, existed, before, after, changed };
+  Object.assign(result, { file, existed, before, after, changed });
   if (!apply || !changed) return result;
   if (existed) {
     result.backup = `${file}.bak-${now}`;
-    fs.copyFileSync(file, result.backup, fs.constants.COPYFILE_EXCL);
+    fs.writeFileSync(result.backup, before, { mode: result.mode, flag: 'wx' }); // the bytes we read, not a second look at the file
   }
   const tmp = `${file}.om-${process.pid}.tmp`;
-  fs.writeFileSync(tmp, after, { mode: existed ? fs.statSync(file).mode & 0o777 : 0o644, flag: 'wx' });
+  fs.writeFileSync(tmp, after, { mode: existed ? result.mode : 0o644, flag: 'wx' });
   fs.renameSync(tmp, file);
   return result;
 }

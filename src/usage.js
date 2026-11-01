@@ -175,7 +175,7 @@ export class Usage extends EventEmitter {
     const day = at.toISOString().slice(0, 10);
     const d = (r.days[day] ??= { input: 0, output: 0, costUsd: 0 });
     d.input += tokens.input; d.output += tokens.output; d.costUsd += cost ?? 0;
-    for (const k of Object.keys(r.days).sort().slice(0, -DAYS_KEPT)) delete r.days[k];
+    for (const k of Object.keys(r.days).sort((a, b) => a.localeCompare(b)).slice(0, -DAYS_KEPT)) delete r.days[k];
     r.lastAt = Date.now();
     this.flushSoon();
   }

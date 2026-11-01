@@ -4,6 +4,16 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-01
+
+### Added
+- Saved prompts: one Markdown file per prompt (workspace or global), trash with undo, live updates when files change, a drawer in the chat panel and `openmaestri prompt list|read|use|save|delete|undo`
+- Agent usage: tokens and cost per terminal from reported or parsed numbers (never estimated from bytes), DeepSeek prices including peak hours with a strict override file, a badge on the node, `openmaestri usage`
+- Roles: five built-in roles, `role discover`, and `role install|uninstall` into AGENTS.md/CLAUDE.md/GEMINI.md as a marked block, dry run by default, with backups; repository roles need `--trust`
+
+### Changed
+- The DeepSeek presets default to `deepseek-flash`, a model name DeepSeek's API lists (it was `deepseek-chat`)
+
 ## [0.5.0] - 2026-11-01
 
 ### Added
