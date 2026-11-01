@@ -105,8 +105,10 @@ export class Terminals extends EventEmitter {
     });
     // An agent command runs inside an interactive shell and falls back to that
     // shell when the agent exits, so the pane never silently dies.
-    const args = node.command
-      ? ['-i', '-c', `${node.command}\nexec ${shellQuote(shell)} -i`]
+    // a command that arrived through an imported file stays unrun until the user trusts it
+    const command = node.untrusted ? '' : node.command;
+    const args = command
+      ? ['-i', '-c', `${command}\nexec ${shellQuote(shell)} -i`]
       : ['-i'];
     const proc = pty.spawn(shell, args, { name: 'xterm-256color', cols: DEFAULT_COLS, rows: DEFAULT_ROWS, cwd, env });
     const term = new Terminal({ cols: DEFAULT_COLS, rows: DEFAULT_ROWS, scrollback: SCROLLBACK, allowProposedApi: true });

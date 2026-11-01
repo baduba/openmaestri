@@ -6,6 +6,9 @@ import path from 'node:path';
 import { Store, dataDir } from './store.js';
 import { GUIDE } from './prompts.js';
 import { Terminals } from './terminals.js';
+import { History } from './history.js';
+import { tidy as tidyLayout } from './layout.js';
+import { capturePartitura, instantiatePartitura } from './transfer.js';
 import { Scheduler, parseSchedule, describeSchedule, nextRun } from './routines.js';
 
 export class CommandError extends Error {}
@@ -27,6 +30,7 @@ export class Core extends EventEmitter {
     this.socketPath = socketPath;
     this.startedAt = Date.now();
     this.notifyLog = new Map();
+    this.history = new History();
     this.scheduler = new Scheduler({
       workspaces: () => this.store.workspaces.values(),
       changed: (ws) => this.touch(ws),
@@ -41,7 +45,10 @@ export class Core extends EventEmitter {
   }
 
   start() {
+    // the undo baseline of a workspace is its state when it appeared, so even its first change can be undone
+    this.store.onCreate = (ws) => this.history.entry(ws);
     this.store.load();
+    for (const ws of this.store.workspaces.values()) this.history.entry(ws);
     this.scheduler.start();
     this.terminals.on('data', (id, data) => this.emit('term-data', id, data));
     this.terminals.on('exit', (id, code) => this.emit('term-status', id, 'exited', code));
@@ -60,7 +67,7 @@ export class Core extends EventEmitter {
     for (const n of ws.nodes) if (n.kind === 'note') notes[n.id] = this.store.readNote(ws.id, n.id);
     const status = {};
     for (const n of ws.nodes) if (n.kind === 'terminal') status[n.id] = this.terminals.status(n.id);
-    return { ...ws, notes, status };
+    return { ...ws, notes, status, history: this.history.state(ws) };
   }
 
   summary() {
@@ -68,13 +75,52 @@ export class Core extends EventEmitter {
       active: this.store.settings.activeWorkspaceId,
       workspaces: [...this.store.workspaces.values()].map((w) => ({ id: w.id, name: w.name, dir: w.dir, nodes: w.nodes.length })),
       presets: this.store.settings.presets,
+      partituras: (this.store.settings.partituras ?? []).map((p) => ({ id: p.id, name: p.name, description: p.description, icon: p.icon, color: p.color, scope: p.scope, nodes: p.nodes.length })),
     };
   }
 
   /** Mark a workspace changed: persist (debounced) and tell every listener. */
   touch(ws) {
+    this.history.record(ws);
     this.store.saveWorkspace(ws.id);
     this.emit('workspace', ws.id);
+  }
+
+  /** Replace the structure with a snapshot from history; terminals of removed nodes stop, trashed notes return. */
+  applySnapshot(ws, snap) {
+    const before = new Set(ws.nodes.map((n) => n.id));
+    ws.nodes = snap.nodes;
+    ws.connections = snap.connections;
+    const after = new Set(ws.nodes.map((n) => n.id));
+    for (const id of before) if (!after.has(id)) this.terminals.dispose(id);
+    for (const n of ws.nodes) if (n.kind === 'note' && !before.has(n.id)) this.store.untrashNote(ws.id, n.id);
+    ws.routines = ws.routines.filter((r) => after.has(r.terminalId));
+    this.store.saveWorkspace(ws.id);
+    this.emit('workspace', ws.id);
+  }
+
+  undo(ws) {
+    const snap = this.history.undo(ws);
+    if (!snap) return false;
+    this.applySnapshot(ws, snap);
+    return true;
+  }
+
+  redo(ws) {
+    const snap = this.history.redo(ws);
+    if (!snap) return false;
+    this.applySnapshot(ws, snap);
+    return true;
+  }
+
+  tidy(ws) {
+    const pos = tidyLayout(ws);
+    for (const [id, p] of pos) this.store.patchNode(ws, id, p);
+    this.touch(ws);
+  }
+
+  partiturasFor(ws) {
+    return (this.store.settings.partituras ?? []).filter((p) => p.scope === null || p.scope === ws.id);
   }
 
   wsOrFail(id) {
@@ -148,7 +194,8 @@ export class Core extends EventEmitter {
 }
 
 const textOf = (rows) => rows.join('\n');
-const kindLabel = { terminal: 'agent', note: 'note', portal: 'portal' };
+const kindLabel = { terminal: 'agent', note: 'note', portal: 'portal', stack: 'stack', band: 'band' };
+const KIND_FLAGS = { agent: 'terminal', note: 'note', portal: 'portal', fichario: 'stack', stack: 'stack', band: 'band' };
 
 const HANDLERS = {
   guide() {
@@ -161,6 +208,8 @@ const HANDLERS = {
       const extra = n.kind === 'terminal' ? ` [${this.terminals.status(n.id)}]${n.maestro ? ' (maestro)' : ''}` : n.kind === 'portal' ? ` ${n.url}` : '';
       return `${kindLabel[n.kind].padEnd(7)} ${n.name}${extra}`;
     });
+    const myBands = ws.nodes.filter((n) => n.kind === 'band' && n.members.includes(me.id));
+    for (const b of myBands) rows.push(`band    ${b.name} (${b.members.map((m) => ws.nodes.find((n) => n.id === m)?.name).join(', ')})`);
     return {
       text: rows.length ? textOf(rows) : '(nothing is connected to this terminal)',
       data: { self: me.name, workspace: ws.name, nodes: nodes.map((n) => ({ name: n.name, kind: n.kind, status: n.kind === 'terminal' ? this.terminals.status(n.id) : undefined, maestro: n.maestro || undefined, url: n.url })) },
@@ -216,12 +265,27 @@ const HANDLERS = {
   },
 
   // ----- notes -----
-  'note.create'(ws, me, { content = '', name, color }) {
+  'note.create'(ws, me, { content = '', name, color, stack }) {
     const pos = this.placeBeside(ws, me, { w: 320, h: 260 });
     const note = this.store.createNode(ws, 'note', { name: name || (String(content).split('\n')[0].slice(0, 40).trim() || 'Note'), text: content, color, ...pos });
-    this.store.connect(ws, me.id, note.id);
+    if (stack) this.fileIntoStack(ws, me, note, stack === true ? 'Stack' : String(stack));
+    else this.store.connect(ws, me.id, note.id);
     this.touch(ws);
     return { text: note.name, data: { name: note.name } };
+  },
+  'note.stack'(ws, me, { name, stack }) {
+    const note = this.resolve(ws, me, name, ['note']);
+    const st = this.fileIntoStack(ws, me, note, stack ? String(stack) : 'Stack');
+    this.touch(ws);
+    return { text: `${note.name} -> ${st.name}` };
+  },
+  'note.unstack'(ws, me, { name }) {
+    const note = this.resolve(ws, me, name, ['note']);
+    if (!note.stackId) fail(`"${note.name}" is not in a stack`);
+    const st = this.store.removeFromStack(ws, note.id);
+    this.store.connect(ws, me.id, note.id);
+    this.touch(ws);
+    return { text: `${note.name} freed from ${st.name}` };
   },
   'note.read'(ws, me, { name, offset, limit }) {
     const note = this.resolve(ws, me, name, ['note']);
@@ -246,7 +310,14 @@ const HANDLERS = {
     this.touch(ws);
     return { text: `edited ${note.name}` };
   },
-  'note.delete'(ws, me, { name }) {
+  'note.delete'(ws, me, { name, stack }) {
+    if (stack) {
+      const st = this.resolve(ws, me, stack === true ? name : stack, ['stack']);
+      const count = st.order.length;
+      this.store.deleteNode(ws, st.id, { keepStackNotes: false });
+      this.touch(ws);
+      return { text: `deleted stack ${st.name} and ${count} note(s)` };
+    }
     const note = this.resolve(ws, me, name, ['note']);
     this.store.deleteNode(ws, note.id);
     this.touch(ws);
@@ -326,10 +397,12 @@ const HANDLERS = {
     return { text: `dismissed ${n.name}` };
   },
 
-  connect(ws, me, { from, to }) {
+  connect(ws, me, { from, to, kind }) {
     this.requireMaestro(me);
+    const kinds = kind ? [KIND_FLAGS[kind]].filter(Boolean) : null;
+    if (kind && !kinds.length) fail(`unknown kind "${kind}" (agent, band, note, fichario, portal)`);
     const a = this.resolveAny(ws, from);
-    const b = this.resolveAny(ws, to);
+    const b = this.resolveAny(ws, to, kinds);
     this.store.connect(ws, a.id, b.id);
     this.touch(ws);
     return { text: `${a.name} <-> ${b.name}` };
@@ -345,12 +418,18 @@ const HANDLERS = {
     return { text: `${a.name} -/- ${b.name}` };
   },
 
-  arrange(ws, me, { name, newName, color, icon }) {
+  arrange(ws, me, { name, newName, color, icon, kind }) {
     if (!name) {
       const rows = [me, ...this.reachable(ws, me)].map((n) => `${kindLabel[n.kind].padEnd(7)} ${n.name}  color=${n.color ?? '-'} icon=${n.icon ?? '-'}`);
       return { text: textOf(rows) };
     }
-    const target = name.toLowerCase() === me.name.toLowerCase() ? me : this.resolve(ws, me, name);
+    const kinds = kind ? [KIND_FLAGS[kind]].filter(Boolean) : null;
+    let target;
+    if (name.toLowerCase() === me.name.toLowerCase() && !kinds) target = me;
+    else if (kinds?.includes('band')) {
+      // a band is reachable by its members (and any Maestro)
+      target = ws.nodes.find((n) => n.kind === 'band' && n.name.toLowerCase() === name.toLowerCase() && (me.maestro || n.members.includes(me.id))) || fail(`no band named "${name}" that you belong to`);
+    } else target = this.resolve(ws, me, name, kinds);
     const patch = {};
     if (newName) patch.name = newName;
     if (color) patch.color = color;
@@ -359,6 +438,93 @@ const HANDLERS = {
     this.store.patchNode(ws, target.id, patch);
     this.touch(ws);
     return { text: target.name };
+  },
+
+  // ----- bands (Maestro) -----
+  'band.create'(ws, me, { name, agents = [], withoutMe, color, icon }) {
+    this.requireMaestro(me);
+    if (!name) fail('usage: band create "Name" ["Agent" ...] [--without-me]');
+    const named = agents.map((a) => this.resolve(ws, me, a, ['terminal']).id);
+    const team = named.length ? named : this.reachable(ws, me).filter((n) => n.kind === 'terminal').map((n) => n.id);
+    const ids = [...(withoutMe ? [] : [me.id]), ...team];
+    let band;
+    try { band = this.store.createBand(ws, name, ids, { color, icon }); } catch (e) { fail(e.message); }
+    this.touch(ws);
+    return { text: `${band.name}: ${band.members.length} member(s)` };
+  },
+  'band.add'(ws, me, { band, agent }) {
+    this.requireMaestro(me);
+    const b = this.findBand(ws, band);
+    const t = this.resolve(ws, me, agent, ['terminal']);
+    try { this.store.addToBand(ws, b, t.id); } catch (e) { fail(e.message); }
+    this.touch(ws);
+    return { text: `${t.name} joined ${b.name}` };
+  },
+  'band.remove'(ws, me, { band, agent }) {
+    this.requireMaestro(me);
+    const b = this.findBand(ws, band);
+    const t = ws.nodes.find((n) => n.kind === 'terminal' && n.name.toLowerCase() === String(agent).toLowerCase()) || fail(`no agent named "${agent}"`);
+    try { this.store.removeFromBand(ws, b, t.id); } catch (e) { fail(e.message); }
+    this.touch(ws);
+    return { text: `${t.name} left ${b.name}` };
+  },
+  'band.dissolve'(ws, me, { band }) {
+    this.requireMaestro(me);
+    const b = this.findBand(ws, band);
+    this.store.deleteNode(ws, b.id);
+    this.touch(ws);
+    return { text: `dissolved ${b.name}` };
+  },
+
+  // ----- partituras: saved layouts (Maestro) -----
+  'partitura.list'(ws, me) {
+    this.requireMaestro(me);
+    const rows = this.partiturasFor(ws).map((p) => `${p.name}  (${p.scope === null ? 'global' : 'workspace'}, ${p.nodes.length} items)${p.description ? '  ' + p.description : ''}`);
+    return { text: rows.length ? textOf(rows) : '(no partituras)' };
+  },
+  'partitura.create'(ws, me, { name, agents = [], withoutMe, commands = true, noteText = true, description, icon, color, scope = 'current' }) {
+    this.requireMaestro(me);
+    if (!name) fail('usage: partitura create "Name" ["Agent" ...]');
+    const list = this.store.settings.partituras ??= [];
+    if (list.some((p) => p.name.toLowerCase() === name.toLowerCase() && (p.scope === null || p.scope === ws.id))) fail(`partitura "${name}" already exists (use partitura update)`);
+    const part = this.capture(ws, me, { name, agents, withoutMe, commands, noteText, description, icon, color, scope });
+    list.push(part);
+    this.store.saveSettings();
+    this.emit('workspace-list');
+    return { text: `saved ${part.name}: ${part.nodes.length} items` };
+  },
+  'partitura.update'(ws, me, { name, agents = [], withoutMe, commands, noteText, newName, description, icon, color, scope }) {
+    this.requireMaestro(me);
+    const old = this.findPartitura(ws, name);
+    const resave = agents.length || withoutMe || commands !== undefined || noteText !== undefined;
+    if (resave) {
+      const fresh = this.capture(ws, me, { name: newName ?? old.name, agents, withoutMe, commands: commands ?? old.options.commands, noteText: noteText ?? old.options.noteText, description: description ?? old.description, icon: icon ?? old.icon, color: color ?? old.color, scope: scope ?? (old.scope === null ? 'global' : 'current') });
+      Object.assign(old, { ...fresh, id: old.id });
+    } else {
+      if (newName) old.name = newName;
+      if (description !== undefined) old.description = description;
+      if (icon !== undefined) old.icon = icon;
+      if (color !== undefined) old.color = color;
+      if (scope) old.scope = scope === 'global' ? null : ws.id;
+    }
+    this.store.saveSettings();
+    this.emit('workspace-list');
+    return { text: `updated ${old.name}` };
+  },
+  'partitura.insert'(ws, me, { name }) {
+    this.requireMaestro(me);
+    const part = this.findPartitura(ws, name);
+    const { created } = this.insertPartitura(ws, part, me);
+    this.touch(ws);
+    return { text: `inserted ${part.name}: ${created.map((n) => n.name).join(', ')}` };
+  },
+  'partitura.delete'(ws, me, { name }) {
+    this.requireMaestro(me);
+    const part = this.findPartitura(ws, name);
+    this.store.settings.partituras = this.store.settings.partituras.filter((p) => p !== part);
+    this.store.saveSettings();
+    this.emit('workspace-list');
+    return { text: `deleted ${part.name}` };
   },
 
   // ----- presets & roles -----
@@ -581,4 +747,51 @@ Core.prototype.findRoutine = function (ws, name) {
 };
 Core.prototype.scheduleNext = function (r) {
   return nextRun(r.schedule);
+};
+
+Core.prototype.findBand = function (ws, name) {
+  const lc = String(name).toLowerCase();
+  return ws.nodes.find((n) => n.kind === 'band' && n.name.toLowerCase() === lc) || fail(`no band named "${name}"`);
+};
+Core.prototype.findPartitura = function (ws, name) {
+  const lc = String(name).toLowerCase();
+  const all = this.partiturasFor(ws).filter((p) => p.name.toLowerCase() === lc);
+  return all.find((p) => p.scope === ws.id) || all[0] || fail(`no partitura named "${name}"`);
+};
+/** File a note into the stack called `stackName`, reachable from `me`; create (and wire) the stack if there is none. */
+Core.prototype.fileIntoStack = function (ws, me, note, stackName) {
+  let st = this.reachable(ws, me).find((n) => n.kind === 'stack' && n.name.toLowerCase() === stackName.toLowerCase());
+  if (!st) {
+    const pos = this.placeBeside(ws, me, { w: 360, h: 300 });
+    st = this.store.createNode(ws, 'stack', { name: stackName, ...pos });
+    this.store.connect(ws, me.id, st.id);
+  }
+  if (note.stackId && note.stackId !== st.id) this.store.removeFromStack(ws, note.id);
+  this.store.addToStack(ws, note.id, st.id);
+  // a stacked note is only reachable through its stack, so drop a now-redundant direct cable
+  this.store.disconnect(ws, [me.id, note.id]);
+  return st;
+};
+/** Everything a partitura should carry: the chosen agents plus what is wired to them. */
+Core.prototype.capture = function (ws, me, { name, agents, withoutMe, commands, noteText, description, icon, color, scope }) {
+  const named = agents.map((a) => this.resolve(ws, me, a, ['terminal']));
+  const team = named.length ? named : this.reachable(ws, me).filter((n) => n.kind === 'terminal');
+  const core = [...(withoutMe ? [] : [me]), ...team];
+  if (!core.length) fail('nothing to save: no agents selected');
+  const ids = new Set(core.map((n) => n.id));
+  for (const t of core) for (const n of this.store.neighbors(ws, t.id)) if (n.kind !== 'terminal') ids.add(n.kind === 'note' && n.stackId ? n.stackId : n.id);
+  for (const b of ws.nodes.filter((n) => n.kind === 'band' && n.members.every((m) => ids.has(m)))) ids.add(b.id);
+  try {
+    return capturePartitura(this.store, ws, [...ids], { name, description: description ?? '', icon: icon ?? null, color: color ?? null, commands: commands !== false, noteText: noteText !== false, scope });
+  } catch (e) { return fail(e.message); }
+};
+Core.prototype.insertPartitura = function (ws, part, me) {
+  const out = instantiatePartitura(this.store, ws, part);
+  for (const n of out.created) {
+    if (n.kind === 'terminal') {
+      if (me) this.store.connect(ws, me.id, n.id);
+      this.startTerminal(ws, n);
+    }
+  }
+  return out;
 };

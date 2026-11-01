@@ -10,9 +10,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { Core, CommandError } from './core.js';
-import { dataDir, atomicWrite } from './store.js';
+import { dataDir, atomicWrite, safeId } from './store.js';
 import { startIpc, defaultSocketPath, ipcAlive } from './ipc.js';
 import { MAESTRO_BOOTSTRAP } from './prompts.js';
+import { exportWorkspace, importWorkspace, capturePartitura } from './transfer.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -84,8 +85,18 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
       res.setHeader('set-cookie', `om_token=${token}; HttpOnly; SameSite=Strict; Path=/`);
       if (url.pathname === '/') { res.writeHead(302, { location: '/', 'set-cookie': res.getHeader('set-cookie') }); return res.end(); }
     }
+    if (url.pathname.startsWith('/export/')) return serveExport(url.pathname, res);
     serveStatic(url.pathname, res);
   });
+
+  function serveExport(pathname, res) {
+    let ws;
+    try { ws = core.store.workspaces.get(safeId(pathname.slice('/export/'.length).replace(/\.json$/, ''))); } catch { ws = null; }
+    if (!ws) { res.writeHead(404); return res.end('not found'); }
+    const safeName = ws.name.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 60) || 'workspace';
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'content-disposition': `attachment; filename="${safeName}.openmaestri.json"` });
+    res.end(JSON.stringify(exportWorkspace(core.store, ws), null, 2));
+  }
 
   function serveStatic(pathname, res) {
     const vendor = {
@@ -212,7 +223,7 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
       case 'node.delete': {
         const w = wsOf();
         core.terminals.dispose(m.id);
-        s.deleteNode(w, m.id);
+        s.deleteNode(w, m.id, { keepStackNotes: m.keepNotes !== false });
         core.touch(w);
         break;
       }
@@ -259,6 +270,88 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
         break;
       }
       case 'term.kill': core.terminals.kill(m.id); break;
+      case 'term.trust': {
+        const w = wsOf();
+        const node = core.nodeOrFail(w, m.id);
+        node.untrusted = false;
+        core.terminals.dispose(node.id);
+        core.startTerminal(w, node);
+        send(ws, { t: 'term.snapshot', id: node.id, data: '' });
+        core.touch(w);
+        break;
+      }
+      case 'undo': { const w = wsOf(); if (!core.undo(w)) send(ws, { t: 'error', message: 'nothing to undo' }); break; }
+      case 'redo': { const w = wsOf(); if (!core.redo(w)) send(ws, { t: 'error', message: 'nothing to redo' }); break; }
+      case 'tidy': core.tidy(wsOf()); break;
+      case 'stack.addNote': {
+        const w = wsOf();
+        const st = core.nodeOrFail(w, m.stackId);
+        if (st.kind !== 'stack') throw new CommandError('not a stack');
+        const note = s.createNode(w, 'note', { name: 'Note', x: st.x, y: st.y });
+        s.addToStack(w, note.id, st.id);
+        st.front = note.id;
+        core.touch(w);
+        break;
+      }
+      case 'note.stack': { const w = wsOf(); s.addToStack(w, m.noteId, m.stackId); core.touch(w); break; }
+      case 'note.unstack': { const w = wsOf(); s.removeFromStack(w, m.noteId); core.touch(w); break; }
+      case 'stack.front': {
+        const w = wsOf();
+        const st = core.nodeOrFail(w, m.id);
+        if (st.kind === 'stack' && st.order.includes(m.noteId)) { st.front = m.noteId; core.touch(w); }
+        break;
+      }
+      case 'band.create': {
+        const w = wsOf();
+        s.createBand(w, String(m.name || 'Band').slice(0, 80), Array.isArray(m.members) ? m.members : []);
+        core.touch(w);
+        break;
+      }
+      case 'band.add': { const w = wsOf(); s.addToBand(w, core.nodeOrFail(w, m.id), m.terminalId); core.touch(w); break; }
+      case 'band.remove': { const w = wsOf(); s.removeFromBand(w, core.nodeOrFail(w, m.id), m.terminalId); core.touch(w); break; }
+      case 'band.dissolve': { const w = wsOf(); s.deleteNode(w, m.id); core.touch(w); break; }
+      case 'band.move': {
+        const w = wsOf();
+        const band = core.nodeOrFail(w, m.id);
+        const dx = Number(m.dx), dy = Number(m.dy);
+        if (band.kind !== 'band' || !Number.isFinite(dx) || !Number.isFinite(dy)) throw new CommandError('invalid band move');
+        for (const id of band.members) { const n = core.nodeOrFail(w, id); s.patchNode(w, id, { x: n.x + dx, y: n.y + dy }); }
+        core.touch(w);
+        break;
+      }
+      case 'partitura.save': {
+        const w = wsOf();
+        const ids = Array.isArray(m.nodeIds) && m.nodeIds.length ? m.nodeIds : w.nodes.map((n) => n.id);
+        const list = s.settings.partituras ??= [];
+        const name = String(m.name || 'Layout').trim().slice(0, 80);
+        if (list.some((p) => p.name.toLowerCase() === name.toLowerCase() && (p.scope === null || p.scope === w.id))) throw new CommandError(`partitura "${name}" already exists`);
+        list.push(capturePartitura(s, w, ids, { name, commands: m.commands !== false, noteText: m.noteText !== false, scope: m.global ? 'global' : 'current' }));
+        s.saveSettings();
+        broadcast({ t: 'summary', ...core.summary() });
+        break;
+      }
+      case 'partitura.insert': {
+        const w = wsOf();
+        const part = core.partiturasFor(w).find((p) => p.id === m.id) || (() => { throw new CommandError('unknown partitura'); })();
+        core.insertPartitura(w, part, null);
+        core.touch(w);
+        break;
+      }
+      case 'partitura.delete': {
+        const list = s.settings.partituras ?? [];
+        s.settings.partituras = list.filter((p) => p.id !== m.id);
+        s.saveSettings();
+        broadcast({ t: 'summary', ...core.summary() });
+        break;
+      }
+      case 'workspace.import': {
+        const w = importWorkspace(s, m.bundle, { name: m.name, dir: m.dir });
+        s.settings.activeWorkspaceId = w.id;
+        s.saveSettings();
+        broadcast({ t: 'summary', ...core.summary() });
+        send(ws, { t: 'workspace', ws: core.payload(w), select: true });
+        break;
+      }
       default: throw new CommandError(`unknown message: ${m.t}`);
     }
   }
