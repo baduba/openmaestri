@@ -26,3 +26,16 @@ Only the latest release receives fixes while the project is 0.x.
 - The UI server binds `127.0.0.1` only, requires a per-install token, and checks `Host` and `Origin`.
 - The agent socket is `0600` in a `0700` directory. A process that can connect already runs as the same user; the in-app permission model limits what an *agent* can do to the rest of the workspace, not what a hostile local process can do.
 - Agents run with your privileges. That is inherent to terminal agents; do not point openmaestri at untrusted prompts or untrusted repositories with an agent that has shell access.
+
+## Threat model in short
+
+| Asset | Threat | Mitigation |
+|---|---|---|
+| A shell on your machine (the UI) | A web page or another origin reaching the server | loopback bind, 192-bit token, `Host`/`Origin` allow-list, CSP, `frame-ancestors 'none'`, `SameSite=Strict` cookie |
+| The agent socket | Another local user | `0600` socket in a `0700` directory |
+| Workspace files | Path traversal through ids | ids must be canonical UUIDs (`safeId`) |
+| Your API keys | Ending up in repositories | read from `~/.openmaestri/env`, never written to workspace files; a warning is printed if the file is group or world readable |
+| The human's attention | A looping agent spamming notifications | 20 notifications per minute per terminal |
+| Agent-to-agent traffic | **Prompt injection**: text returned by `ask`/`check` is untrusted input for the agent that reads it | not solvable by the app; give agents least-privilege directories and review what a Maestro recruits |
+
+Run `scripts/sast.sh` before sending a pull request that touches the network surface. Details: [docs/security-scanning.md](docs/security-scanning.md).

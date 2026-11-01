@@ -16,6 +16,16 @@ import { MAESTRO_BOOTSTRAP } from './prompts.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
+const SECURITY_HEADERS = {
+  'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; frame-src http: https:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+  'x-content-type-options': 'nosniff',
+  'x-frame-options': 'DENY',
+  'referrer-policy': 'no-referrer',
+  'cross-origin-opener-policy': 'same-origin',
+  'cross-origin-resource-policy': 'same-origin',
+  'permissions-policy': 'camera=(), microphone=(), geolocation=()',
+  'cache-control': 'no-store',
+};
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json' };
 
 export function loadToken(dir) {
@@ -44,6 +54,7 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
     throw Object.assign(new Error('openmaestri is already running'), { code: 'ALREADY_RUNNING' });
   }
   fs.mkdirSync(dataRoot, { recursive: true, mode: 0o700 });
+  fs.chmodSync(dataRoot, 0o700);
   const token = loadToken(dataRoot);
   const cliBin = path.join(root, 'bin', 'openmaestri.js');
   const core = new Core({ dataRoot, socketPath, cliDir: path.join(root, 'bin', 'shims'), cliBin });
@@ -63,6 +74,7 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
   };
 
   const server = http.createServer((req, res) => {
+    for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
     const url = new URL(req.url, 'http://x');
     if (!authed(req, url)) {
       res.writeHead(403, { 'content-type': 'text/plain' });
@@ -82,7 +94,7 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
       '/vendor/addon-fit.mjs': 'node_modules/@xterm/addon-fit/lib/addon-fit.mjs',
     };
     let file;
-    if (vendor[pathname]) file = path.join(root, vendor[pathname]);
+    if (Object.hasOwn(vendor, pathname)) file = path.join(root, vendor[pathname]);
     else {
       const rel = pathname === '/' ? 'index.html' : pathname.slice(1);
       file = path.join(root, 'web', rel);
@@ -90,7 +102,7 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
     }
     fs.readFile(file, (err, buf) => {
       if (err) { res.writeHead(404); return res.end('not found'); }
-      res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+      res.writeHead(200, { 'content-type': (Object.hasOwn(MIME, path.extname(file)) && MIME[path.extname(file)]) || 'application/octet-stream' });
       res.end(buf);
     });
   }

@@ -24,7 +24,6 @@ const state = {
 // ---------- socket ----------
 let socket;
 let retry = 500;
-const pendingTerm = new Map(); // id -> {snapshot, out[]} until the view exists
 
 function connect() {
   socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);

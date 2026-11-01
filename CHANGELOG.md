@@ -6,6 +6,10 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 First public version.
 
+### Security
+- Hardened HTTP responses (CSP, nosniff, frame and referrer policies); ids validated before use in file paths; prototype-key lookups rejected; type checks on node fields; generic internal errors; notification rate limit; shell-quoted `$SHELL`; env file permission warning
+- SAST in CI: CodeQL, Semgrep, ESLint security rules, gitleaks, Trivy, npm audit; Actions pinned by SHA
+
 ### Added
 - Canvas UI: pan/zoom, terminals (xterm.js), Markdown notes, URL portals, connections, workspaces
 - Daemon with PTYs, headless screen mirror, atomic JSON persistence, routines scheduler

@@ -15,6 +15,13 @@ export function dataDir() {
 
 export const uid = () => crypto.randomUUID();
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Ids end up in file paths (workspace dir, note file), so only canonical UUIDs are accepted. */
+export function safeId(id) {
+  if (typeof id !== 'string' || !UUID_RE.test(id)) throw new Error('invalid id');
+  return id;
+}
+
 export function atomicWrite(file, text) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
@@ -61,6 +68,7 @@ export class Store {
   // ---------- load / save ----------
   load() {
     fs.mkdirSync(path.join(this.root, 'workspaces'), { recursive: true, mode: 0o700 });
+    fs.chmodSync(this.root, 0o700);
     try {
       const s = JSON.parse(fs.readFileSync(path.join(this.root, 'settings.json'), 'utf8'));
       this.settings = { ...this.settings, ...s };
@@ -76,7 +84,7 @@ export class Store {
       const file = path.join(this.root, 'workspaces', id, 'workspace.json');
       try {
         const ws = JSON.parse(fs.readFileSync(file, 'utf8'));
-        if (ws && ws.id === id) this.workspaces.set(id, this.normalize(ws));
+        if (ws && ws.id === id && UUID_RE.test(id)) this.workspaces.set(id, this.normalize(ws));
       } catch (e) {
         if (e.code !== 'ENOENT') console.error(`[store] skipping ${id}: ${e.message}`);
       }
@@ -121,9 +129,9 @@ export class Store {
     this.saveSettings();
   }
 
-  wsDir(id) { return path.join(this.root, 'workspaces', id); }
+  wsDir(id) { return path.join(this.root, 'workspaces', safeId(id)); }
   wsFile(id) { return path.join(this.wsDir(id), 'workspace.json'); }
-  noteFile(wsId, nodeId) { return path.join(this.wsDir(wsId), 'notes', `${nodeId}.md`); }
+  noteFile(wsId, nodeId) { return path.join(this.wsDir(wsId), 'notes', `${safeId(nodeId)}.md`); }
 
   // ---------- workspaces ----------
   createWorkspace({ name, dir, from }) {
@@ -191,31 +199,34 @@ export class Store {
   }
 
   createNode(ws, kind, props = {}) {
-    if (!NODE_DEFAULTS[kind]) throw new Error(`unknown node kind: ${kind}`);
+    if (!Object.hasOwn(NODE_DEFAULTS, kind)) throw new Error(`unknown node kind: ${kind}`);
     const d = NODE_DEFAULTS[kind];
-    const base = props.name || { terminal: 'Terminal', note: 'Note', portal: 'Portal' }[kind];
+    const fin = (v, fallback) => (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= 1e6 ? v : fallback);
+    const text = (v, max) => (typeof v === 'string' ? v.slice(0, max) : null);
+    const base = text(props.name, 80)?.trim() || { terminal: 'Terminal', note: 'Note', portal: 'Portal' }[kind];
+    const spot = fin(props.x) === undefined || fin(props.y) === undefined ? this.freeSpot(ws, d) : null;
     const node = {
       id: uid(),
       kind,
       name: this.uniqueNodeName(ws, base),
-      x: props.x ?? this.freeSpot(ws, d).x,
-      y: props.y ?? this.freeSpot(ws, d).y,
-      w: props.w ?? d.w,
-      h: props.h ?? d.h,
-      color: props.color ?? null,
-      icon: props.icon ?? null,
+      x: fin(props.x, spot?.x ?? 0),
+      y: fin(props.y, spot?.y ?? 0),
+      w: Math.max(160, fin(props.w, d.w)),
+      h: Math.max(100, fin(props.h, d.h)),
+      color: text(props.color, 32),
+      icon: text(props.icon, 64),
     };
     if (kind === 'terminal') {
-      node.command = props.command ?? '';
-      node.cwd = props.cwd ?? ws.dir;
+      node.command = text(props.command, 4096) ?? '';
+      node.cwd = text(props.cwd, 4096) ?? ws.dir;
       node.maestro = !!props.maestro;
-      node.role = props.role ?? null;
-      node.preset = props.preset ?? null;
+      node.role = text(props.role, 128);
+      node.preset = text(props.preset, 128);
     } else if (kind === 'portal') {
-      node.url = props.url ?? 'about:blank';
+      node.url = text(props.url, 2048) ?? 'about:blank';
     }
     ws.nodes.push(node);
-    if (kind === 'note') this.writeNote(ws.id, node.id, props.text ?? '');
+    if (kind === 'note') this.writeNote(ws.id, node.id, typeof props.text === 'string' ? props.text : '');
     this.saveWorkspace(ws.id);
     return node;
   }
@@ -237,15 +248,24 @@ export class Store {
   patchNode(ws, id, patch) {
     const n = ws.nodes.find((x) => x.id === id);
     if (!n) throw new Error(`no such node: ${id}`);
-    const allowed = ['x', 'y', 'w', 'h', 'color', 'icon', 'url', 'command', 'cwd', 'maestro', 'role'];
-    for (const k of allowed) {
-      if (k in patch) n[k] = patch[k];
+    const num = (v) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= 1e6;
+    const str = (v, max) => typeof v === 'string' && v.length <= max;
+    const rules = {
+      x: num, y: num, w: num, h: num,
+      color: (v) => v === null || str(v, 32), icon: (v) => v === null || str(v, 64),
+      url: (v) => str(v, 2048), command: (v) => str(v, 4096), cwd: (v) => str(v, 4096),
+      maestro: (v) => typeof v === 'boolean', role: (v) => v === null || str(v, 128),
+    };
+    for (const [k, ok] of Object.entries(rules)) {
+      if (!Object.hasOwn(patch, k)) continue;
+      if (!ok(patch[k])) throw new Error(`invalid value for ${k}`);
+      n[k] = patch[k];
     }
     if (typeof patch.name === 'string' && patch.name.trim()) {
-      n.name = this.uniqueNodeName(ws, patch.name.trim(), n.id);
+      n.name = this.uniqueNodeName(ws, patch.name.trim().slice(0, 80), n.id);
     }
-    for (const k of ['x', 'y']) if (!Number.isFinite(n[k])) n[k] = 0;
-    for (const k of ['w', 'h']) n[k] = Math.max(160, Number.isFinite(n[k]) ? n[k] : 320);
+    if ('w' in patch) n.w = Math.max(160, n.w);
+    if ('h' in patch) n.h = Math.max(100, n.h);
     this.saveWorkspace(ws.id);
     return n;
   }

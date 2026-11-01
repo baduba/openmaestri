@@ -23,11 +23,14 @@ const SCROLLBACK = 5000;
 export function readUserEnv(file) {
   const out = {};
   let text;
-  try { text = fs.readFileSync(file, 'utf8'); } catch { return out; }
+  try {
+    if (fs.statSync(file).mode & 0o077) console.warn(`[env] ${file} is readable by other users; run: chmod 600 ${file}`);
+    text = fs.readFileSync(file, 'utf8');
+  } catch { return out; }
   for (const raw of text.split('\n')) {
     const line = raw.trim();
     if (!line || line.startsWith('#')) continue;
-    const m = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line);
+    const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line.startsWith('export ') ? line.slice(7).trimStart() : line);
     if (!m) continue;
     let v = m[2].trim();
     if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
@@ -35,6 +38,9 @@ export function readUserEnv(file) {
   }
   return out;
 }
+
+/** POSIX single-quote escaping, safe for any path. */
+const shellQuote = (s) => `'${String(s).replaceAll("'", `'\\''`)}'`;
 
 function defaultShell() {
   if (process.env.SHELL && fs.existsSync(process.env.SHELL)) return process.env.SHELL;
@@ -97,7 +103,7 @@ export class Terminals extends EventEmitter {
     // An agent command runs inside an interactive shell and falls back to that
     // shell when the agent exits, so the pane never silently dies.
     const args = node.command
-      ? ['-i', '-c', `${node.command}\nexec ${JSON.stringify(shell)} -i`]
+      ? ['-i', '-c', `${node.command}\nexec ${shellQuote(shell)} -i`]
       : ['-i'];
     const proc = pty.spawn(shell, args, { name: 'xterm-256color', cols: DEFAULT_COLS, rows: DEFAULT_ROWS, cwd, env });
     const term = new Terminal({ cols: DEFAULT_COLS, rows: DEFAULT_ROWS, scrollback: SCROLLBACK, allowProposedApi: true });

@@ -64,7 +64,7 @@ export function startIpc(core, socketPath) {
       reply(sock, { id, ok: true, text: r.text ?? '', data: r.data });
     } catch (e) {
       if (!(e instanceof CommandError)) console.error('[ipc]', cmd, e);
-      reply(sock, { id, ok: false, error: e instanceof CommandError ? e.message : `internal error: ${e.message}` });
+      reply(sock, { id, ok: false, error: e instanceof CommandError ? e.message : 'internal error (see the daemon log)' });
     }
   }
 

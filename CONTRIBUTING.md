@@ -33,7 +33,7 @@ OPENMAESTRI_DATA_DIR=/tmp/om-dev OPENMAESTRI_PORT=0 npm start
 3. Keep changes focused. One concern per pull request.
 4. Add or update tests. CLI behavior is tested by running `openmaestri` **inside** a terminal (see `test/e2e.test.js`); agents are faked with `test/fixtures/fake-agent.sh`, so tests need no API keys.
 5. Update docs (`docs/`, README) when behavior or commands change.
-6. Run `npm test`, then open a pull request using the template.
+6. Run `npm test` and `npm run lint` (or `scripts/sast.sh` for the full static-analysis suite), then open a pull request using the template.
 
 ## Code style
 

@@ -26,6 +26,7 @@ export class Core extends EventEmitter {
     this.terminals = new Terminals({ socketPath, cliDir, cliBin, envFile: path.join(dataRoot, 'env') });
     this.socketPath = socketPath;
     this.startedAt = Date.now();
+    this.notifyLog = new Map();
     this.scheduler = new Scheduler({
       workspaces: () => this.store.workspaces.values(),
       changed: (ws) => this.touch(ws),
@@ -136,7 +137,7 @@ export class Core extends EventEmitter {
   async command(ctx, cmd, a = {}) {
     const ws = this.store.workspaceOfNode(ctx.terminalId) || fail('unknown terminal (was it removed?)');
     const me = this.nodeOrFail(ws, ctx.terminalId);
-    const h = this.handlers[cmd];
+    const h = Object.hasOwn(HANDLERS, cmd) ? HANDLERS[cmd] : null;
     if (!h) fail(`unknown command: ${cmd}`);
     return h.call(this, ws, me, a);
   }
@@ -168,7 +169,12 @@ const HANDLERS = {
 
   notify(ws, me, { message }) {
     if (!message) fail('usage: notify "message"');
-    this.emit('notify', { workspaceId: ws.id, from: me.name, message: String(message) });
+    // a looping agent must not be able to flood the human with notifications
+    const now = Date.now();
+    const recent = (this.notifyLog.get(me.id) ?? []).filter((t) => now - t < 60000);
+    if (recent.length >= 20) fail('notification rate limit reached (20 per minute)');
+    this.notifyLog.set(me.id, [...recent, now]);
+    this.emit('notify', { workspaceId: ws.id, from: me.name, message: String(message).slice(0, 500) });
     return { text: 'sent' };
   },
 
@@ -281,7 +287,7 @@ const HANDLERS = {
   },
 
   // ----- orchestration (maestro only) -----
-  recruit(ws, me, { name, preset, role, dir, command, color, icon, replace, account }) {
+  recruit(ws, me, { name, preset, role, dir, command, color, icon, replace }) {
     this.requireMaestro(me);
     const presetObj = preset ? this.store.settings.presets.find((p) => p.name.toLowerCase() === String(preset).toLowerCase()) : null;
     if (preset && !presetObj) fail(`no preset named "${preset}" (see: preset list)`);

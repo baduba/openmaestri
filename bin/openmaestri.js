@@ -100,7 +100,7 @@ export function build({ pos, flags }) {
       }
     }
     case 'portal': {
-      const [a, b, ...more] = rest;
+      const [a, b] = rest;
       switch (c1) {
         case 'create': need(a, 'portal create URL ["Name"] [--size WxH]'); return { cmd: 'portal.create', args: { url: a, name: b, size: flags.size } };
         case 'edit': need(a && flags.url, 'portal edit "Portal" --url URL'); return { cmd: 'portal.edit', args: { name: a, url: flags.url } };

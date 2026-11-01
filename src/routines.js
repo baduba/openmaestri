@@ -101,7 +101,9 @@ export class Scheduler {
   async runNow(ws, r) {
     let text = r.command;
     if (r.preRun) {
+      // Intentional: --pre-run is a user-authored shell command (same privileges as the terminals, bounded by timeout and output size).
       const out = await new Promise((res) =>
+        // eslint-disable-next-line security/detect-child-process
         exec(r.preRun, { cwd: ws.dir, timeout: 60000, maxBuffer: 1 << 20 }, (_e, stdout) => res(String(stdout || '').trim())),
       );
       text = text.includes('{{output}}') ? text.replaceAll('{{output}}', out) : text;
@@ -117,7 +119,7 @@ export class Scheduler {
       let dirty = false;
       for (const r of ws.routines) {
         if (!r.enabled || r.nextRunAt == null || r.nextRunAt > now) continue;
-        try { await this.runNow(ws, r); } catch (e) { console.error(`[routine] ${r.name}: ${e.message}`); }
+        try { await this.runNow(ws, r); } catch (e) { console.error("[routine] failed:", r.name, String(e)); }
         const done = (r.count != null && r.fireCount >= r.count) || (r.until && Date.parse(r.until) <= now);
         r.nextRunAt = done ? null : nextRun(r.schedule, now);
         if (r.nextRunAt == null) r.enabled = false;
