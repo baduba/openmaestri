@@ -24,7 +24,7 @@ Legend: done = works and is tested · partial = some of it · missing = not star
 | Pull requests and git hosts | 41 | missing | review floors, PR list, checks |
 | File tree and editor panes | 43 | missing | |
 | Partituras (saved layouts) | 10 | partial | save/insert/update/delete from CLI, UI and palette, with or without commands and note text, global or per workspace. Missing: file import/export of a single layout, chat history option |
-| Portals (web panes) | 12 | partial | URL panes, sandboxed. Missing: page automation (snapshot, click, fill, ...), design mode, user-agent presets |
+| Portals (web panes) | 12 | done | a real Chromium per portal shared by the human and agents: snapshot with refs, click, fill, type, key, select, check, scroll, drag, upload, wait, evaluate, logs, screenshot, resize, user-agent presets; see [portals](portals.html). Missing: design mode |
 | Android devices | 7 | missing | |
 | Maestri Chat (threads, `say`, `recall`) | 28 | missing | conversational front-end with per-thread memory |
 | Prompter (composer with @mentions, file index) and saved prompts | 16 | missing | |
@@ -38,7 +38,7 @@ Legend: done = works and is tested · partial = some of it · missing = not star
 
 1. **Canvas parity** (done in 0.2): note stacks, bands, partituras, auto-layout and snapping, undo/redo, command palette, workspace export/import.
 2. **Floors** (core done in 0.2): worktrees, landing. Next: hooks, snapshots, then pull-request review UI.
-3. **Portals**: page automation over the Chrome DevTools Protocol, design mode.
+3. **Portals** (done in 0.3): page automation over the Chrome DevTools Protocol. Next: design mode.
 4. **Intelligence**: chat threads with memory (`say`/`recall`), prompter with @mentions and file index, saved prompts, agent usage tracking, role discovery.
 5. **Shell**: Electron wrapper, tray, preferences, onboarding.
 6. **Everything else**: accounts, sandboxes/Docker/WSL, remote, Android.

@@ -9,7 +9,7 @@ title: Getting started
 **Debian / Ubuntu**
 
 ```bash
-sudo apt install ./openmaestri_0.2.0_amd64.deb   # needs Node.js >= 20
+sudo apt install ./openmaestri_0.3.0_amd64.deb   # needs Node.js >= 20
 openmaestri serve --open
 ```
 

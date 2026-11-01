@@ -36,6 +36,7 @@ Only the latest release receives fixes while the project is 0.x.
 | Workspace files | Path traversal through ids | ids must be canonical UUIDs (`safeId`) |
 | Your API keys | Ending up in repositories | read from `~/.openmaestri/env`, never written to workspace files; a warning is printed if the file is group or world readable |
 | The human's attention | A looping agent spamming notifications | 20 notifications per minute per terminal |
+| Portal browsers | A page or an agent reaching local files or other processes | only http/https; `file:`/`chrome:`/`devtools:` blocked in the browser; DevTools over a pipe (no TCP port); throwaway profile per portal; uploads limited to workspace folders |
 | Agent-to-agent traffic | **Prompt injection**: text returned by `ask`/`check` is untrusted input for the agent that reads it | not solvable by the app; give agents least-privilege directories and review what a Maestro recruits |
 
 Run `scripts/sast.sh` before sending a pull request that touches the network surface. Details: [docs/security-scanning.md](docs/security-scanning.md).

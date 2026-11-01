@@ -66,6 +66,9 @@ function onMessage(m) {
     case 'notify': toast(m.message, m.from); maybeSystemNotify(m); break;
     case 'error': toast(m.message, 'error', true); break;
     case 'toast': toast(m.message, m.from); break;
+    case 'portal.frame': state.views.get(m.id)?.frame?.(m); break;
+    case 'portal.nav': state.views.get(m.id)?.nav?.(m); break;
+    case 'portal.error': state.views.get(m.id)?.portalError?.(m.message); break;
     case 'floor.focus': setFloor(m.id); break;
   }
 }
@@ -195,7 +198,7 @@ const canvas = $('#canvas');
 const canvasPoint = (e) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
 
 canvas.addEventListener('wheel', (e) => {
-  const inScrollable = e.target.closest('.term, textarea, iframe');
+  const inScrollable = e.target.closest('.term, textarea, iframe, canvas.pv');
   if (e.ctrlKey || e.metaKey) {
     e.preventDefault();
     const p = canvasPoint(e);
@@ -469,6 +472,86 @@ function buildNote(view, body, dot, getNode, baseUpdate, patch) {
 }
 
 function buildPortal(view, body, dot, getNode, baseUpdate, patch) {
+  if (state.summary.portalsAvailable) buildPortalBrowser(view, body, dot, getNode, baseUpdate);
+  else buildPortalIframe(view, body, dot, getNode, baseUpdate, patch);
+}
+
+/** A real Chromium on the server, shown as a stream of frames; mouse and keys go back to it. */
+function buildPortalBrowser(view, body, dot, getNode, baseUpdate) {
+  dot.style.background = 'var(--ok)';
+  const bar = el('div', 'urlbar');
+  const back = el('button', null, '‹'); back.title = 'Back';
+  const fwd = el('button', null, '›'); fwd.title = 'Forward';
+  const reload = el('button', null, '↻'); reload.title = 'Reload';
+  const input = el('input');
+  input.setAttribute('aria-label', 'Address');
+  bar.append(back, fwd, reload, input);
+  const stage = el('div', 'pv-stage');
+  const cv = el('canvas', 'pv');
+  cv.tabIndex = 0;
+  const note = el('div', 'portal-msg');
+  note.textContent = 'Starting the browser…';
+  stage.append(cv, note);
+  body.append(bar, stage);
+  const ctx = cv.getContext('2d');
+  let frame = null, drawing = false, size = { w: 0, h: 0 };
+  const go = (action, url) => send({ t: 'portal.go', workspaceId: wsId(), id: getNode().id, action, url });
+  back.onclick = () => go('back'); fwd.onclick = () => go('forward'); reload.onclick = () => go('reload');
+  input.onkeydown = (e) => { e.stopPropagation(); if (e.key === 'Enter') { const v = input.value.trim(); if (v) go('navigate', /^[a-z][a-z0-9+.-]*:/i.test(v) ? v : `https://${v}`); } };
+
+  const paint = () => {
+    drawing = false;
+    if (!frame) return;
+    const img = new Image();
+    img.onload = () => {
+      if (cv.width !== img.width || cv.height !== img.height) { cv.width = img.width; cv.height = img.height; }
+      size = { w: img.width, h: img.height };
+      ctx.drawImage(img, 0, 0);
+      note.style.display = 'none';
+    };
+    img.src = `data:image/jpeg;base64,${frame}`;
+  };
+  view.frame = (f) => { frame = f.data; if (!drawing) { drawing = true; requestAnimationFrame(paint); } };
+  view.nav = (n) => {
+    if (document.activeElement !== input) input.value = n.url === 'about:blank' ? '' : n.url;
+    back.disabled = !n.canBack; fwd.disabled = !n.canForward;
+  };
+  view.portalError = (m) => { note.style.display = ''; note.textContent = m; };
+
+  // pointer position in page pixels (the canvas letterboxes the frame)
+  const toPage = (e) => {
+    const r = cv.getBoundingClientRect();
+    const k = Math.min(r.width / size.w, r.height / size.h) || 1;
+    const ox = (r.width - size.w * k) / 2, oy = (r.height - size.h * k) / 2;
+    return { x: Math.round((e.clientX - r.left - ox) / k), y: Math.round((e.clientY - r.top - oy) / k) };
+  };
+  const ev = (event) => send({ t: 'portal.input', workspaceId: wsId(), id: getNode().id, event });
+  const btn = (e) => ['left', 'middle', 'right'][e.button] ?? 'left';
+  let lastMove = 0;
+  cv.addEventListener('pointerdown', (e) => { cv.focus(); cv.setPointerCapture(e.pointerId); ev({ kind: 'mouse', type: 'down', ...toPage(e), button: btn(e), clickCount: e.detail || 1 }); });
+  cv.addEventListener('pointerup', (e) => ev({ kind: 'mouse', type: 'up', ...toPage(e), button: btn(e), clickCount: e.detail || 1 }));
+  cv.addEventListener('pointermove', (e) => { const now = Date.now(); if (now - lastMove > 30) { lastMove = now; ev({ kind: 'mouse', type: 'move', ...toPage(e), buttons: e.buttons }); } });
+  cv.addEventListener('wheel', (e) => { e.preventDefault(); e.stopPropagation(); ev({ kind: 'mouse', type: 'wheel', ...toPage(e), deltaX: e.deltaX, deltaY: e.deltaY }); }, { passive: false });
+  cv.addEventListener('contextmenu', (e) => e.preventDefault());
+  const modsOf = (e) => (e.altKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.metaKey ? 4 : 0) | (e.shiftKey ? 8 : 0);
+  const keyEv = (type, e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') return; // the palette
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') return; // delivered by the paste event
+    e.preventDefault(); e.stopPropagation();
+    const printable = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+    ev({ kind: 'key', type, key: e.key, code: e.code, modifiers: modsOf(e), text: type === 'down' ? (printable ? e.key : e.key === 'Enter' ? '\r' : undefined) : undefined });
+  };
+  cv.addEventListener('keydown', (e) => keyEv('down', e));
+  cv.addEventListener('keyup', (e) => keyEv('up', e));
+  cv.addEventListener('paste', (e) => { e.preventDefault(); const text = e.clipboardData?.getData('text/plain'); if (text) ev({ kind: 'paste', text }); });
+
+  view.attach = () => send({ t: 'portal.attach', workspaceId: wsId(), id: getNode().id });
+  view.update = (next) => { baseUpdate(next); if (document.activeElement !== input && next.url && !input.value) input.value = next.url === 'about:blank' ? '' : next.url; };
+  view.cleanup = () => send({ t: 'portal.detach', id: getNode().id });
+  view.attach();
+}
+
+function buildPortalIframe(view, body, dot, getNode, baseUpdate, patch) {
   dot.style.background = 'var(--ok)';
   const bar = el('div', 'urlbar');
   const input = el('input');

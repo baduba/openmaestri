@@ -6,6 +6,7 @@ import path from 'node:path';
 import { Store, dataDir } from './store.js';
 import { GUIDE } from './prompts.js';
 import { Terminals } from './terminals.js';
+import { Portals, PortalError, checkUrl } from './portals.js';
 import { History } from './history.js';
 import { tidy as tidyLayout } from './layout.js';
 import { capturePartitura, instantiatePartitura } from './transfer.js';
@@ -32,6 +33,7 @@ export class Core extends EventEmitter {
     this.startedAt = Date.now();
     this.notifyLog = new Map();
     this.history = new History();
+    this.portals = new Portals({ dataRoot, uploadRoots: () => this.uploadRoots() });
     this.scheduler = new Scheduler({
       workspaces: () => this.store.workspaces.values(),
       changed: (ws) => this.touch(ws),
@@ -57,6 +59,7 @@ export class Core extends EventEmitter {
   }
 
   stop() {
+    this.portals.stop();
     this.scheduler.stop();
     this.store.flush();
     this.terminals.disposeAll();
@@ -76,12 +79,14 @@ export class Core extends EventEmitter {
       active: this.store.settings.activeWorkspaceId,
       workspaces: [...this.store.workspaces.values()].map((w) => ({ id: w.id, name: w.name, dir: w.dir, nodes: w.nodes.length })),
       presets: this.store.settings.presets,
+      portalsAvailable: this.portals.available,
       partituras: (this.store.settings.partituras ?? []).map((p) => ({ id: p.id, name: p.name, description: p.description, icon: p.icon, color: p.color, scope: p.scope, nodes: p.nodes.length })),
     };
   }
 
   /** Mark a workspace changed: persist (debounced) and tell every listener. */
   touch(ws) {
+    this.reapPortals();
     this.history.record(ws);
     this.store.saveWorkspace(ws.id);
     this.emit('workspace', ws.id);
@@ -343,24 +348,68 @@ const HANDLERS = {
     this.touch(ws);
     return { text: node.name };
   },
-  'portal.edit'(ws, me, { name, url }) {
+  async 'portal.edit'(ws, me, { name, url }) {
     const p = this.resolve(ws, me, name, ['portal']);
-    let u;
-    try { u = new URL(url); } catch { fail(`invalid URL: ${url}`); }
-    if (!['http:', 'https:'].includes(u.protocol)) fail('only http(s) URLs are allowed');
-    this.store.patchNode(ws, p.id, { url: u.href });
+    let href;
+    try { href = checkUrl(url); } catch (e) { fail(e.message); }
+    if (this.portals.has(p.id)) await this.runPortal(() => this.portals.get(p).navigate(href));
+    else this.store.patchNode(ws, p.id, { url: href });
+    this.store.saveWorkspace(ws.id);
     this.touch(ws);
-    return { text: `${p.name} -> ${u.href}` };
+    return { text: `${p.name} -> ${href}` };
   },
-  'portal.close'(ws, me, { name }) {
+  async 'portal.close'(ws, me, { name }) {
     const p = this.resolve(ws, me, name, ['portal']);
+    await this.portals.dispose(p.id);
     this.store.deleteNode(ws, p.id);
     this.touch(ws);
     return { text: `closed ${p.name}` };
   },
-  'portal.info'(ws, me, { name }) {
-    const p = this.resolve(ws, me, name, ['portal']);
-    return { text: `url: ${p.url}\nviewport: ${p.w}x${p.h}` };
+  /** Everything an agent can do inside a portal: snapshot, click, fill, ... (see docs/portals.md). */
+  async 'portal.act'(ws, me, { op, name, rest = [] }) {
+    const node = this.resolve(ws, me, name, ['portal']);
+    const p = this.portals.get(node);
+    const [a, b, ...more] = rest;
+    const need = (cond, usage) => { if (!cond) fail(`usage: portal ${op} "${node.name}" ${usage}`); };
+    const out = await this.runPortal(async () => {
+      switch (op) {
+        case 'info': { const i = await p.info(); return `url: ${i.url}\ntitle: ${i.title}\nviewport: ${i.width}x${i.height}`; }
+        case 'snapshot': case 'a11y': return p.snapshot();
+        case 'click': need(a, '@e3 | CSS | x,y'); await p.click(a); return 'clicked';
+        case 'fill': need(a && b !== undefined, '@e2 "text"'); await p.fill(a, b); return 'filled';
+        case 'type': need(a !== undefined, '"text"'); await p.type(a); return 'typed';
+        case 'key': need(a, '"Enter" (also ctrl+a, shift+tab)'); await p.key(a); return `pressed ${a}`;
+        case 'focus': need(a, '@e2'); await p.focus(a); return 'focused';
+        case 'select': need(a && b !== undefined, '@e5 "Option"'); return `selected ${await p.select(a, b)}`;
+        case 'check': if (!a) return `screenshot: ${await p.screenshot()}`; await p.setChecked(a, true); return 'checked';
+        case 'uncheck': need(a, '@e6'); await p.setChecked(a, false); return 'unchecked';
+        case 'selectall': await p.selectAll(a); return 'selected all';
+        case 'clear': await p.clear(a); return 'cleared';
+        case 'navigate': need(a, '"url"'); { const n = await p.navigate(a); this.store.saveWorkspace(ws.id); return `${n.title || '(untitled)'}  ${n.url}`; }
+        case 'back': { const n = await p.history(-1); return n.url; }
+        case 'forward': { const n = await p.history(1); return n.url; }
+        case 'reload': { const n = await p.reload(); return n.url; }
+        case 'screenshot': return p.screenshot();
+        case 'scroll': need(a, 'down [300] [@e5 | x,y]'); return (await p.scroll(a, b ?? 300, more[0]), 'scrolled');
+        case 'scrollintoview': need(a, '@e10'); await p.scrollIntoView(a); return 'scrolled into view';
+        case 'hover': need(a, '@e3'); await p.hover(a); return 'hovering';
+        case 'drag': need(a && b, '@e3 @e7'); await p.drag(a, b); return 'dragged';
+        case 'upload': need(a && b, '@e4 file [file...]'); return `attached ${await p.upload(a, [b, ...more])} file(s)`;
+        case 'text': need(a, '@e1'); return p.text(a);
+        case 'wait': need(a, '@e3 [timeoutMs]'); return p.wait(a, b === undefined ? 5000 : Number(b));
+        case 'evaluate': need(a !== undefined, '"js"'); return p.evaluate(a);
+        case 'html': return p.html();
+        case 'logs-start': p.startLogs(); return 'capturing console output';
+        case 'logs': return p.readLogs();
+        case 'resize': need(a && b, '390 844'); { const v = await p.resize(a, b); return `viewport ${v.w}x${v.h}`; }
+        case 'ua': return p.userAgent(a);
+        case 'devices': case 'tap': case 'swipe': case 'button': case 'home': case 'lock': case 'launch': case 'terminate':
+          return fail('Android device portals are not implemented yet');
+        default: return fail(`unknown portal command "${op}"`);
+      }
+    });
+    this.store.saveWorkspace(ws.id);
+    return { text: typeof out === 'string' ? out : JSON.stringify(out) };
   },
 
   // ----- orchestration (maestro only) -----
@@ -920,4 +969,23 @@ Core.prototype.doFloorDelete = async function (ws, { name, keepBranch, keepFolde
     this.touch(ws);
     return { text: `deleted ${f.name}${tail}` };
   } catch (e) { return e instanceof FloorError ? fail(e.message) : Promise.reject(e); }
+};
+
+/** Run a portal action, turning browser-side failures into plain command errors. */
+Core.prototype.runPortal = async function (fn) {
+  try { return await fn(); } catch (e) { if (e instanceof PortalError) fail(e.message); throw e; }
+};
+/** Folders an agent may upload files from: every workspace and floor directory. */
+Core.prototype.uploadRoots = function () {
+  const roots = [];
+  for (const ws of this.store.workspaces.values()) {
+    for (const d of [ws.dir, ...ws.floors.map((f) => f.dir)]) { try { roots.push(fs.realpathSync(d)); } catch { /* missing folder */ } }
+  }
+  return roots;
+};
+/** A portal whose node no longer exists anywhere has no reason to keep a browser open. */
+Core.prototype.reapPortals = function () {
+  for (const id of [...this.portals.map.keys()]) {
+    if (![...this.store.workspaces.values()].some((w) => w.nodes.some((n) => n.id === id))) this.portals.dispose(id);
+  }
 };
