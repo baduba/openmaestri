@@ -4,6 +4,8 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-01
+
 ### Added
 - Floors: per-task canvases with their own git worktree/clone/folder, `floor create|list|land|delete|set-dir|unload|status`, `recruit --floor`, floor bar in the UI (see docs/floors.md)
 - Stacks (fichários), bands, partituras (saved layouts), undo/redo with a note trash, tidy auto-layout, snap to grid, Ctrl+K command palette
