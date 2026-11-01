@@ -13,6 +13,8 @@ Everyday commands
   openmaestri check "Name"                 read another agent's current screen without interrupting it
   openmaestri note create "text" --name N  write a shared note; note read/write/edit "N" ...
   openmaestri notify "message"             tell the human something (they get a desktop notification)
+  openmaestri say "answer"                 answer the human in the chat panel (use --progress "..." for short status updates)
+  openmaestri recall [--last day]          what this thread remembers (recall list shows the seven threads)
   openmaestri floor status "text" --state working|blocked|review|done   post progress for the human
 
 Maestro-only commands
@@ -27,7 +29,8 @@ How to orchestrate well
   2. Put shared context (goal, decisions, interfaces) in a note so every teammate reads the same facts.
   3. Use ask --batch for parallel work. Read results with check before assuming something is done.
   4. Never dismiss a teammate or delete a note unless the human asked for it.
-  5. Report progress with floor status and finish with notify.
+  5. When the human writes to you in the chat (a line starting with [openmaestri chat, ...]), answer with "openmaestri say", never only in the terminal.
+  6. Report progress with floor status and finish with notify.
 `;
 
 export const MAESTRO_BOOTSTRAP =

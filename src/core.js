@@ -6,6 +6,7 @@ import path from 'node:path';
 import { Store, dataDir } from './store.js';
 import { GUIDE } from './prompts.js';
 import { Terminals } from './terminals.js';
+import { Chat, ChatError, THREAD_IDS, threadId, cleanText } from './chat.js';
 import { Portals, PortalError, checkUrl } from './portals.js';
 import { History } from './history.js';
 import { tidy as tidyLayout } from './layout.js';
@@ -34,6 +35,9 @@ export class Core extends EventEmitter {
     this.notifyLog = new Map();
     this.history = new History();
     this.portals = new Portals({ dataRoot, uploadRoots: () => this.uploadRoots() });
+    this.chat = new Chat({ store: this.store, allowedRoots: (wsId) => this.chatRoots(wsId) });
+    this.attention = new Map(); // workspace id -> Set of terminal ids waiting for the human
+    this.sayLog = new Map();
     this.scheduler = new Scheduler({
       workspaces: () => this.store.workspaces.values(),
       changed: (ws) => this.touch(ws),
@@ -56,6 +60,9 @@ export class Core extends EventEmitter {
     this.terminals.on('data', (id, data) => this.emit('term-data', id, data));
     this.terminals.on('exit', (id, code) => this.emit('term-status', id, 'exited', code));
     this.terminals.on('status', (id, st) => this.emit('term-status', id, st));
+    this.chat.on('message', (wsId, message) => this.emit('chat-message', wsId, message));
+    this.chat.on('progress', (wsId, message) => this.emit('chat-progress', wsId, message));
+    this.chat.on('state', (wsId) => this.emit('chat-state', wsId));
   }
 
   stop() {
@@ -71,7 +78,7 @@ export class Core extends EventEmitter {
     for (const n of ws.nodes) if (n.kind === 'note') notes[n.id] = this.store.readNote(ws.id, n.id);
     const status = {};
     for (const n of ws.nodes) if (n.kind === 'terminal') status[n.id] = this.terminals.status(n.id);
-    return { ...ws, notes, status, history: this.history.state(ws) };
+    return { ...ws, notes, status, history: this.history.state(ws), chat: this.chatState(ws) };
   }
 
   summary() {
@@ -196,7 +203,12 @@ export class Core extends EventEmitter {
     const me = this.nodeOrFail(ws, ctx.terminalId);
     const h = Object.hasOwn(HANDLERS, cmd) ? HANDLERS[cmd] : null;
     if (!h) fail(`unknown command: ${cmd}`);
-    return h.call(this, ws, me, a);
+    try {
+      return await h.call(this, ws, me, a);
+    } catch (e) {
+      if (e instanceof ChatError) fail(e.message);
+      throw e;
+    }
   }
 
   get handlers() {
@@ -234,6 +246,7 @@ const HANDLERS = {
     const recent = (this.notifyLog.get(me.id) ?? []).filter((t) => now - t < 60000);
     if (recent.length >= 20) fail('notification rate limit reached (20 per minute)');
     this.notifyLog.set(me.id, [...recent, now]);
+    this.markAttention(ws, me.id);
     this.emit('notify', { workspaceId: ws.id, from: me.name, message: String(message).slice(0, 500) });
     return { text: 'sent' };
   },
@@ -824,6 +837,60 @@ const HANDLERS = {
     return { text: `unloaded ${f.name}: stopped ${n} terminal(s). They restart when you open the floor` };
   },
 
+  // ----- chat: the human talks to the Maestro; agents answer with `say` -----
+  say(ws, me, { text, file, attach = [], progress, thread }) {
+    const now = Date.now();
+    const recent = (this.sayLog.get(me.id) ?? []).filter((t) => now - t < 60000);
+    if (recent.length >= 30) fail('chat rate limit reached (30 messages per minute)');
+    this.sayLog.set(me.id, [...recent, now]);
+    const active = this.chat.active(ws.id);
+    let tid = active;
+    if (thread !== undefined) {
+      if (!me.maestro) fail('only a Maestro can write to a thread other than the active one');
+      tid = threadId(thread);
+    }
+    const files = [...attach, ...(file ? [file] : [])];
+    let body = text ?? '';
+    const attachments = [];
+    for (const f of files) {
+      const isImage = /\.(png|jpe?g|gif|webp)$/i.test(f);
+      if (f === file && !isImage && !body) body = this.readTextFile(ws, f);
+      else attachments.push(this.chat.attach(ws.id, f));
+    }
+    const msg = this.chat.append(ws.id, tid, { role: 'agent', sender: me.name, senderId: me.id, text: body, attachments, progress: !!progress });
+    if (!progress) this.markAttention(ws, me.id);
+    this.touchChat(ws);
+    return { text: progress ? 'progress sent' : 'sent', data: { id: msg.id, thread: tid } };
+  },
+
+  recall(ws, me, { thread, turns, last, from, to, all, json, list, attachment }) {
+    if (list) {
+      const rows = this.chat.list(ws.id).map((t) => `${t.active ? '*' : ' '} ${t.id.replace('thread-', '')}  ${t.title.padEnd(14)} ${t.empty ? '(empty)' : `${t.turnCount} turns, last: ${t.preview}`}`);
+      return { text: rows.join('\n'), data: this.chat.list(ws.id) };
+    }
+    if (attachment !== undefined) return { text: this.chat.attachmentPath(ws.id, attachment) };
+    const active = this.chat.active(ws.id);
+    const tid = thread === undefined ? active : threadId(thread);
+    if (!me.maestro && tid !== active) fail('you can only recall the active thread');
+    if (all && !me.maestro) fail('only a Maestro can recall every thread');
+    const q = { turns: turns ?? (all ? 200 : 30) };
+    const day = 86400000;
+    if (last) {
+      const span = { day, week: 7 * day, month: 30 * day }[last];
+      if (!span) fail('--last takes day, week or month');
+      q.since = Date.now() - span;
+    }
+    if (from) { q.since = Date.parse(from); if (Number.isNaN(q.since)) fail(`bad date: ${from}`); }
+    if (to) { q.until = Date.parse(to); if (Number.isNaN(q.until)) fail(`bad date: ${to}`); }
+    const ids = all ? THREAD_IDS : [tid];
+    const rows = ids.flatMap((id) => this.chat.history(ws.id, id, q));
+    rows.sort((a, b) => a.ts - b.ts);
+    const out = rows.slice(-q.turns);
+    if (json) return { text: JSON.stringify(out, null, 2), data: out };
+    const fmt = (m) => `[${new Date(m.ts).toISOString().slice(0, 16).replace('T', ' ')}]${all ? ` ${m.threadId.replace('thread-', 't')}` : ''} ${m.sender}: ${m.text}${m.attachments.length ? ` (attachments: ${m.attachments.map((a) => `${a.name} ${a.id}`).join(', ')})` : ''}`;
+    return { text: out.length ? out.map(fmt).join('\n') : '(nothing remembered in that range)' };
+  },
+
   debug(ws, me) {
     const rt = this.terminals.get(me.id);
     return {
@@ -994,4 +1061,57 @@ Core.prototype.reapPortals = function () {
     const alive = [...this.store.workspaces.values()].some((w) => w.nodes.some((n) => n.id === id));
     if (!alive) this.portals.dispose(id).catch(() => { /* already gone */ });
   }
+};
+
+/** Folders an attachment may come from: the workspace and its floors. */
+Core.prototype.chatRoots = function (wsId) {
+  const ws = this.store.workspaces.get(wsId);
+  if (!ws) return [];
+  const roots = [];
+  for (const d of [ws.dir, ...ws.floors.map((f) => f.dir)]) { try { roots.push(fs.realpathSync(d)); } catch { /* folder is gone */ } }
+  return roots;
+};
+Core.prototype.readTextFile = function (ws, file) {
+  const att = this.chat.attach(ws.id, file);
+  const text = fs.readFileSync(this.chat.attachmentPath(ws.id, att.id));
+  if (text.includes(0)) fail('--file takes a text or image file');
+  return cleanText(text.toString('utf8'));
+};
+Core.prototype.markAttention = function (ws, terminalId) {
+  if (!this.attention.has(ws.id)) this.attention.set(ws.id, new Set());
+  this.attention.get(ws.id).add(terminalId);
+};
+Core.prototype.ackAttention = function (ws, terminalId) {
+  const set = this.attention.get(ws.id);
+  if (set && (terminalId === undefined ? set.size : set.delete(terminalId))) { if (terminalId === undefined) set.clear(); this.touchChat(ws); }
+};
+Core.prototype.chatState = function (ws) {
+  const att = [...(this.attention.get(ws.id) ?? [])].filter((id) => ws.nodes.some((n) => n.id === id));
+  const maestro = this.chatMaestro(ws);
+  return { threads: this.chat.list(ws.id), active: this.chat.active(ws.id), attention: att, maestroId: maestro?.id ?? null, maestroAttention: !!maestro && att.includes(maestro.id) };
+};
+Core.prototype.touchChat = function (ws) { this.emit('chat-state', ws.id); };
+/** The terminal the human is talking to: the first Maestro on the ground floor, else any Maestro. */
+Core.prototype.chatMaestro = function (ws) {
+  const maestros = ws.nodes.filter((n) => n.kind === 'terminal' && n.maestro);
+  return maestros.find((n) => (n.floorId ?? null) === null) ?? maestros[0] ?? null;
+};
+/** Human message: stored in the thread, then typed into the Maestro's terminal. */
+Core.prototype.chatSend = function (ws, { thread, text }) {
+  const maestro = this.chatMaestro(ws);
+  if (!maestro) throw new ChatError('there is no Maestro yet. Create a terminal with Maestro ticked (for example "Maestro (OpenCode + DeepSeek)")');
+  const tid = threadId(thread) ?? this.chat.active(ws.id);
+  const clean = cleanText(text, 8000).trim();
+  if (!clean) throw new ChatError('write something first');
+  this.startTerminal(ws, maestro);
+  const msg = this.chat.append(ws.id, tid, { role: 'human', sender: 'You', text: clean });
+  this.ackAttention(ws);
+  const title = this.chat.list(ws.id).find((t) => t.id === tid)?.title ?? tid;
+  const line = `[openmaestri chat, ${title}] ${clean}\n(Answer the human with: openmaestri say "your answer". For long work, send short updates with: openmaestri say --progress "...")`;
+  this.terminals.deliver(maestro.id, line);
+  return msg;
+};
+Core.prototype.chatInterrupt = function (ws) {
+  const maestro = this.chatMaestro(ws);
+  if (maestro) this.terminals.write(maestro.id, '\x03');
 };

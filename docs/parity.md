@@ -26,7 +26,7 @@ Legend: done = works and is tested · partial = some of it · missing = not star
 | Partituras (saved layouts) | 10 | partial | save/insert/update/delete from CLI, UI and palette, with or without commands and note text, global or per workspace. Missing: file import/export of a single layout, chat history option |
 | Portals (web panes) | 12 | done | a real Chromium per portal shared by the human and agents: snapshot with refs, click, fill, type, key, select, check, scroll, drag, upload, wait, evaluate, logs, screenshot, resize, user-agent presets; see [portals](portals.html). Missing: design mode |
 | Android devices | 7 | missing | |
-| Maestri Chat (threads, `say`, `recall`) | 28 | missing | conversational front-end with per-thread memory |
+| Maestri Chat (threads, `say`, `recall`) | 28 | partial | seven threads, JSONL history, `say`/`recall`/`recall list`/`recall attachment`, panel with progress, unread, attention badges, search, interrupt, attachment vault; see [chat](chat.html). Missing: summarised long-term memory, drag-and-drop attachments, thread copy/archive |
 | Prompter (composer with @mentions, file index) and saved prompts | 16 | missing | |
 | Agent accounts, usage and identity | 41 | missing | multiple accounts per agent, usage/cost tracking |
 | Sandboxes, Docker, WSL, remote tunnels | 18+ | missing | |
