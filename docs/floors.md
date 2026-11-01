@@ -51,4 +51,5 @@ The floor bar at the bottom left switches floors (`+ Floor` creates one). The pa
 
 - Undo/redo covers the canvas of every floor, but creating or deleting a floor itself (and its checkout) is not undoable.
 - Hooks that run on floor creation or landing are not implemented yet.
+- **Repository hooks do not run** during floor operations (`post-checkout`, `pre-merge-commit`...): they are code from the repository. Set `OPENMAESTRI_GIT_HOOKS=1` before starting openmaestri if you want them.
 - Everything shells out to your installed `git`, with argument arrays (no shell), validated branch names and a 60 second timeout.

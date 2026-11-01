@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 
-const BOOL = new Set(['summary', 'archive', 'apply', 'trust', 'global', 'overwrite', 'progress', 'all', 'existing-branch', 'copy', 'no-git', 'copy-ground', 'delete-branch', 'keep-floor', 'keep-branch', 'keep-folder', 'open', 'version', 'json', 'raw-flag', 'batch', 'force', 'none', 'clear', 'without-me', 'no-notify', 'disabled', 'reminder', 'agent', 'note', 'band', 'fichario', 'portal', 'help']);
+const BOOL = new Set(['no-check', 'summary', 'archive', 'apply', 'trust', 'global', 'overwrite', 'progress', 'all', 'existing-branch', 'copy', 'no-git', 'copy-ground', 'delete-branch', 'keep-floor', 'keep-branch', 'keep-folder', 'open', 'version', 'json', 'raw-flag', 'batch', 'force', 'none', 'clear', 'without-me', 'no-notify', 'disabled', 'reminder', 'agent', 'note', 'band', 'fichario', 'portal', 'help']);
 
 const HELP = `openmaestri - a spatial workspace for AI agents (open implementation)
 
@@ -31,6 +31,7 @@ Usage:
   openmaestri arrange ["Name" [--name N] [--color C] [--icon I]]
   Maestro terminals only:
   openmaestri recruit "Name" [--preset P] [--role R] [--dir PATH] [--command C] [--color C]
+  openmaestri recruit "Name" --preset "OpenCode (DeepSeek)" --model deepseek-v4-pro [--no-check]   (checks the agent is installed)
   openmaestri recruit "New" --preset P --replace "Old"
   openmaestri dismiss "Name"
   openmaestri connect "From" "To" [--agent|--band|--note|--fichario|--portal]   |   disconnect "From" "To"
@@ -53,6 +54,7 @@ Usage:
   openmaestri prompt list | read "name" | use "name" | save "name" "text" [--global] [--overwrite] | delete "name" | undo   Saved prompts (save/delete: Maestro)
   openmaestri prompt parse|materialize "text with @agent:Name @note:Name @file:path"   Expand mentions (files up to 32 KB, workspace only)
   openmaestri usage ["Agent"] [--days N] [--json] | usage report --in N --out N [--model M] [--cost USD] | usage reset ["Agent"]   Tokens, cost, turns
+  openmaestri doctor                                 Check what is installed and how to fix what is missing (works anywhere)
   openmaestri guide                                  How agents should use openmaestri (give this to your agent)
   openmaestri debug
 Global flags: --json (machine-readable output)`;
@@ -162,7 +164,7 @@ export function build({ pos, flags }) {
         default: throw new Error('usage: partitura list|insert|create|update|delete');
       }
     }
-    case 'recruit': return { cmd: 'recruit', args: { name: c1, preset: flags.preset, role: flags.role, dir: flags.dir, command: flags.command, color: flags.color, icon: flags.icon, replace: flags.replace, account: flags.account, floor: flags.floor } };
+    case 'recruit': return { cmd: 'recruit', args: { name: c1, preset: flags.preset, role: flags.role, dir: flags.dir, command: flags.command, color: flags.color, icon: flags.icon, replace: flags.replace, account: flags.account, floor: flags.floor, model: flags.model, noCheck: !!flags['no-check'] } };
     case 'dismiss': need(c1, 'dismiss "Name"'); return { cmd: 'dismiss', args: { name: c1 } };
     case 'connect': need(c1 && rest[0], 'connect "From" "To" [--agent|--band|--note|--fichario|--portal]'); return { cmd: 'connect', args: { from: c1, to: rest[0], kind: ['agent', 'band', 'note', 'fichario', 'portal'].find((k) => flags[k]) } };
     case 'disconnect': need(c1 && rest[0], 'disconnect "From" "To"'); return { cmd: 'disconnect', args: { from: c1, to: rest[0] } };
@@ -306,6 +308,12 @@ async function serve(flags) {
 
 async function run(argv) {
   const parsed = parseArgs(argv);
+  if (parsed.pos[0] === 'doctor') {
+    const { runDoctor, formatDoctor } = await import('../src/doctor.js');
+    const rows = await runDoctor();
+    console.log(parsed.flags.json ? JSON.stringify(rows, null, 2) : formatDoctor(rows));
+    return rows.some((r) => r.level === 'fail') ? 1 : 0;
+  }
   const insideTerminal = !!process.env.OPENMAESTRI_SOCKET;
   if (!insideTerminal && (parsed.pos.length === 0 || parsed.pos[0] === 'serve') && !parsed.flags.help) return serve(parsed.flags);
   if (!parsed.pos.length || parsed.pos[0] === 'help' || parsed.flags.help) { console.log(HELP); return 0; }

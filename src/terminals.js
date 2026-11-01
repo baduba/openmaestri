@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 import pty from 'node-pty';
@@ -16,6 +17,36 @@ const { SerializeAddon } = require('@xterm/addon-serialize');
 // recognises it so that chat messages are never typed into a plain shell.
 const AGENT_EXIT_PRINTF = '\\033]777;openmaestri;agent-exit\\007';
 const AGENT_EXIT_MARK = '\x1b]777;openmaestri;agent-exit\x07';
+
+export class TerminalError extends Error {}
+
+/** The program a command line starts: the first word that is not an NAME=value assignment. */
+export function firstWord(command) {
+  for (const raw of String(command ?? '').trim().split(/\s+/)) {
+    if (!raw) continue;
+    const word = raw.replace(/^["']|["']$/g, '');
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) continue;
+    return word;
+  }
+  return '';
+}
+
+const availableCache = new Map();
+/** Ask the user's own interactive shell whether the program exists (it knows nvm, ~/.local/bin and friends). */
+export function commandAvailable(command) {
+  const word = firstWord(command);
+  if (!word) return { ok: true, word: '' };
+  const hit = availableCache.get(word);
+  if (hit && Date.now() - hit.at < 60000) return { ok: hit.ok, word };
+  let ok;
+  if (word.includes('/')) { try { fs.accessSync(word, fs.constants.X_OK); ok = true; } catch { ok = false; } }
+  else {
+    try { execFileSync(defaultShell(), ['-ic', 'command -v -- "$0" >/dev/null 2>&1', word], { timeout: 5000, stdio: 'ignore' }); ok = true; } catch { ok = false; }
+  }
+  availableCache.set(word, { ok, at: Date.now() });
+  return { ok, word };
+}
+const maxTerminals = () => Math.max(1, Number(process.env.OPENMAESTRI_MAX_TERMINALS) || 40);
 
 const DEFAULT_COLS = 100;
 const DEFAULT_ROWS = 30;
@@ -97,6 +128,8 @@ export class Terminals extends EventEmitter {
   }
 
   spawn(node, workspace) {
+    const running = [...this.rt.values()].filter((r) => r.status === 'running').length;
+    if (running >= maxTerminals()) throw new TerminalError(`${running} terminals are already running (the limit is ${maxTerminals()}). Close some, or raise OPENMAESTRI_MAX_TERMINALS`);
     const shell = defaultShell();
     const cwd = node.cwd && fs.existsSync(node.cwd) ? node.cwd : workspace.dir && fs.existsSync(workspace.dir) ? workspace.dir : os.homedir();
     const env = { ...process.env };

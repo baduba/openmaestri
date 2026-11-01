@@ -4,7 +4,7 @@ title: Troubleshooting
 
 # Troubleshooting
 
-Run `openmaestri debug` inside the affected terminal first. It prints the daemon uptime, socket, workspace, terminal id and what that terminal can reach.
+Run `openmaestri doctor` first: it checks Node, git, the browser, the agents, your DeepSeek key and the data folder, and prints the fix for anything missing. Then `openmaestri debug` inside the affected terminal. It prints the daemon uptime, socket, workspace, terminal id and what that terminal can reach.
 
 | Symptom | Likely cause and fix |
 |---|---|
@@ -19,6 +19,8 @@ Run `openmaestri debug` inside the affected terminal first. It prints the daemon
 | `ask` returns too early or late | Use `--timeout 5m` and `check` to see the live screen. |
 | DeepSeek preset says `command not found` | Install `opencode` or `aider` and make sure it is on `PATH` for your login shell. |
 | `npm ci` fails building node-pty | Install `build-essential` and `python3`. |
+| `N terminals are already running (the limit is 40)` | Close terminals, or raise `OPENMAESTRI_MAX_TERMINALS` |
+| `"opencode" was not found in your shell` | Install the agent. `openmaestri doctor` lists what is missing and how to install it |
 | Port 7777 in use | `OPENMAESTRI_PORT=0 openmaestri serve` picks a free port. |
 
 Still stuck? [Report a bug](reporting-bugs.html).

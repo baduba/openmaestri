@@ -8,7 +8,7 @@ import { GUIDE } from './prompts.js';
 import { Terminals } from './terminals.js';
 import { discover as discoverRoles, plan as planRole, diffText, agentKind, RoleError, AGENT_FILES } from './roles.js';
 import { Usage, UsageError } from './usage.js';
-import { readUserEnv } from './terminals.js';
+import { readUserEnv, TerminalError, commandAvailable } from './terminals.js';
 import { PromptLib, PromptError } from './promptlib.js';
 import { Chat, ChatError, THREAD_IDS, threadId, cleanText } from './chat.js';
 import { materialize as materializeMentions, parse as parseMentions, fileIndex, rank } from './prompter.js';
@@ -226,7 +226,7 @@ export class Core extends EventEmitter {
     try {
       return await h.call(this, ws, me, a);
     } catch (e) {
-      if (e instanceof ChatError || e instanceof PromptError || e instanceof UsageError || e instanceof RoleError) fail(e.message);
+      if (e instanceof ChatError || e instanceof PromptError || e instanceof UsageError || e instanceof RoleError || e instanceof TerminalError) fail(e.message);
       throw e;
     }
   }
@@ -372,8 +372,7 @@ const HANDLERS = {
   'portal.create'(ws, me, { url, name, size }) {
     if (!url) fail('usage: portal create URL ["Name"]');
     let u;
-    try { u = new URL(/^[a-z][a-z0-9+.-]*:/i.test(url) ? url : `http://${url}`); } catch { fail(`invalid URL: ${url}`); }
-    if (!['http:', 'https:', 'about:'].includes(u.protocol)) fail('only http(s) URLs are allowed');
+    try { u = new URL(checkUrl(url, { selfPorts: this.portals.selfPorts })); } catch (e) { fail(e.message); }
     const dims = size && /^(\d+)x(\d+)$/.exec(size);
     const pos = this.placeBeside(ws, me, { w: 520, h: 380 });
     const node = this.store.createNode(ws, 'portal', { floorId: me.floorId, name: name || u.hostname || 'Portal', url: u.href, w: dims ? +dims[1] : undefined, h: dims ? +dims[2] : undefined, ...pos });
@@ -384,7 +383,7 @@ const HANDLERS = {
   async 'portal.edit'(ws, me, { name, url }) {
     const p = this.resolve(ws, me, name, ['portal']);
     let href;
-    try { href = checkUrl(url); } catch (e) { fail(e.message); }
+    try { href = checkUrl(url, { selfPorts: this.portals.selfPorts }); } catch (e) { fail(e.message); }
     if (this.portals.has(p.id)) await this.runPortal(() => this.portals.get(p).navigate(href));
     else this.store.patchNode(ws, p.id, { url: href });
     this.store.saveWorkspace(ws.id);
@@ -446,11 +445,21 @@ const HANDLERS = {
   },
 
   // ----- orchestration (maestro only) -----
-  recruit(ws, me, { name, preset, role, dir, command, color, icon, replace, floor }) {
+  recruit(ws, me, { name, preset, role, dir, command, color, icon, replace, floor, model, noCheck }) {
     this.requireMaestro(me);
     const presetObj = preset ? this.store.settings.presets.find((p) => p.name.toLowerCase() === String(preset).toLowerCase()) : null;
     if (preset && !presetObj) fail(`no preset named "${preset}" (see: preset list)`);
-    const cmd = command ?? presetObj?.command ?? '';
+    let cmd = command ?? presetObj?.command ?? '';
+    if (model !== undefined) {
+      const m = String(model);
+      if (!/^[\w./:-]{1,80}$/.test(m) || m.includes('..') || m.startsWith('/')) fail('model names use letters, digits and . _ / : -');
+      if (!cmd.includes('OPENMAESTRI_DEEPSEEK_MODEL')) fail('this preset has no model setting. --model works with the DeepSeek presets');
+      cmd = `OPENMAESTRI_DEEPSEEK_MODEL='${m}' ${cmd}`;
+    }
+    if (cmd && !noCheck) {
+      const avail = commandAvailable(cmd);
+      if (!avail.ok) fail(`"${avail.word}" was not found in your shell, so the agent could not start. Install it (run: openmaestri doctor) or add --no-check`);
+    }
     if (replace) {
       const old = this.resolveAny(ws, replace, ['terminal']);
       this.terminals.dispose(old.id);
@@ -471,6 +480,7 @@ const HANDLERS = {
     const anchor = { ...me, floorId: target.id };
     const pos = this.placeBeside(ws, anchor, { w: 640, h: 400 });
     const node = this.store.createNode(ws, 'terminal', { name, command: cmd, cwd, color, icon, role: role || null, preset: presetObj?.name ?? null, maestro: !!presetObj?.maestro, floorId: target.id, ...pos });
+    if (model !== undefined) node.usageModel = String(model);
     this.store.connect(ws, me.id, node.id);
     this.startTerminal(ws, node);
     if (rolePrompt) setTimeout(() => { try { this.terminals.deliver(node.id, rolePrompt); } catch {} }, 3000);

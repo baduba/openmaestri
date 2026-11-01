@@ -13,7 +13,7 @@ const fail = (m) => { throw new PortalError(m); };
 
 const IDLE_MS = 15 * 60 * 1000;
 const MAX_TEXT = 200000;
-const BLOCKED_URLS = ['file:*', 'chrome:*', 'chrome-untrusted:*', 'devtools:*', 'view-source:*', 'ftp:*'];
+const BLOCKED_URLS = ['file:*', 'chrome:*', 'chrome-untrusted:*', 'devtools:*', 'view-source:*', 'ftp:*', 'http://169.254.*', 'https://169.254.*', 'http://metadata.google.internal/*', 'https://metadata.google.internal/*', 'http://100.100.100.200/*', 'http://168.63.129.16/*', 'http://[fd00:ec2::254]/*'];
 
 export function findChrome(env = process.env) {
   const candidates = [
@@ -28,12 +28,39 @@ export function findChrome(env = process.env) {
   return candidates.find((c) => c && fs.existsSync(c)) ?? null;
 }
 
-/** Only web pages. file:, chrome: and friends would let a page or an agent read the machine. */
-export function checkUrl(raw) {
+const KNOWN_SCHEMES = new Set(['http', 'https', 'file', 'ftp', 'about', 'chrome', 'chrome-untrusted', 'devtools', 'view-source', 'javascript', 'data', 'blob', 'ws', 'wss']);
+
+/** "example.com" and "localhost:3000" mean http://...; a real scheme (https:, file:, javascript:) is kept so it can be refused. */
+export function withScheme(raw) {
+  const text = String(raw).trim();
+  const colon = text.indexOf(':');
+  const scheme = colon > 0 ? text.slice(0, colon).toLowerCase() : '';
+  return KNOWN_SCHEMES.has(scheme) ? text : `http://${text}`;
+}
+
+const METADATA_HOSTS = new Set(['metadata.google.internal', 'metadata.goog', 'metadata', 'instance-data', '100.100.100.200', '168.63.129.16', '[fd00:ec2::254]', 'fd00:ec2::254']);
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1', '0.0.0.0']);
+
+/** 169.254.0.0/16 (cloud metadata and link-local services) in any spelling the URL parser normalised. */
+export function isLinkLocal(host) {
+  const parts = host.split('.');
+  return parts.length === 4 && parts.every((p) => p !== '' && Number.isInteger(Number(p))) && Number(parts[0]) === 169 && Number(parts[1]) === 254;
+}
+
+/**
+ * Only web pages. file:, chrome: and friends would let a page or an agent read the machine.
+ * Cloud metadata services (credentials for the machine's cloud role) and openmaestri's own port are refused too;
+ * other localhost ports stay open because testing a local dev server is what portals are for.
+ */
+export function checkUrl(raw, { selfPorts = [] } = {}) {
   let u;
-  try { u = new URL(/^[a-z][a-z0-9+.-]*:/i.test(raw) ? raw : `http://${raw}`); } catch { fail(`invalid URL: ${raw}`); }
+  try { u = new URL(withScheme(raw)); } catch { fail(`invalid URL: ${raw}`); }
   if (u.protocol === 'about:' && u.href === 'about:blank') return u.href;
   if (!['http:', 'https:'].includes(u.protocol)) fail('only http and https pages can be opened in a portal');
+  const host = u.hostname.toLowerCase();
+  if (METADATA_HOSTS.has(host) || isLinkLocal(host)) fail('that address is a cloud metadata or link-local service and is blocked');
+  const port = Number(u.port || (u.protocol === 'https:' ? 443 : 80));
+  if (LOOPBACK_HOSTS.has(host) && selfPorts.includes(port)) fail('that is openmaestri itself; a portal cannot open its own control port');
   return u.href;
 }
 
@@ -132,7 +159,7 @@ class Portal extends EventEmitter {
       this.session = sessionId;
       this.targetId = page.targetId;
       await Promise.all(['Page', 'Runtime', 'DOM', 'Accessibility', 'Network', 'Log'].map((d) => this.cmd(`${d}.enable`)));
-      await this.cmd('Network.setBlockedURLs', { urls: BLOCKED_URLS });
+      await this.cmd('Network.setBlockedURLs', { urls: [...BLOCKED_URLS, ...this.manager.selfUrlPatterns()] });
       await this.applyViewport();
       this.wire(cdp);
     } catch (e) {
@@ -199,7 +226,7 @@ class Portal extends EventEmitter {
   // ---------------------------------------------------------------- page actions
   async navigate(url) {
     await this.start();
-    const href = checkUrl(url);
+    const href = checkUrl(url, { selfPorts: this.manager.selfPorts });
     const loaded = new Promise((resolve) => {
       const done = () => { clearTimeout(t); this.cdp.off('Page.loadEventFired', onLoad); resolve(); };
       const onLoad = (_p, sid) => { if (sid === this.session) done(); };
@@ -549,6 +576,7 @@ export class Portals extends EventEmitter {
   constructor({ dataRoot, uploadRoots, chrome }) {
     super();
     this.dataRoot = dataRoot;
+    this.selfPorts = [];
     this.uploadRoots = uploadRoots;
     this.chrome = chrome === undefined ? findChrome() : chrome;
     this.map = new Map();
@@ -557,6 +585,11 @@ export class Portals extends EventEmitter {
   }
 
   get available() { return !!this.chrome; }
+
+  /** URL patterns for openmaestri's own control port, which no page may reach. */
+  selfUrlPatterns() {
+    return this.selfPorts.flatMap((p) => [`http://127.0.0.1:${p}/*`, `http://localhost:${p}/*`, `http://[::1]:${p}/*`, `http://0.0.0.0:${p}/*`]);
+  }
 
   get(node) {
     let p = this.map.get(node.id);
