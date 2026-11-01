@@ -25,7 +25,7 @@ Legenda: [x] feito · [ ] pendente
 - [x] 14. Teste de integração do fluxo "Maestro recruta 2 workers e coordena" com um agente falso (script) para CI sem chave de API
 
 ## D. Produto
-- [ ] 15. Floors com git worktree (criar, status, land/merge, apagar)
+- [x] 15. Floors com git worktree (criar, status, land/merge, apagar). Falta: hooks e snapshots
 - [x] 16. Partituras: salvar e reinserir layouts (agentes, notas, conexões)
 - [ ] 17. Automação de portal (snapshot/click/fill) via Chromium/Playwright ou CDP
 - [ ] 18. Empacotar em Electron (janela única, bandeja, notificações do SO) mantendo o modo navegador

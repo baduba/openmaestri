@@ -104,3 +104,13 @@ dialog.pal { width: min(560px, 92vw); padding: 0; top: 14vh; margin-top: 0; }
 #pal-list li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 10px; border-radius: 6px; cursor: pointer; }
 #pal-list li.on { background: var(--accent); color: #fff; }
 #pal-list .ph { opacity: .65; font-size: 11px; align-self: center; }
+
+#floors { position: absolute; z-index: 50; left: 10px; bottom: 10px; display: flex; gap: 4px; flex-wrap: wrap; max-width: 70%; }
+.floor-tab { display: inline-flex; align-items: center; gap: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 12px; cursor: pointer; }
+.floor-tab.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.floor-tab.add { border-style: dashed; color: var(--muted); }
+.fdot { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
+.fdot.done { background: var(--ok); } .fdot.blocked { background: var(--err); } .fdot.review { background: var(--accent); }
+#floor-status { cursor: pointer; }
+.muted { color: var(--muted); margin: 0 0 8px; }
+dialog select { width: 100%; margin-top: 3px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; color: var(--text); }

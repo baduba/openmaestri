@@ -20,7 +20,7 @@ Legend: done = works and is tested · partial = some of it · missing = not star
 | Presets, roles | 13 | partial | presets and role prompts. Missing: role discovery, install roles into agent configs |
 | Routines (scheduler) | 11 | partial | every/daily/weekly/once, pre-run, count/until. Missing: run history, reminders UI |
 | Workspaces | 36 | partial | create/rename/delete/select, clone, export/import (untrusted-input safe), undo/redo of the canvas. Missing: duplicate, unload, icons, sidebar groups and folders, config-file sync |
-| Floors (git worktree per task) | 42 | missing | only `floor status` exists. Missing: worktrees, copy floors, landing/merge, hooks, snapshots |
+| Floors (git worktree per task) | 42 | partial | worktree, clone, dir and plain floors; per-floor canvas, status, land with conflict abort, delete, unload, `recruit --floor`, UI floor bar; see [floors](floors.html). Missing: floor hooks, snapshots, uniform-name collisions across floors, band/partitura options on other floors |
 | Pull requests and git hosts | 41 | missing | review floors, PR list, checks |
 | File tree and editor panes | 43 | missing | |
 | Partituras (saved layouts) | 10 | partial | save/insert/update/delete from CLI, UI and palette, with or without commands and note text, global or per workspace. Missing: file import/export of a single layout, chat history option |
@@ -37,7 +37,7 @@ Legend: done = works and is tested · partial = some of it · missing = not star
 ## Order of work
 
 1. **Canvas parity** (done in 0.2): note stacks, bands, partituras, auto-layout and snapping, undo/redo, command palette, workspace export/import.
-2. **Floors**: git worktrees, landing, hooks, snapshots, then pull-request review floors.
+2. **Floors** (core done in 0.2): worktrees, landing. Next: hooks, snapshots, then pull-request review UI.
 3. **Portals**: page automation over the Chrome DevTools Protocol, design mode.
 4. **Intelligence**: chat threads with memory (`say`/`recall`), prompter with @mentions and file index, saved prompts, agent usage tracking, role discovery.
 5. **Shell**: Electron wrapper, tray, preferences, onboarding.

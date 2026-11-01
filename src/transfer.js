@@ -63,14 +63,15 @@ export function capturePartitura(store, ws, nodeIds, { name, description = '', i
 }
 
 /** Instantiate a layout into `ws` at a free spot. Returns {created: node[], idMap}. */
-export function instantiatePartitura(store, ws, part, { origin } = {}) {
-  const maxRight = ws.nodes.length ? Math.max(...ws.nodes.map((n) => n.x + n.w)) : -60;
-  const at = origin ?? { x: maxRight + 80, y: ws.nodes.length ? Math.min(...ws.nodes.map((n) => n.y)) : 0 };
+export function instantiatePartitura(store, ws, part, { origin, floorId = null, baseDir = ws.dir } = {}) {
+  const here = ws.nodes.filter((n) => (n.floorId ?? null) === floorId);
+  const maxRight = here.length ? Math.max(...here.map((n) => n.x + n.w)) : -60;
+  const at = origin ?? { x: maxRight + 80, y: here.length ? Math.min(...here.map((n) => n.y)) : 0 };
   const idMap = new Map();
   const created = [];
   const make = (it) => {
-    const dir = it.cwdRel ? path.join(ws.dir, it.cwdRel) : ws.dir;
-    const props = { name: it.name, x: at.x + it.x, y: at.y + it.y, w: it.w, h: it.h, color: it.color, icon: it.icon, command: it.command, maestro: it.maestro, role: it.role, preset: it.preset, cwd: dir, url: it.url, text: it.text };
+    const dir = it.cwdRel ? path.join(baseDir, it.cwdRel) : baseDir;
+    const props = { floorId, name: it.name, x: at.x + it.x, y: at.y + it.y, w: it.w, h: it.h, color: it.color, icon: it.icon, command: it.command, maestro: it.maestro, role: it.role, preset: it.preset, cwd: dir, url: it.url, text: it.text };
     const node = store.createNode(ws, it.kind === 'band' ? 'band' : it.kind, props);
     idMap.set(it.key, node.id);
     created.push(node);

@@ -20,6 +20,7 @@ const state = {
   selected: null,
   linkFrom: null,
   stackNote: null,
+  floorId: null,
   snap: (() => { try { return localStorage.getItem('om.snap') === '1'; } catch { return false; } })(),
 };
 
@@ -64,14 +65,20 @@ function onMessage(m) {
     }
     case 'notify': toast(m.message, m.from); maybeSystemNotify(m); break;
     case 'error': toast(m.message, 'error', true); break;
+    case 'toast': toast(m.message, m.from); break;
+    case 'floor.focus': setFloor(m.id); break;
   }
 }
 
 // ---------- workspace ----------
+const floorKey = (id) => `om.floor.${id}`;
+const nodeFloor = (n) => n.floorId ?? null;
+const isVisible = (n) => nodeFloor(n) === state.floorId;
+
 function applyWorkspace(ws, switching) {
   // keyed by ids that arrive over the wire, so Maps (no prototype keys to poison)
-  ws.notes = new Map(Object.entries(ws.notes || {}));
-  ws.status = new Map(Object.entries(ws.status || {}));
+  ws.notes = ws.notes instanceof Map ? ws.notes : new Map(Object.entries(ws.notes || {}));
+  ws.status = ws.status instanceof Map ? ws.status : new Map(Object.entries(ws.status || {}));
   state.ws = ws;
   if (switching) {
     for (const v of state.views.values()) v.destroy();
@@ -79,10 +86,20 @@ function applyWorkspace(ws, switching) {
     state.vp = { ...ws.viewport };
     state.selected = null;
     state.linkFrom = null;
+    let saved = null;
+    try { saved = localStorage.getItem(floorKey(ws.id)); } catch { /* storage unavailable */ }
+    state.floorId = saved && ws.floors?.some((f) => f.id === saved) ? saved : null;
     applyViewport();
   }
+  if (state.floorId && !ws.floors?.some((f) => f.id === state.floorId)) { state.floorId = null; for (const v of state.views.values()) v.destroy(); state.views.clear(); }
+  syncViews();
+}
+
+/** Create, update and remove node views so that exactly the current floor's nodes are on the canvas. */
+function syncViews() {
+  const ws = state.ws;
   const seen = new Set();
-  for (const n of ws.nodes) {
+  for (const n of ws.nodes.filter(isVisible)) {
     seen.add(n.id);
     let v = state.views.get(n.id);
     if (!v) { v = n.kind === 'band' ? makeBandView(n) : makeView(n); state.views.set(n.id, v); $('#world').append(v.root); }
@@ -91,10 +108,43 @@ function applyWorkspace(ws, switching) {
   for (const [id, v] of [...state.views]) if (!seen.has(id)) { v.destroy(); state.views.delete(id); }
   renderLinks();
   renderSidebar();
+  renderFloors();
   syncHistoryButtons();
+  const cur = state.floorId ? ws.floors.find((f) => f.id === state.floorId) : null;
+  const status = cur ? cur.status : ws.floorStatus;
   const fs = $('#floor-status');
-  if (ws.floorStatus) { fs.textContent = `${ws.floorStatus.state}${ws.floorStatus.progress ? ` ${ws.floorStatus.progress}` : ''}: ${ws.floorStatus.text}`; fs.title = `by ${ws.floorStatus.by}`; fs.classList.add('on'); }
-  else fs.classList.remove('on');
+  if (status) { fs.textContent = `${status.state}${status.progress ? ` ${status.progress}` : ''}: ${status.text}`; fs.title = `${cur ? cur.name : 'Ground'} · by ${status.by}`; fs.classList.add('on'); }
+  else { fs.textContent = ''; fs.classList.remove('on'); }
+}
+
+function setFloor(id) {
+  if (id === state.floorId) return;
+  state.floorId = id;
+  try { localStorage.setItem(floorKey(wsId()), id ?? ''); } catch { /* storage unavailable */ }
+  setLinkFrom(null); setStackNote(null);
+  for (const v of state.views.values()) v.destroy();
+  state.views.clear();
+  syncViews();
+  $('#fit').click();
+}
+
+function renderFloors() {
+  const bar = $('#floors');
+  bar.replaceChildren();
+  const tab = (id, name, title, status) => {
+    const b = el('button', `floor-tab${id === state.floorId ? ' on' : ''}`);
+    if (status) { const d = el('span', `fdot ${status.state}`); b.append(d); }
+    b.append(document.createTextNode(name));
+    b.title = title;
+    b.onclick = () => setFloor(id);
+    bar.append(b);
+  };
+  tab(null, 'Ground', state.ws.dir, state.ws.floorStatus);
+  for (const f of state.ws.floors ?? []) tab(f.id, f.name, `${f.kind}${f.branch ? ` · ${f.branch}` : ''}\n${f.dir}`, f.status);
+  const add = el('button', 'floor-tab add', '+ Floor');
+  add.title = 'Add a floor: its own canvas and, in a git project, its own branch';
+  add.onclick = () => openFloorDialog();
+  bar.append(add);
 }
 
 function renderSidebar() {
@@ -160,7 +210,7 @@ canvas.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 canvas.addEventListener('pointerdown', (e) => {
-  if (e.target.closest('.node, #toolbar')) return;
+  if (e.target.closest('.node, #toolbar, #floors, .band-label')) return;
   select(null);
   if (state.linkFrom) setLinkFrom(null);
   const start = { x: e.clientX, y: e.clientY, vx: state.vp.x, vy: state.vp.y };
@@ -176,7 +226,7 @@ $('#zoom-in').onclick = () => zoomAt(1.2, canvas.clientWidth / 2, canvas.clientH
 $('#zoom-out').onclick = () => zoomAt(1 / 1.2, canvas.clientWidth / 2, canvas.clientHeight / 2);
 $('#zoom-label').onclick = () => { state.vp = { x: 40, y: 60, z: 1 }; applyViewport(); saveViewport(); };
 $('#fit').onclick = () => {
-  const ns = state.ws?.nodes || [];
+  const ns = (state.ws?.nodes || []).filter((n) => isVisible(n) && !n.stackId);
   if (!ns.length) return;
   const minX = Math.min(...ns.map((n) => n.x)), minY = Math.min(...ns.map((n) => n.y));
   const maxX = Math.max(...ns.map((n) => n.x + n.w)), maxY = Math.max(...ns.map((n) => n.y + n.h));
@@ -194,7 +244,7 @@ function renderLinks() {
   const ns = new Map(state.ws.nodes.map((n) => [n.id, n]));
   for (const c of state.ws.connections) {
     const a = ns.get(c.from), b = ns.get(c.to);
-    if (!a || !b || a.stackId || b.stackId) continue;
+    if (!a || !b || a.stackId || b.stackId || !isVisible(a) || !isVisible(b)) continue;
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     path.setAttribute('d', linkPath(a, b));
     const t = document.createElementNS('http://www.w3.org/2000/svg', 'title');
@@ -489,7 +539,7 @@ function nudge(props, w, h) {
   const cx = Math.round((canvas.clientWidth / 2 - state.vp.x) / state.vp.z - w / 2);
   const cy = Math.round((canvas.clientHeight / 2 - state.vp.y) / state.vp.z - h / 2);
   const gap = 30;
-  const nodes = state.ws?.nodes || [];
+  const nodes = (state.ws?.nodes || []).filter(isVisible);
   const free = (x, y) => !nodes.some((n) => x < n.x + n.w + gap && x + w + gap > n.x && y < n.y + n.h + gap && y + h + gap > n.y);
   // closest free spot to the centre, leaning right/down so new nodes stay in view
   const step = 40, span = 40;
@@ -501,8 +551,8 @@ function nudge(props, w, h) {
       if ((!best || cost < best.cost) && free(cx + dx, cy + dy)) best = { cost, x: cx + dx, y: cy + dy };
     }
   }
-  if (best) return { ...props, x: best.x, y: best.y };
-  return { ...props, x: cx, y: cy };
+  if (best) return { ...props, floorId: state.floorId ?? undefined, x: best.x, y: best.y };
+  return { ...props, floorId: state.floorId ?? undefined, x: cx, y: cy };
 }
 $('#ws-add').onclick = () => { $('input[name=name]', dlgWs).value = ''; $('input[name=dir]', dlgWs).value = ''; dlgWs.showModal(); };
 $('#form-ws').onsubmit = (e) => {
@@ -662,7 +712,7 @@ function syncHistoryButtons() {
 }
 $('#undo').onclick = () => send({ t: 'undo', workspaceId: wsId() });
 $('#redo').onclick = () => send({ t: 'redo', workspaceId: wsId() });
-$('#tidy').onclick = () => { send({ t: 'tidy', workspaceId: wsId() }); setTimeout(() => $('#fit').click(), 250); };
+$('#tidy').onclick = () => { send({ t: 'tidy', workspaceId: wsId(), floorId: state.floorId }); setTimeout(() => $('#fit').click(), 250); };
 $('#snap').onclick = () => { state.snap = !state.snap; try { localStorage.setItem('om.snap', state.snap ? '1' : '0'); } catch { /* storage unavailable */ } syncHistoryButtons(); toast(state.snap ? 'Snap to grid on' : 'Snap to grid off', 'canvas'); };
 addEventListener('keydown', (e) => {
   const typing = e.target.closest?.('input, textarea, select, .xterm');
@@ -732,6 +782,7 @@ function fuzzy(query, text) {
 }
 
 function focusNode(n) {
+  if (nodeFloor(n) !== state.floorId) setFloor(nodeFloor(n));
   const z = state.vp.z;
   state.vp.x = canvas.clientWidth / 2 - (n.x + n.w / 2) * z;
   state.vp.y = canvas.clientHeight / 2 - (n.y + n.h / 2) * z;
@@ -750,6 +801,13 @@ function buildPaletteItems() {
   add('Redo', 'edit', () => $('#redo').click());
   add('Tidy: auto-arrange the canvas', 'layout', () => $('#tidy').click());
   add('Fit everything in view', 'view', () => $('#fit').click());
+  add('New floor', 'floor', () => openFloorDialog());
+  add('Floor status: set a message', 'floor', () => { const text = prompt('What is happening on this floor?'); if (text !== null) send({ t: 'floor.status', workspaceId: wsId(), floorId: state.floorId, text, state: 'working' }); });
+  for (const f of [{ id: null, name: 'Ground' }, ...(state.ws?.floors ?? [])]) if (f.id !== state.floorId) add(`Go to floor: ${f.name}`, 'floor', () => setFloor(f.id));
+  for (const f of state.ws?.floors ?? []) {
+    add(`Land floor: ${f.name}`, 'floor · merge into the project', () => { if (confirm(`Merge floor "${f.name}" into the project's current branch and remove the floor?`)) send({ t: 'floor.land', workspaceId: wsId(), name: f.name }); });
+    add(`Delete floor: ${f.name}`, 'floor', () => { if (confirm(`Delete floor "${f.name}", its canvas and its checkout?`)) send({ t: 'floor.delete', workspaceId: wsId(), name: f.name }); });
+  }
   add(`Snap to grid: ${state.snap ? 'turn off' : 'turn on'}`, 'view', () => $('#snap').click());
   add('Save this canvas as a layout', 'layout', saveLayout);
   add('Export this workspace to a file', 'workspace', () => { location.href = `/export/${wsId()}.json`; });
@@ -758,12 +816,12 @@ function buildPaletteItems() {
   for (const w of state.summary.workspaces) if (w.id !== wsId()) add(`Switch to workspace: ${w.name}`, 'workspace', () => send({ t: 'workspace.select', id: w.id }));
   for (const p of state.summary.partituras ?? []) {
     if (p.scope !== null && p.scope !== wsId()) continue;
-    add(`Insert layout: ${p.name}`, `layout · ${p.nodes} items`, () => send({ t: 'partitura.insert', workspaceId: wsId(), id: p.id }));
+    add(`Insert layout: ${p.name}`, `layout · ${p.nodes} items`, () => send({ t: 'partitura.insert', workspaceId: wsId(), id: p.id, floorId: state.floorId }));
     add(`Delete layout: ${p.name}`, 'layout', () => { if (confirm(`Delete layout "${p.name}"?`)) send({ t: 'partitura.delete', id: p.id }); });
   }
   for (const n of state.ws?.nodes ?? []) {
     if (n.kind === 'band' || n.stackId) continue;
-    add(`Go to: ${n.name}`, n.kind, () => focusNode(n));
+    add(`Go to: ${n.name}`, nodeFloor(n) === null ? n.kind : `${n.kind} · ${state.ws.floors.find((f) => f.id === n.floorId)?.name ?? 'floor'}`, () => focusNode(n));
   }
   for (const b of (state.ws?.nodes ?? []).filter((x) => x.kind === 'band')) {
     for (const mid of b.members) {
@@ -806,6 +864,32 @@ palInput.addEventListener('keydown', (e) => {
   else if (e.key === 'Enter') { e.preventDefault(); const pick = palList._ranked?.[palSel]; if (pick) { dlgPal.close(); pick.i.run(); } }
 });
 $('#palette-btn').onclick = () => openPalette();
+
+// ---------- floor dialog ----------
+const dlgFloor = $('#dlg-floor');
+function openFloorDialog() {
+  $('input[name=name]', dlgFloor).value = '';
+  $('input[name=branch]', dlgFloor).value = '';
+  $('input[name=dir]', dlgFloor).value = '';
+  $('select[name=mode]', dlgFloor).value = 'worktree';
+  $('input[name=copyGround]', dlgFloor).checked = false;
+  syncFloorMode();
+  dlgFloor.showModal();
+}
+function syncFloorMode() {
+  const mode = $('select[name=mode]', dlgFloor).value;
+  $('#floor-branch', dlgFloor).hidden = !(mode === 'worktree' || mode === 'copy');
+  $('#floor-dir', dlgFloor).hidden = mode !== 'dir';
+}
+$('select[name=mode]', dlgFloor).onchange = syncFloorMode;
+$('#form-floor').onsubmit = (e) => {
+  const f = new FormData(e.target);
+  const mode = f.get('mode');
+  const name = String(f.get('name') || '').trim();
+  if (!name) { e.preventDefault(); toast('A floor needs a name', 'floor', true); return; }
+  send({ t: 'floor.create', workspaceId: wsId(), name, mode, branch: f.get('branch') || undefined, dir: mode === 'dir' ? f.get('dir') : undefined, copyGround: f.get('copyGround') === 'on' });
+};
+$('#floor-status').onclick = () => { const text = prompt('What is happening on this floor? (empty clears it)'); if (text !== null) send({ t: 'floor.status', workspaceId: wsId(), floorId: state.floorId, text, state: 'working' }); };
 
 // test hook (read-only view of state)
 window.__om = { state };

@@ -12,9 +12,10 @@ A spatial canvas terminal workspace for AI agents. Open source, local, works wit
 
 1. [Getting started](getting-started.html): install, first terminal, first connection.
 2. [DeepSeek and open models](deepseek.html): keys, presets, OpenCode and Aider.
-3. [CLI reference](cli.html): every `openmaestri` command agents can run.
-4. [Architecture](architecture.html): how the daemon, socket and UI fit together.
-5. [Troubleshooting](troubleshooting.html) and [how to report a bug](reporting-bugs.html).
+3. [Floors](floors.html): one branch and one canvas per task.
+4. [CLI reference](cli.html): every `openmaestri` command agents can run.
+5. [Architecture](architecture.html): how the daemon, socket and UI fit together.
+6. [Troubleshooting](troubleshooting.html) and [how to report a bug](reporting-bugs.html).
 
 ## The idea in one minute
 

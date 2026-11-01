@@ -7,8 +7,8 @@ const GAP_Y = 50;
 /**
  * @returns {Map<string, {x:number,y:number}>} new top-left position per node id
  */
-export function tidy(ws, origin = { x: 0, y: 0 }) {
-  const nodes = ws.nodes.filter((n) => n.kind !== 'band' && !n.stackId);
+export function tidy(ws, origin = { x: 0, y: 0 }, floorId = null) {
+  const nodes = ws.nodes.filter((n) => n.kind !== 'band' && !n.stackId && (n.floorId ?? null) === floorId);
   const adj = new Map(nodes.map((n) => [n.id, new Set()]));
   const link = (a, b) => { if (adj.has(a) && adj.has(b)) { adj.get(a).add(b); adj.get(b).add(a); } };
   for (const c of ws.connections) link(c.from, c.to);

@@ -40,6 +40,7 @@
     <div id="world">
       <svg id="links" width="1" height="1"></svg>
     </div>
+    <div id="floors"></div>
     <div id="hint"></div>
   </main>
   <div id="toasts"></div>
@@ -52,6 +53,25 @@
       <label>Directory <input name="cwd" autocomplete="off" placeholder="workspace directory"></label>
       <label class="chk"><input type="checkbox" name="maestro"> Maestro (can recruit, connect and schedule)</label>
       <div class="actions"><button value="cancel" type="button" data-close>Cancel</button><button value="ok" class="primary">Create</button></div>
+    </form>
+  </dialog>
+  <dialog id="dlg-floor">
+    <form method="dialog" id="form-floor">
+      <h3>New floor</h3>
+      <p class="muted">A floor is its own canvas. In a git project it can also have its own branch, so agents on different floors never edit the same files.</p>
+      <label>Name <input name="name" autocomplete="off" placeholder="e.g. Feature login"></label>
+      <label>Checkout
+        <select name="mode">
+          <option value="worktree">Git worktree on a new branch (recommended)</option>
+          <option value="copy">Independent clone on a new branch</option>
+          <option value="plain">No checkout: share the project folder</option>
+          <option value="dir">A folder I already have</option>
+        </select>
+      </label>
+      <label id="floor-branch">Branch <input name="branch" autocomplete="off" placeholder="default: floor/&lt;name&gt;"></label>
+      <label id="floor-dir" hidden>Folder <input name="dir" autocomplete="off" placeholder="/absolute/path"></label>
+      <label class="chk"><input type="checkbox" name="copyGround"> Start with a copy of the ground canvas</label>
+      <div class="actions"><button type="button" data-close>Cancel</button><button class="primary">Create</button></div>
     </form>
   </dialog>
   <dialog id="dlg-band">
