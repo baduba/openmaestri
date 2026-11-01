@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { atomicWrite, safeId } from './store.js';
+import { Memory } from './memory.js';
 
 export class ChatError extends Error {}
 const fail = (m) => { throw new ChatError(m); };
@@ -68,11 +69,12 @@ export function threadId(input) {
 
 export class Chat extends EventEmitter {
   /** @param {{store: import('./store.js').Store, allowedRoots: (wsId: string) => string[]}} deps */
-  constructor({ store, allowedRoots, vaultLimit = 100 * 1024 * 1024 }) {
+  constructor({ store, allowedRoots, vaultLimit = 100 * 1024 * 1024, memory = {} }) {
     super();
     this.store = store;
     this.allowedRoots = allowedRoots;
     this.vaultLimit = vaultLimit;
+    this.memory = new Memory(this, memory);
     this.progress = new Map(); // `${wsId}/${thread}/${sender}` -> latest progress message (never persisted)
   }
 
@@ -160,6 +162,7 @@ export class Chat extends EventEmitter {
     if (full.role !== 'human' && thread !== m.active) t.unread += 1;
     this.saveMeta(wsId, m);
     this.emit('message', wsId, full);
+    this.memory.maybeCompress(wsId, thread);
     return full;
   }
 
@@ -191,6 +194,12 @@ export class Chat extends EventEmitter {
   history(wsId, tid, q = {}) {
     const thread = threadId(tid) ?? this.active(wsId);
     let rows = this.readAll(wsId, thread);
+    // older messages live in the archive: include them when asked, or when the range reaches back before the active file
+    const reachesBack = q.since !== undefined && (rows.length === 0 || q.since < rows[0].ts);
+    if (q.archive || reachesBack) {
+      const have = new Set(rows.map((m) => m.id));
+      rows = [...this.memory.readArchive(wsId, thread).filter((m) => !have.has(m.id)), ...rows];
+    }
     if (q.since !== undefined) rows = rows.filter((m) => m.ts >= q.since);
     if (q.until !== undefined) rows = rows.filter((m) => m.ts <= q.until);
     if (q.before !== undefined) rows = rows.filter((m) => m.ts < q.before);

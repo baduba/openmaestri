@@ -4,6 +4,14 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-01
+
+### Added
+- Long-term chat memory: a thread of 200 messages is condensed locally (no model, no network) into a deterministic summary that quotes the thread and masks credentials; older messages go to a permanent archive first; `recall` shows the summary, `recall --archive` reads everything, `memory status|compress`
+
+### Changed
+- Floors, bands and workspaces now refuse what the original refuses instead of renaming silently: a folder already used by another floor or inside another workspace, a branch already used by another floor, landing into a detached HEAD, duplicate band and workspace names
+
 ## [0.6.0] - 2026-11-01
 
 ### Added

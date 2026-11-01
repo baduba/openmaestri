@@ -84,13 +84,34 @@ export function withLock(wsId, fn) {
 /**
  * Create a floor record (and its checkout). Does not touch nodes: the caller seeds the canvas.
  */
-export async function createFloor(ws, opts) {
+/** Folders and branches a new floor may not take: the ground, another floor's, or another workspace's. */
+function checkClaims(ws, workspaces, { dir, branch }) {
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+  if (dir) {
+    const d = real(dir);
+    if (d === real(ws.dir)) fail('that folder is the ground floor itself; a floor needs a folder of its own');
+    const used = ws.floors.find((f) => real(f.dir) === d);
+    if (used) fail(`that folder is already the folder of floor "${used.name}"`);
+    for (const other of workspaces) {
+      if (other.id === ws.id) continue;
+      const o = real(other.dir);
+      if (d === o || d.startsWith(o + path.sep) || o.startsWith(d + path.sep)) fail(`that folder overlaps the workspace "${other.name}"`);
+    }
+  }
+  if (branch) {
+    const used = ws.floors.find((f) => f.branch === branch);
+    if (used) fail(`branch "${branch}" is already used by floor "${used.name}"`);
+  }
+}
+
+export async function createFloor(ws, opts, workspaces = []) {
   const name = validName(opts.name);
   if (ws.floors.some((f) => f.name.toLowerCase() === name.toLowerCase())) fail(`a floor named "${name}" already exists`);
   const slug = slugify(name);
   const floor = { id: uid(), name, slug, dir: ws.dir, kind: 'plain', branch: null, repo: null, createdAt: new Date().toISOString(), status: null };
 
   if (opts.dir) {
+    checkClaims(ws, workspaces, { dir: opts.dir });
     const d = path.resolve(opts.dir);
     if (!fs.existsSync(d) || !fs.statSync(d).isDirectory()) fail(`directory does not exist: ${d}`);
     Object.assign(floor, { kind: 'dir', dir: d });
@@ -104,6 +125,7 @@ export async function createFloor(ws, opts) {
     } else {
       await git(top, ['rev-parse', '--verify', 'HEAD']).catch(() => fail('the repository has no commits yet; commit once before creating a floor'));
       const branch = await checkBranchName(opts.branch ?? `floor/${slug}`);
+      checkClaims(ws, workspaces, { branch });
       const target = path.join(floorsDir(top), slug);
       if (fs.existsSync(target)) fail(`${target} already exists`);
       fs.mkdirSync(floorsDir(top), { recursive: true });
@@ -146,6 +168,7 @@ export async function landFloor(ws, floor, { into } = {}) {
   await git(repo, ['var', 'GIT_COMMITTER_IDENT']).catch(() => fail('git has no name and email configured. Run: git config --global user.name "Your Name" && git config --global user.email you@example.com'));
   if ((await git(repo, ['status', '--porcelain'])).length > 0) fail('the ground floor has uncommitted changes. Commit or stash them before landing');
   const current = await git(repo, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  if (current === 'HEAD') fail('the ground floor is on a detached HEAD, so there is no branch to land into. Check out a branch there first');
   const target = into ? await checkBranchName(into) : current;
   if (target === floor.branch) fail('a floor cannot land into its own branch');
   let ref = floor.branch;

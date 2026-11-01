@@ -361,7 +361,7 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
       case 'chat.history': {
         const w = wsOf();
         const tid = threadId(m.threadId) ?? core.chat.active(w.id);
-        send(ws, { t: 'chat.history', threadId: tid, messages: core.chat.history(w.id, tid, { turns: m.turns ?? 100, before: m.before }), progress: core.chat.pendingProgress(w.id, tid), chat: core.chatState(w) });
+        send(ws, { t: 'chat.history', threadId: tid, messages: core.chat.history(w.id, tid, { turns: m.turns ?? 100, before: m.before }), progress: core.chat.pendingProgress(w.id, tid), summary: core.chat.memory.summary(w.id, tid), chat: core.chatState(w) });
         break;
       }
       case 'chat.send': {
@@ -431,7 +431,9 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
       }
       case 'band.create': {
         const w = wsOf();
-        s.createBand(w, String(m.name || 'Band').slice(0, 80), Array.isArray(m.members) ? m.members : []);
+        const bandName = String(m.name || 'Band').trim().slice(0, 80);
+        if (w.nodes.some((n) => n.kind === 'band' && n.name.toLowerCase() === bandName.toLowerCase())) throw new CommandError(`a band named "${bandName}" already exists`);
+        s.createBand(w, bandName, Array.isArray(m.members) ? m.members : []);
         core.touch(w);
         break;
       }

@@ -31,6 +31,7 @@ export function createChat({ state, send, wsId, toast, $, el }) {
   let current = null;
   let loadedFor = null;
   let progress = new Map();
+  let summaryText = '';
   let searchId = 0;
   let mentionId = 0;
   let mentionItems = [];
@@ -92,7 +93,12 @@ export function createChat({ state, send, wsId, toast, $, el }) {
 
   function renderList(msgs) {
     list.replaceChildren();
-    if (!msgs.length && !progress.size) list.append(el('div', 'chat-empty', 'Nothing here yet. Write to your Maestro below; it answers with `openmaestri say`.'));
+    if (!msgs.length && !progress.size && !summaryText) list.append(el('div', 'chat-empty', 'Nothing here yet. Write to your Maestro below; it answers with `openmaestri say`.'));
+    if (summaryText) {
+      const d = el('details', 'chat-summary');
+      d.append(el('summary', null, 'Earlier messages are summarised'), el('pre', null, summaryText));
+      list.append(d);
+    }
     for (const m of msgs) list.append(bubble(m));
     renderProgress();
     list.scrollTop = list.scrollHeight;
@@ -222,6 +228,7 @@ export function createChat({ state, send, wsId, toast, $, el }) {
         case 'chat.history':
           if (m.threadId !== current) return true;
           progress = new Map(m.progress.map((p) => [p.sender, p]));
+          summaryText = m.summary || '';
           if (state.ws) state.ws.chat = m.chat;
           renderTabs();
           renderList(m.messages);

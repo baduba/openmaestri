@@ -220,3 +220,34 @@ test('landing explains a missing git identity instead of dumping git output', as
   // On hosts where git can still derive an identity this passes through; where it cannot, the message must be friendly.
   if (!r.ok) assert.match(r.error, /no name and email configured|uncommitted|conflict/);
 });
+
+test('rules the original also enforces: folder and branch claims, detached HEAD', async (t) => {
+  const { ws, repo, dir, call, app } = await boot(t);
+  // a folder that is the ground itself, or already another floor's, is refused
+  assert.match((await call('floor.create', { name: 'Same', dir: repo })).error, /ground floor itself/);
+  const own = path.join(dir, 'own');
+  fs.mkdirSync(own);
+  assert.equal((await call('floor.create', { name: 'One', dir: own })).ok, true);
+  assert.match((await call('floor.create', { name: 'Two', dir: own })).error, /already the folder of floor "One"/);
+  // a folder that belongs to another workspace is refused
+  const other = fs.mkdtempSync(path.join(os.tmpdir(), 'om-otherws-'));
+  t.after(() => fs.rmSync(other, { recursive: true, force: true }));
+  app.core.store.createWorkspace({ name: 'Other project', dir: other });
+  assert.match((await call('floor.create', { name: 'Three', dir: other })).error, /overlaps the workspace "Other project"/);
+  const inside = path.join(other, 'sub');
+  fs.mkdirSync(inside);
+  assert.match((await call('floor.create', { name: 'Four', dir: inside })).error, /overlaps the workspace/);
+  // two floors cannot claim the same branch
+  assert.equal((await call('floor.create', { name: 'Alpha', branch: 'shared' })).ok, true);
+  assert.match((await call('floor.create', { name: 'Beta', branch: 'shared' })).error, /already used by floor "Alpha"/);
+  // no landing into a detached HEAD
+  const floor = ws.floors.find((f) => f.name === 'Alpha');
+  fs.writeFileSync(path.join(floor.dir, 'n.txt'), 'n');
+  sh(floor.dir, 'add', '.');
+  sh(floor.dir, 'commit', '-qm', 'n');
+  sh(repo, 'checkout', '-q', '--detach');
+  const r = await call('floor.land', { name: 'Alpha' });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /detached HEAD/);
+  assert.equal(ws.floors.some((f) => f.name === 'Alpha'), true, 'the floor is kept');
+});

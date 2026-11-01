@@ -534,6 +534,8 @@ const HANDLERS = {
   'band.create'(ws, me, { name, agents = [], withoutMe, color, icon }) {
     this.requireMaestro(me);
     if (!name) fail('usage: band create "Name" ["Agent" ...] [--without-me]');
+    const wanted = String(name).trim();
+    if (ws.nodes.some((n) => n.kind === 'band' && n.name.toLowerCase() === wanted.toLowerCase())) fail(`a band named "${wanted}" already exists`);
     const named = agents.map((a) => this.resolve(ws, me, a, ['terminal']).id);
     const team = named.length ? named : this.reachable(ws, me).filter((n) => n.kind === 'terminal').map((n) => n.id);
     const ids = [...(withoutMe ? [] : [me.id]), ...team];
@@ -783,6 +785,8 @@ const HANDLERS = {
   'workspace.create'(ws, me, { name, dir, from }) {
     this.requireMaestro(me);
     if (!name || !dir) fail('usage: workspace create "Name" --dir PATH');
+    const wantedName = String(name).trim();
+    if ([...this.store.workspaces.values()].some((w) => w.name.toLowerCase() === wantedName.toLowerCase())) fail(`a workspace named "${wantedName}" already exists`);
     const abs = path.resolve(ws.dir, dir);
     if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) fail(`directory does not exist: ${abs}`);
     const src = from ? [...this.store.workspaces.values()].find((w) => w.name.toLowerCase() === from.toLowerCase()) || fail(`no workspace named "${from}"`) : null;
@@ -883,7 +887,7 @@ const HANDLERS = {
     return { text: progress ? 'progress sent' : 'sent', data: { id: msg.id, thread: tid } };
   },
 
-  recall(ws, me, { thread, turns, last, from, to, all, json, list, attachment }) {
+  recall(ws, me, { thread, turns, last, from, to, all, json, list, attachment, summary, archive }) {
     if (list) {
       const rows = this.chat.list(ws.id).map((t) => `${t.active ? '*' : ' '} ${t.id.replace('thread-', '')}  ${t.title.padEnd(14)} ${t.empty ? '(empty)' : `${t.turnCount} turns, last: ${t.preview}`}`);
       return { text: rows.join('\n'), data: this.chat.list(ws.id) };
@@ -893,7 +897,11 @@ const HANDLERS = {
     const tid = thread === undefined ? active : threadId(thread);
     if (!me.maestro && tid !== active) fail('you can only recall the active thread');
     if (all && !me.maestro) fail('only a Maestro can recall every thread');
-    const q = { turns: turns ?? (all ? 200 : 30) };
+    const q = { turns: turns ?? (all ? 200 : 30), archive: !!archive };
+    if (summary) {
+      const text = this.chat.memory.summary(ws.id, tid);
+      return { text: text || '(this thread has no summary yet; it is made when a thread gets long)', data: { thread: tid, summary: text } };
+    }
     const day = 86400000;
     if (last) {
       const span = { day, week: 7 * day, month: 30 * day }[last];
@@ -908,7 +916,9 @@ const HANDLERS = {
     const out = rows.slice(-q.turns);
     if (json) return { text: JSON.stringify(out, null, 2), data: out };
     const fmt = (m) => `[${new Date(m.ts).toISOString().slice(0, 16).replace('T', ' ')}]${all ? ` ${m.threadId.replace('thread-', 't')}` : ''} ${m.sender}: ${m.text}${m.attachments.length ? ` (attachments: ${m.attachments.map((a) => `${a.name} ${a.id}`).join(', ')})` : ''}`;
-    return { text: out.length ? out.map(fmt).join('\n') : '(nothing remembered in that range)' };
+    const earlier = !all && !from && !last && !archive ? this.chat.memory.summary(ws.id, tid) : '';
+    const body = out.length ? out.map(fmt).join('\n') : '(nothing remembered in that range)';
+    return { text: earlier ? `${earlier}\n\nRecent messages:\n${body}` : body };
   },
 
   'prompt.parse'(ws, me, { text }) {
@@ -979,6 +989,19 @@ const HANDLERS = {
     const t = terminal ? this.resolve(ws, me, terminal, ['terminal']) : null;
     for (const n of t ? [t] : ws.nodes.filter((x) => x.kind === 'terminal')) this.usage.reset(n.id);
     return { text: t ? `usage of ${t.name} reset` : 'usage of every agent reset' };
+  },
+
+  'memory.status'(ws, me, { thread }) {
+    const ids = thread === undefined ? THREAD_IDS : [threadId(thread)];
+    if (!me.maestro && ids.some((id) => id !== this.chat.active(ws.id))) fail('you can only look at the active thread');
+    const rows = ids.map((id) => this.chat.memory.status(ws.id, id));
+    return { text: rows.map((r) => `${r.thread.replace('thread-', '')}: ${r.active} active, ${r.archived} archived, ${r.chapters} summary part(s)${r.due ? ' (long: it will be condensed on the next message)' : ''}`).join('\n'), data: rows };
+  },
+  'memory.compress'(ws, me, { thread }) {
+    this.requireMaestro(me);
+    const tid = threadId(thread) ?? this.chat.active(ws.id);
+    const r = this.chat.memory.compress(ws.id, tid);
+    return { text: r ? `thread ${tid.replace('thread-', '')}: archived ${r.archived} messages, kept ${r.kept}; the summary has ${r.chapters} part(s)` : 'nothing to condense yet: the thread is short' };
   },
 
   debug(ws, me) {
@@ -1101,7 +1124,7 @@ Core.prototype.doFloorCreate = async function (ws, { name, from, branch, existin
       await withLock(ws.id, () => git(top, ['fetch', '--no-tags', 'origin', `+pull/${m[1]}/head:${ref}`], { timeout: 120000 }));
       Object.assign(spec, { name: name || `PR ${m[1]}`, branch: `pr-${m[1]}`, startPoint: ref });
     }
-    const created = await withLock(ws.id, () => createFloor(ws, spec));
+    const created = await withLock(ws.id, () => createFloor(ws, spec, [...this.store.workspaces.values()]));
     this.seedFloor(ws, null, created, { copyGround, partitura });
     this.touch(ws);
     return { text: `${created.name}: ${created.kind}${created.branch ? ` on ${created.branch}` : ''} at ${created.dir}`, data: { id: created.id, dir: created.dir, branch: created.branch } };
