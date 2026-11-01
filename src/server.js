@@ -14,6 +14,7 @@ import { dataDir, atomicWrite, safeId } from './store.js';
 import { startIpc, defaultSocketPath, ipcAlive } from './ipc.js';
 import { MAESTRO_BOOTSTRAP } from './prompts.js';
 import { threadId } from './chat.js';
+import { commandAvailable } from './terminals.js';
 import { materialize as materializeMentions } from './prompter.js';
 import { exportWorkspace, importWorkspace, capturePartitura } from './transfer.js';
 
@@ -231,6 +232,10 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
         }
         if (props.cwd) props.cwd = path.resolve(w.dir, props.cwd);
         const node = s.createNode(w, m.kind, props);
+        if (node.kind === 'terminal' && node.command) {
+          const avail = commandAvailable(node.command);
+          if (!avail.ok) send(ws, { t: 'toast', from: 'agent', message: `"${avail.word}" was not found in your shell, so this terminal will open a plain shell. Run "openmaestri doctor" in a terminal to see how to install it.` });
+        }
         if (node.kind === 'terminal') {
           core.startTerminal(w, node);
           // a Maestro running a real agent gets told what it is once the agent has booted
@@ -498,6 +503,7 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
 
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
   const actualPort = server.address().port;
+  core.portals.selfPorts = [actualPort];
   const url = `http://127.0.0.1:${actualPort}/?token=${token}`;
   if (!quiet) {
     console.log(`openmaestri running\n  UI:     ${url}\n  socket: ${socketPath}\n  data:   ${dataRoot}`);

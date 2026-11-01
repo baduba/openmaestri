@@ -6,6 +6,14 @@ title: DeepSeek and open models
 
 openmaestri never talks to a model. The agent CLI inside each terminal does. So "using DeepSeek" means running an agent CLI that supports it. Two work well today.
 
+## 0. Check your machine
+
+```bash
+openmaestri doctor
+```
+
+It tells you whether `opencode` or `aider` is installed, whether a DeepSeek key is set (never printing it), and whether the keys file is private. Fix what it flags first; a DeepSeek preset cannot work without the agent program.
+
 ## 1. Put the key where openmaestri can inject it
 
 ```bash
@@ -43,6 +51,8 @@ The *Aider (DeepSeek)* preset runs `aider --model "deepseek/${OPENMAESTRI_DEEPSE
 ## 4. A Maestro on DeepSeek
 
 Choose **Maestro (OpenCode + DeepSeek)** in the New terminal dialog. It starts OpenCode on DeepSeek with the Maestro flag, then sends it an opening instruction: run `openmaestri guide` and ask you for the goal. The guide teaches it to recruit teammates, share context in notes, use `ask --batch` for parallel work, and report progress.
+
+Pick the model when you recruit: `openmaestri recruit "Deep" --preset "OpenCode (DeepSeek)" --model deepseek-v4-pro`. The model also drives the cost estimate in `openmaestri usage`. `recruit` checks that the agent is installed and says so if it is not (`--no-check` skips that).
 
 Teammates can run on other models. A good pattern for cost: a stronger model as Maestro, DeepSeek workers.
 

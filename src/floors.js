@@ -19,9 +19,15 @@ const gitEnv = () => ({ ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_L
 export class FloorError extends Error {}
 const fail = (m) => { throw new FloorError(m); };
 
+/**
+ * Repository hooks (post-checkout, pre-merge-commit...) are code from the repository. A floor
+ * operation should not run it behind your back, so hooks are off unless OPENMAESTRI_GIT_HOOKS=1.
+ */
+const hookArgs = () => (process.env.OPENMAESTRI_GIT_HOOKS === '1' ? [] : ['-c', 'core.hooksPath=/dev/null']);
+
 export async function git(cwd, args, { timeout = 60000 } = {}) {
   try {
-    const { stdout } = await run('git', args, { cwd, env: gitEnv(), timeout, maxBuffer: 8 << 20 });
+    const { stdout } = await run('git', [...hookArgs(), ...args], { cwd, env: gitEnv(), timeout, maxBuffer: 8 << 20 });
     return stdout.trim();
   } catch (e) {
     const text = String(e.stderr || e.stdout || e.message).trim().split('\n').slice(0, 6).join('\n');

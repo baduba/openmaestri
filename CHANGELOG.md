@@ -4,6 +4,21 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-01
+
+### Added
+- `openmaestri doctor`: checks Node, git, the browser, the agents (OpenCode, Aider, Claude, Codex, Gemini), the DeepSeek key and the data folder, and prints the fix for each problem without ever printing a key
+- `recruit --model` for the DeepSeek presets; `recruit` and the UI check that the agent program is installed
+
+### Security
+- Portals refuse cloud metadata and link-local addresses and openmaestri's own port, in the URL check and inside the browser
+- Repository hooks no longer run during floor operations (opt in with OPENMAESTRI_GIT_HOOKS=1)
+- A ceiling of 40 running terminals (OPENMAESTRI_MAX_TERMINALS)
+- Tests that an export never contains the UI token or an API key
+
+### Fixed
+- `localhost:3000` is accepted as a portal address (it was read as a URL scheme)
+
 ## [0.7.0] - 2026-11-01
 
 ### Added

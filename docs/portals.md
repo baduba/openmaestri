@@ -65,6 +65,7 @@ Android device portals (`portal devices`, `tap`, `swipe`, ...) are not implement
 ## What a portal can and cannot do
 
 - Only **http and https** pages open. `file:`, `chrome:`, `devtools:`, `view-source:`, `ftp:` and `javascript:` are refused for agents and blocked inside the browser (a page that redirects to `file:///etc/passwd` stays where it was).
+- Cloud **metadata and link-local addresses** (`169.254.0.0/16`, `metadata.google.internal`, and the Azure and Alibaba equivalents) and openmaestri's **own control port** are refused, both when you type them and when a page tries to reach them. Other `localhost` ports stay open: testing your dev server is what portals are for. `localhost:3000` and `example.com` need no `http://`.
 - Each portal has its **own temporary profile**: no cookies or logins from your normal browser, and nothing is kept after the portal closes.
 - The browser is controlled over a **pipe**, not a TCP debugging port, so no other process can attach to it.
 - Pages that open new windows are kept in the same portal; dialogs (`alert`, `confirm`) are answered automatically.

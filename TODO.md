@@ -39,6 +39,12 @@ Legenda: [x] feito · [ ] pendente
 - [x] 24. CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, PR template, labels `good first issue`, licença MIT
 - [ ] 25. Código publicado (PR #1 aberto, CI verde); falta merge, tag v0.1.0 e Release com o .deb
 
+## G. Depois da fase 4 (planejadores kimi + agy)
+- [x] Endurecimento: SSRF nos portais, hooks do git, teto de terminais, vazamento no export
+- [x] `openmaestri doctor`, `recruit --model`, checagem do agente instalado
+- [ ] Árvore de arquivos e editor no canvas · [ ] floors a partir de PR e lista de PRs (gh/glab) · [ ] hooks e snapshots de floor
+- [ ] Contas com chaveiro (secret://) · [ ] Electron (por último) · [ ] arrastar e soltar arquivos
+
 ## F. Fase 1 de paridade (feito em feature/canvas-parity)
 - [x] Fichários (stacks), bands, partituras, desfazer/refazer, tidy, snap, paleta Ctrl+K, exportar/importar workspace
 - [ ] Fase 2: floors com git worktree, landing, hooks; depois revisão de PRs

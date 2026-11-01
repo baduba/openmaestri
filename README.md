@@ -38,7 +38,7 @@ Running three agents in three terminals means you are the message bus: copy this
 
 ```bash
 # Node.js 20+ is required (https://nodejs.org or NodeSource)
-sudo apt install ./openmaestri_0.7.0_amd64.deb
+sudo apt install ./openmaestri_0.8.0_amd64.deb
 openmaestri serve --open
 ```
 
@@ -74,6 +74,14 @@ Open the printed URL (it carries a one-time token that is stored as a cookie). C
 ```
 
 Every terminal is spawned with `OPENMAESTRI_SOCKET` and `OPENMAESTRI_TERMINAL_ID`, and `openmaestri` on its `PATH`. The daemon keeps a headless xterm mirror of each screen, so `check` and `ask` return what a human would see, not raw escape codes.
+
+## First step
+
+```bash
+openmaestri doctor
+```
+
+It shows what is installed, what is missing and the command that fixes it.
 
 ## DeepSeek and open models
 
