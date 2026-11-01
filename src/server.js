@@ -363,6 +363,26 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
         core.touch(w);
         break;
       }
+      case 'files.op': {
+        const w = wsOf();
+        const node = core.nodeOrFail(w, m.id);
+        const root = core.filesRoot(w, node);
+        const F = core.files;
+        const reply = (data) => send(ws, { t: 'files.result', id: node.id, op: m.op, reqId: m.reqId, ...data });
+        switch (m.op) {
+          case 'list': reply(F.list(root, m.path ?? '')); break;
+          case 'read': reply({ path: m.path, ...F.read(root, m.path) }); break;
+          case 'write': reply({ path: m.path, ...F.write(root, m.path, m.text, { wsId: w.id, expectedMtime: m.expectedMtime }) }); break;
+          case 'create': F.create(root, m.path, m.kind === 'dir' ? 'dir' : 'file'); reply({ path: m.path }); break;
+          case 'rename': F.rename(root, m.path, m.to); reply({ path: m.path, to: m.to }); break;
+          case 'remove': F.remove(root, m.path, w.id); reply({ path: m.path }); break;
+          case 'status': reply({ status: await F.status(root) }); break;
+          case 'versions': reply({ path: m.path, versions: F.versions(w.id, root, m.path) }); break;
+          case 'version': reply({ path: m.path, text: F.version(w.id, root, m.path, m.version) }); break;
+          default: throw new CommandError(`unknown file operation: ${m.op}`);
+        }
+        break;
+      }
       case 'chat.history': {
         const w = wsOf();
         const tid = threadId(m.threadId) ?? core.chat.active(w.id);

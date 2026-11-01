@@ -57,8 +57,9 @@ const NODE_DEFAULTS = {
   portal: { w: 520, h: 380 },
   stack: { w: 360, h: 300 },
   band: { w: 300, h: 200 },
+  files: { w: 780, h: 520 },
 };
-const DEFAULT_NAMES = { terminal: 'Terminal', note: 'Note', portal: 'Portal', stack: 'Stack', band: 'Band' };
+const DEFAULT_NAMES = { terminal: 'Terminal', note: 'Note', portal: 'Portal', stack: 'Stack', band: 'Band', files: 'Files' };
 const BAND_PAD = 28;
 
 export class Store {

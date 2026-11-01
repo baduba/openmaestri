@@ -7,6 +7,7 @@ import { Store, dataDir } from './store.js';
 import { GUIDE } from './prompts.js';
 import { Terminals } from './terminals.js';
 import { discover as discoverRoles, plan as planRole, diffText, agentKind, RoleError, AGENT_FILES } from './roles.js';
+import { Files, FilesError } from './files.js';
 import { Usage, UsageError } from './usage.js';
 import { readUserEnv, TerminalError, commandAvailable } from './terminals.js';
 import { PromptLib, PromptError } from './promptlib.js';
@@ -44,6 +45,7 @@ export class Core extends EventEmitter {
     this.prompts = new PromptLib({ globalDir: path.join(dataRoot, 'prompts'), localDir: (id) => path.join(this.store.wsDir(id), 'prompts') });
     this.usage = new Usage({ file: path.join(dataRoot, 'usage.json'), pricesFile: path.join(dataRoot, 'prices.json') });
     this.dataRoot = dataRoot;
+    this.files = new Files({ backupDir: (id) => path.join(this.store.wsDir(id), 'file-backups') });
     this.attention = new Map(); // workspace id -> Set of terminal ids waiting for the human
     this.sayLog = new Map();
     this.scheduler = new Scheduler({
@@ -226,7 +228,7 @@ export class Core extends EventEmitter {
     try {
       return await h.call(this, ws, me, a);
     } catch (e) {
-      if (e instanceof ChatError || e instanceof PromptError || e instanceof UsageError || e instanceof RoleError || e instanceof TerminalError) fail(e.message);
+      if (e instanceof ChatError || e instanceof PromptError || e instanceof UsageError || e instanceof RoleError || e instanceof TerminalError || e instanceof FilesError) fail(e.message);
       throw e;
     }
   }
@@ -1311,4 +1313,10 @@ Core.prototype.roleChange = function (ws, me, { role, agent, apply, trust }, rem
   const verb = remove ? 'remove from' : 'add to';
   if (!apply) return { text: `Dry run: this would ${verb} ${r.file}\n\n${diffText(r.file, r.before, r.after)}\n\nRun again with --apply to write it${r.existed ? ' (a backup is made first)' : ''}.` };
   return { text: `${remove ? 'removed from' : 'installed in'} ${r.file}${r.backup ? `\nbackup: ${r.backup}` : ''}\nRestart ${node.name} so it reads the file again.` };
+};
+
+/** The folder a Files node browses: its floor's folder, or the workspace folder. */
+Core.prototype.filesRoot = function (ws, node) {
+  if (node.kind !== 'files') throw new FilesError('that is not a file browser');
+  return node.floorId ? (ws.floors.find((f) => f.id === node.floorId)?.dir ?? ws.dir) : ws.dir;
 };

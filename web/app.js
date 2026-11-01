@@ -1,6 +1,7 @@
 import { Terminal } from '/vendor/xterm.mjs';
 import { FitAddon } from '/vendor/addon-fit.mjs';
 import { createChat } from '/chat.js';
+import { buildFiles } from '/files.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const el = (tag, cls, text) => {
@@ -71,6 +72,7 @@ function onMessage(m) {
       if (state.ws && m.workspaceId === state.ws.id) { state.ws.usage = new Map(Object.entries(m.usage || {})); for (const [id, v] of state.views) v.setUsage?.(state.ws.usage.get(id)); }
       break;
     case 'chat.history': case 'chat.message': case 'chat.progress': case 'chat.state': case 'chat.search': case 'prompter.mentions': case 'prompter.preview': case 'prompts.list': case 'prompts.changed': case 'prompts.item': case 'prompts.deleted': chatUi.handle(m); break;
+    case 'files.result': state.views.get(m.id)?.filesResult?.(m); break;
     case 'portal.frame': state.views.get(m.id)?.frame?.(m); break;
     case 'portal.nav': state.views.get(m.id)?.nav?.(m); break;
     case 'portal.error': state.views.get(m.id)?.portalError?.(m.message); break;
@@ -414,6 +416,7 @@ function makeView(n) {
   if (n.kind === 'terminal') buildTerminal(view, body, dot, () => node, baseUpdate);
   else if (n.kind === 'note') buildNote(view, body, dot, () => node, baseUpdate, (p) => patch(p, false));
   else if (n.kind === 'stack') buildStack(view, body, dot, () => node, baseUpdate);
+  else if (n.kind === 'files') buildFiles(view, body, dot, { send, wsId, nodeId: () => node.id, confirm: (t) => confirm(t) });
   else buildPortal(view, body, dot, () => node, baseUpdate, (p) => patch(p, false));
   const origDestroy = view.destroy;
   view.destroy = () => { view.cleanup?.(); origDestroy(); };
@@ -636,6 +639,7 @@ $('#form-term').onsubmit = (e) => {
   if (props.maestro && p) { /* maestro flag from the dialog wins over the preset */ }
 };
 $('#add-note').onclick = () => send({ t: 'node.create', workspaceId: wsId(), kind: 'note', props: nudge({}, 320, 260) });
+$('#add-files').onclick = () => send({ t: 'node.create', workspaceId: wsId(), kind: 'files', props: nudge({}, 780, 520) });
 $('#add-portal').onclick = () => {
   const url = prompt('URL for the portal', 'https://');
   if (url) send({ t: 'node.create', workspaceId: wsId(), kind: 'portal', props: nudge({ url }, 520, 380) });
