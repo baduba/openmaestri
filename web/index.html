@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>openmaestri</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%23101216%27/%3E%3Cpath d=%27M7 22V10l9 8 9-8v12%27 fill=%27none%27 stroke=%27%236ea8fe%27 stroke-width=%273%27/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/vendor/xterm.css">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <aside id="sidebar">
+    <div class="brand">openmaestri</div>
+    <div class="side-head"><span>Workspaces</span><button id="ws-add" title="New workspace">+</button></div>
+    <ul id="ws-list"></ul>
+    <div id="conn" class="conn off">connecting…</div>
+  </aside>
+  <main id="canvas">
+    <div id="toolbar">
+      <button id="add-term" title="New terminal">+ Terminal</button>
+      <button id="add-note" title="New note">+ Note</button>
+      <button id="add-portal" title="New portal">+ Portal</button>
+      <span class="sep"></span>
+      <button id="zoom-out" title="Zoom out">−</button>
+      <button id="zoom-label" title="Reset zoom">100%</button>
+      <button id="zoom-in" title="Zoom in">+</button>
+      <button id="fit" title="Fit all nodes">Fit</button>
+      <span id="floor-status"></span>
+    </div>
+    <div id="world">
+      <svg id="links" width="1" height="1"></svg>
+    </div>
+    <div id="hint"></div>
+  </main>
+  <div id="toasts"></div>
+
+  <dialog id="dlg-term">
+    <form method="dialog" id="form-term">
+      <h3>New terminal</h3>
+      <label>Name <input name="name" autocomplete="off" placeholder="Agent name"></label>
+      <label>Preset <select name="preset"></select></label>
+      <label>Directory <input name="cwd" autocomplete="off" placeholder="workspace directory"></label>
+      <label class="chk"><input type="checkbox" name="maestro"> Maestro (can recruit, connect and schedule)</label>
+      <div class="actions"><button value="cancel" type="button" data-close>Cancel</button><button value="ok" class="primary">Create</button></div>
+    </form>
+  </dialog>
+  <dialog id="dlg-ws">
+    <form method="dialog" id="form-ws">
+      <h3>New workspace</h3>
+      <label>Name <input name="name" autocomplete="off" required></label>
+      <label>Directory <input name="dir" autocomplete="off" placeholder="/path/to/project"></label>
+      <div class="actions"><button type="button" data-close>Cancel</button><button class="primary">Create</button></div>
+    </form>
+  </dialog>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

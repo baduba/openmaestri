@@ -1,0 +1,64 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping. Please read [How to report a bug](https://baduba.github.io/openmaestri/reporting-bugs.html) first.
+        **Do not paste API keys or the `?token=` part of the UI URL.** Security problems go to private advisories, not here.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you expected, and what you got instead.
+    validations: { required: true }
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps. A plain Shell terminal repro is ideal.
+      placeholder: |
+        1. Create two Shell terminals and connect them
+        2. In the first run `openmaestri ask "Shell 2" "echo hi"`
+        3. ...
+    validations: { required: true }
+  - type: textarea
+    id: debug
+    attributes:
+      label: Diagnostics
+      description: Output of `openmaestri debug` and `openmaestri version` run inside the affected terminal.
+      render: text
+    validations: { required: true }
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it?
+      options: [".deb package", "From source (git clone)", "Other"]
+    validations: { required: true }
+  - type: input
+    id: env
+    attributes:
+      label: OS, Node.js version and browser
+      placeholder: "Ubuntu 24.04, node v22.11.0, Firefox 133"
+    validations: { required: true }
+  - type: input
+    id: agent
+    attributes:
+      label: Agent / model involved (if any)
+      placeholder: "OpenCode + deepseek-chat"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Daemon output from the terminal where you ran `openmaestri serve`, browser console errors, screenshots. Trim secrets.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues
+          required: true
+        - label: I removed secrets from everything I pasted
+          required: true

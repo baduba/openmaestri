@@ -1,0 +1,2 @@
+#!/bin/sh
+exec "${OPENMAESTRI_NODE:-node}" "${OPENMAESTRI_CLI:?openmaestri: only available inside openmaestri terminals}" "$@"
