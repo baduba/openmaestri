@@ -51,6 +51,9 @@ test('UI: a portal shows the real page, takes mouse and keys, and has a working 
   const field = await toClient(100, 45);
   await page.mouse.click(field.x, field.y);
   await page.keyboard.type('hello world');
+  // keys travel browser -> daemon -> CDP, so read the field until they have all landed
+  const typedBy = Date.now() + 5000;
+  while (Date.now() < typedBy && (await portal().evaluate('document.getElementById("t").value')) !== 'hello world') await page.waitForTimeout(50);
   assert.equal(await portal().evaluate('document.getElementById("t").value'), 'hello world');
 
   // human clicking a button on the page
