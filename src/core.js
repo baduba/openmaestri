@@ -6,6 +6,10 @@ import path from 'node:path';
 import { Store, dataDir } from './store.js';
 import { GUIDE } from './prompts.js';
 import { Terminals } from './terminals.js';
+import { discover as discoverRoles, plan as planRole, diffText, agentKind, RoleError, AGENT_FILES } from './roles.js';
+import { Usage, UsageError } from './usage.js';
+import { readUserEnv } from './terminals.js';
+import { PromptLib, PromptError } from './promptlib.js';
 import { Chat, ChatError, THREAD_IDS, threadId, cleanText } from './chat.js';
 import { materialize as materializeMentions, parse as parseMentions, fileIndex, rank } from './prompter.js';
 import { Portals, PortalError, checkUrl } from './portals.js';
@@ -37,6 +41,9 @@ export class Core extends EventEmitter {
     this.history = new History();
     this.portals = new Portals({ dataRoot, uploadRoots: () => this.uploadRoots() });
     this.chat = new Chat({ store: this.store, allowedRoots: (wsId) => this.chatRoots(wsId) });
+    this.prompts = new PromptLib({ globalDir: path.join(dataRoot, 'prompts'), localDir: (id) => path.join(this.store.wsDir(id), 'prompts') });
+    this.usage = new Usage({ file: path.join(dataRoot, 'usage.json'), pricesFile: path.join(dataRoot, 'prices.json') });
+    this.dataRoot = dataRoot;
     this.attention = new Map(); // workspace id -> Set of terminal ids waiting for the human
     this.sayLog = new Map();
     this.scheduler = new Scheduler({
@@ -64,9 +71,18 @@ export class Core extends EventEmitter {
     this.chat.on('message', (wsId, message) => this.emit('chat-message', wsId, message));
     this.chat.on('progress', (wsId, message) => this.emit('chat-progress', wsId, message));
     this.chat.on('state', (wsId) => this.emit('chat-state', wsId));
+    this.prompts.on('changed', (wsId) => this.emit('prompts-changed', wsId));
+    this.terminals.on('data', (id, data) => this.usage.observe(id, data, () => this.usageCtx(id)));
+    this.terminals.on('turn', (id) => this.usage.turn(id));
+    this.usage.on('changed', () => this.emit('usage-changed'));
+    this.usageTimer = setInterval(() => { for (const [id] of this.terminals.rt) if (this.terminals.status(id) === 'working') this.usage.tick(id); }, 1000);
+    this.usageTimer.unref();
   }
 
   stop() {
+    clearInterval(this.usageTimer);
+    this.usage.close();
+    this.prompts.close();
     this.portals.stop().catch(() => { /* shutting down */ });
     this.scheduler.stop();
     this.store.flush();
@@ -79,7 +95,9 @@ export class Core extends EventEmitter {
     for (const n of ws.nodes) if (n.kind === 'note') notes[n.id] = this.store.readNote(ws.id, n.id);
     const status = {};
     for (const n of ws.nodes) if (n.kind === 'terminal') status[n.id] = this.terminals.status(n.id);
-    return { ...ws, notes, status, history: this.history.state(ws), chat: this.chatState(ws) };
+    const usage = {};
+    for (const n of ws.nodes) if (n.kind === 'terminal') usage[n.id] = this.usage.summary(n.id);
+    return { ...ws, notes, status, history: this.history.state(ws), chat: this.chatState(ws), usage };
   }
 
   summary() {
@@ -95,6 +113,7 @@ export class Core extends EventEmitter {
   /** Mark a workspace changed: persist (debounced) and tell every listener. */
   touch(ws) {
     this.reapPortals();
+    this.reapUsage();
     this.history.record(ws);
     this.store.saveWorkspace(ws.id);
     this.emit('workspace', ws.id);
@@ -207,7 +226,7 @@ export class Core extends EventEmitter {
     try {
       return await h.call(this, ws, me, a);
     } catch (e) {
-      if (e instanceof ChatError) fail(e.message);
+      if (e instanceof ChatError || e instanceof PromptError || e instanceof UsageError || e instanceof RoleError) fail(e.message);
       throw e;
     }
   }
@@ -902,6 +921,66 @@ const HANDLERS = {
     return { text: [r.text, ...notes].join('\n'), data: r.mentions };
   },
 
+  // ----- saved prompts -----
+  'prompt.list'(ws) {
+    const rows = this.prompts.list(ws.id);
+    return { text: rows.length ? rows.map((p) => `${p.name.padEnd(24)} ${p.scope === 'global' ? '[global]   ' : '[workspace]'} ${p.preview}`).join('\n') : '(no saved prompts)', data: rows };
+  },
+  'prompt.read'(ws, me, { name }) { return { text: this.prompts.get(ws.id, name).text }; },
+  'prompt.use'(ws, me, { name }) {
+    const p = this.prompts.get(ws.id, name);
+    return { text: materializeMentions(p.text, this.prompterCtx(ws, me)).text };
+  },
+  'prompt.save'(ws, me, { name, text, global, overwrite }) {
+    this.requireMaestro(me);
+    const r = this.prompts.save(ws.id, name, text, { scope: global ? 'global' : 'workspace', overwrite: !!overwrite });
+    return { text: `saved "${r.name}" (${r.scope})` };
+  },
+  'prompt.delete'(ws, me, { name }) {
+    this.requireMaestro(me);
+    const r = this.prompts.remove(ws.id, name);
+    return { text: `deleted "${r.name}"; restore it with: openmaestri prompt undo` };
+  },
+  'prompt.undo'(ws, me) {
+    this.requireMaestro(me);
+    const r = this.prompts.undo(ws.id);
+    return { text: `restored "${r.name}"` };
+  },
+
+  // ----- role discovery and installation -----
+  'role.discover'(ws, me) {
+    this.requireMaestro(me);
+    const rows = this.roleCatalog(ws).map((r) => `${r.id.padEnd(22)} ${r.source.padEnd(11)} ${r.trusted ? '        ' : 'UNTRUSTED'} ${r.description}`);
+    return { text: rows.join('\n'), data: this.roleCatalog(ws).map((r) => ({ id: r.id, name: r.name, description: r.description, source: r.source, trusted: r.trusted })) };
+  },
+  'role.install'(ws, me, args) { return this.roleChange(ws, me, args, false); },
+  'role.uninstall'(ws, me, args) { return this.roleChange(ws, me, args, true); },
+
+  // ----- usage -----
+  usage(ws, me, { terminal, days, json }) {
+    const mine = ws.nodes.filter((n) => n.kind === 'terminal' && (me.maestro || n.id === me.id));
+    const pick = terminal ? [this.resolve(ws, me, terminal, ['terminal'])] : mine;
+    const rows = pick.map((n) => ({ name: n.name, ...this.usage.summary(n.id, { days }) }));
+    if (json) return { text: JSON.stringify(rows, null, 2), data: rows };
+    const fmtTok = (t) => (t ? `${t.input} in / ${t.output} out` : 'unknown');
+    const fmtCost = (r) => (r.costUsd === null ? (r.tokens ? 'no price' : '-') : `$${r.costUsd.toFixed(4)}`);
+    const lines = rows.map((r) => `${r.name.padEnd(18)} ${String(r.turns).padStart(4)} turns  ${String(Math.round(r.activeSeconds / 60)).padStart(4)} min  tokens ${fmtTok(r.tokens).padEnd(22)} cost ${fmtCost(r).padEnd(10)} ${r.source !== 'none' ? `(${r.source}${r.model ? `, ${r.model}` : ''})` : ''}`);
+    const total = rows.reduce((a, r) => ({ cost: a.cost + (r.costUsd ?? 0), tin: a.tin + (r.tokens?.input ?? 0), tout: a.tout + (r.tokens?.output ?? 0) }), { cost: 0, tin: 0, tout: 0 });
+    if (rows.length > 1) lines.push(`${'total'.padEnd(18)} ${' '.repeat(11)}${' '.repeat(11)}tokens ${`${total.tin} in / ${total.tout} out`.padEnd(22)} cost $${total.cost.toFixed(4)}`);
+    if (this.usage.priceProblems.length) lines.push(`note: ${this.usage.priceProblems.join('; ')}`);
+    return { text: lines.join('\n') || '(no agents)', data: rows };
+  },
+  'usage.report'(ws, me, { input, output, model, costUsd }) {
+    this.usage.report(me.id, { input, output, model, costUsd }, { node: me, env: this.userEnv() });
+    return { text: 'recorded' };
+  },
+  'usage.reset'(ws, me, { terminal }) {
+    this.requireMaestro(me);
+    const t = terminal ? this.resolve(ws, me, terminal, ['terminal']) : null;
+    for (const n of t ? [t] : ws.nodes.filter((x) => x.kind === 'terminal')) this.usage.reset(n.id);
+    return { text: t ? `usage of ${t.name} reset` : 'usage of every agent reset' };
+  },
+
   debug(ws, me) {
     const rt = this.terminals.get(me.id);
     return {
@@ -1155,4 +1234,48 @@ Core.prototype.mentionTargets = async function (ws, query, signal) {
   const notes = rank(ctx.notes(), q, (n) => n.name, 8).map((n) => ({ kind: 'note', ref: n.name, name: n.name, detail: 'note' }));
   const files = rank(await this.workspaceFiles(ws, signal), q, (f) => f, 14).map((f) => ({ kind: 'file', ref: f, name: path.basename(f), detail: path.dirname(f) === '.' ? '' : path.dirname(f) }));
   return [...agents, ...notes, ...files];
+};
+
+Core.prototype.userEnv = function () {
+  return readUserEnv(path.join(this.dataRoot, 'env'));
+};
+Core.prototype.usageCtx = function (id) {
+  const node = this.terminals.get(id)?.node ?? null;
+  return { node, env: this.userEnv() };
+};
+/** Usage of a terminal that no longer exists moves into the archived total. */
+Core.prototype.reapUsage = function () {
+  const alive = new Set();
+  for (const w of this.store.workspaces.values()) for (const n of w.nodes) alive.add(n.id);
+  for (const id of Object.keys(this.usage.data.terminals)) if (!alive.has(id)) this.usage.forget(id);
+};
+
+Core.prototype.roleCatalog = function (ws) {
+  return discoverRoles({
+    userRoles: this.store.settings.roles.filter((r) => !r.workspaceId || r.workspaceId === ws.id),
+    dataRoles: path.join(this.dataRoot, 'roles'),
+    wsRoles: path.join(ws.dir, '.openmaestri', 'roles'),
+    repoDir: ws.dir,
+  });
+};
+/** Install or remove a role block in the instruction file of one agent. Dry run unless `apply`. */
+Core.prototype.roleChange = function (ws, me, { role, agent, apply, trust }, remove) {
+  this.requireMaestro(me);
+  if (!role || !agent) fail(`usage: role ${remove ? 'uninstall' : 'install'} "Role" --agent "Name" [--apply]${remove ? '' : ' [--trust]'}`);
+  const node = this.resolve(ws, me, agent, ['terminal']);
+  const kind = agentKind(node);
+  if (!kind) fail(`cannot tell which agent runs in "${node.name}". Supported: ${Object.keys(AGENT_FILES).join(', ')}`);
+  const lc = String(role).toLowerCase();
+  const matches = this.roleCatalog(ws).filter((r) => r.id === lc || r.name.toLowerCase() === lc);
+  const found = matches.find((r) => r.trusted) ?? matches[0];
+  if (!found) fail(`no role "${role}". See: openmaestri role discover`);
+  if (!remove && !found.trusted && !trust) fail(`"${found.name}" comes from the repository, so anyone who can commit to it could have written it. Read it with "role discover", then add --trust to install it anyway`);
+  let cwd;
+  try { cwd = fs.realpathSync(node.cwd); } catch { return fail(`the folder of ${node.name} is missing`); }
+  if (!this.chatRoots(ws.id).some((r) => cwd === r || cwd.startsWith(r + path.sep))) fail('that agent works outside the workspace; roles are only written inside it');
+  const r = planRole({ cwd, kind, role: found, remove, apply: !!apply });
+  if (!r.changed) return { text: remove ? 'nothing to remove' : `already installed in ${r.file}` };
+  const verb = remove ? 'remove from' : 'add to';
+  if (!apply) return { text: `Dry run: this would ${verb} ${r.file}\n\n${diffText(r.file, r.before, r.after)}\n\nRun again with --apply to write it${r.existed ? ' (a backup is made first)' : ''}.` };
+  return { text: `${remove ? 'removed from' : 'installed in'} ${r.file}${r.backup ? `\nbackup: ${r.backup}` : ''}\nRestart ${node.name} so it reads the file again.` };
 };

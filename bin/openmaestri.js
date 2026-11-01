@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 
-const BOOL = new Set(['progress', 'all', 'existing-branch', 'copy', 'no-git', 'copy-ground', 'delete-branch', 'keep-floor', 'keep-branch', 'keep-folder', 'open', 'version', 'json', 'raw-flag', 'batch', 'force', 'none', 'clear', 'without-me', 'no-notify', 'disabled', 'reminder', 'agent', 'note', 'band', 'fichario', 'portal', 'help']);
+const BOOL = new Set(['apply', 'trust', 'global', 'overwrite', 'progress', 'all', 'existing-branch', 'copy', 'no-git', 'copy-ground', 'delete-branch', 'keep-floor', 'keep-branch', 'keep-folder', 'open', 'version', 'json', 'raw-flag', 'batch', 'force', 'none', 'clear', 'without-me', 'no-notify', 'disabled', 'reminder', 'agent', 'note', 'band', 'fichario', 'portal', 'help']);
 
 const HELP = `openmaestri - a spatial workspace for AI agents (open implementation)
 
@@ -38,6 +38,7 @@ Usage:
   openmaestri partitura list | insert "Name" | create "Name" ["Agent" ...] [--commands on|off] [--note-text on|off] [--scope current|global] | update ... | delete "Name"
   openmaestri preset list|show|create|set|delete ...
   openmaestri role list|show|create|write|edit|assign|delete ...
+  openmaestri role discover | install "Role" --agent "Name" [--apply] [--trust] | uninstall "Role" --agent "Name" [--apply]   Dry run unless --apply
   openmaestri routine list|show|create|edit|enable|disable|run|delete ...
       schedules: --every 30m | --daily 09:00 | --weekly mon,fri@09:00 | --once "2026-12-01 15:00"
       options:   --terminal "Name" | --count N | --until DATE | --pre-run "cmd" ({{output}} in the command) | --no-notify | --disabled
@@ -48,7 +49,9 @@ Usage:
   openmaestri recruit ... [--floor F]   (place the teammate on another floor; "Ground" for the ground floor)
   openmaestri say "text" [--file PATH] [--attach PATH]... [--progress] [--thread N]   Answer the human in the chat (what a Maestro does)
   openmaestri recall [thread] [--turns N | --last day|week|month | --from DATE [--to DATE] | --all] [--json] | recall list | recall attachment <id>
+  openmaestri prompt list | read "name" | use "name" | save "name" "text" [--global] [--overwrite] | delete "name" | undo   Saved prompts (save/delete: Maestro)
   openmaestri prompt parse|materialize "text with @agent:Name @note:Name @file:path"   Expand mentions (files up to 32 KB, workspace only)
+  openmaestri usage ["Agent"] [--days N] [--json] | usage report --in N --out N [--model M] [--cost USD] | usage reset ["Agent"]   Tokens, cost, turns
   openmaestri guide                                  How agents should use openmaestri (give this to your agent)
   openmaestri debug
 Global flags: --json (machine-readable output)`;
@@ -182,7 +185,9 @@ export function build({ pos, flags }) {
         case 'edit': need(name, 'role edit "Name" "old" "new" [--scope S]'); return { cmd: 'role.edit', args: { name, old: more[0], new: more[1], scope: flags.scope } };
         case 'assign': need(name && (more[0] || flags.none), 'role assign "Recruit" "Role" | --none'); return { cmd: 'role.assign', args: { recruit: name, role: more[0], none: !!flags.none } };
         case 'delete': need(name, 'role delete "Name" [--force]'); return { cmd: 'role.delete', args: { name, force: !!flags.force } };
-        default: throw new Error('usage: role list|show|create|write|edit|assign|delete');
+        case 'discover': return { cmd: 'role.discover', args: {} };
+        case 'install': case 'uninstall': need(name && flags.agent, `role ${c1} "Role" --agent "Name" [--apply]`); return { cmd: `role.${c1}`, args: { role: name, agent: flags.agent, apply: !!flags.apply, trust: !!flags.trust } };
+        default: throw new Error('usage: role list|show|create|write|edit|assign|delete|discover|install|uninstall');
       }
     }
     case 'routine': {
@@ -234,9 +239,21 @@ export function build({ pos, flags }) {
       return { cmd: 'recall', args: { ...base, thread: c1 } };
     }
     case 'prompt': {
-      need(c1 === 'parse' || c1 === 'materialize', 'prompt parse|materialize "text with @agent:Name @note:Name @file:path"');
-      need(rest.length, `prompt ${c1} "text"`);
-      return { cmd: `prompt.${c1}`, args: { text: rest.join(' ') } };
+      switch (c1) {
+        case 'parse': case 'materialize': need(rest.length, `prompt ${c1} "text with @agent:Name @note:Name @file:path"`); return { cmd: `prompt.${c1}`, args: { text: rest.join(' ') } };
+        case 'list': case 'undo': return { cmd: `prompt.${c1}`, args: {} };
+        case 'read': case 'use': case 'delete': need(rest[0], `prompt ${c1} "name"`); return { cmd: `prompt.${c1}`, args: { name: rest[0] } };
+        case 'save': need(rest[0] && rest.length > 1, 'prompt save "name" "text" [--global] [--overwrite]'); return { cmd: 'prompt.save', args: { name: rest[0], text: rest.slice(1).join(' '), global: !!flags.global, overwrite: !!flags.overwrite } };
+        default: throw new Error('usage: prompt list|read|use|save|delete|undo|parse|materialize');
+      }
+    }
+    case 'usage': {
+      if (c1 === 'report') {
+        need(flags.in !== undefined || flags.out !== undefined, 'usage report --in N --out N [--model M] [--cost USD]');
+        return { cmd: 'usage.report', args: { input: flags.in, output: flags.out, model: flags.model, costUsd: flags.cost } };
+      }
+      if (c1 === 'reset') return { cmd: 'usage.reset', args: { terminal: rest[0] } };
+      return { cmd: 'usage', args: { terminal: c1, days: flags.days ? Number(flags.days) : undefined, json: !!flags.json } };
     }
     case 'guide': return { cmd: 'guide', args: {} };
     case 'debug': return { cmd: 'debug', args: {} };

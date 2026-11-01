@@ -1,4 +1,4 @@
-/* global window */
+/* global document, window */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -90,4 +90,23 @@ test('UI: @mentions popup, keyboard selection, markup-safe names, preview, and w
   assert.equal(got.includes('TOKEN=1'), false);
   assert.match(core.chat.history(ws.id, 'thread-1')[0].text, /^please read @file:spec\.md /);
   assert.deepEqual(errors.filter((e) => !/Failed to load resource/.test(e)), []);
+});
+
+test('UI: a terminal shows its reported usage in the node header', { skip, timeout: 60000 }, async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-uiusage-'));
+  const app = await main({ port: 0, dataRoot: path.join(dir, 'data'), socketPath: path.join(dir, 's.sock'), quiet: true });
+  const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
+  t.after(async () => { await browser.close(); await app.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const { core } = app;
+  const ws = core.store.workspaces.get(core.store.settings.activeWorkspaceId);
+  const node = core.store.createNode(ws, 'terminal', { name: 'Worker', cwd: dir, preset: 'OpenCode (DeepSeek)' });
+  core.touch(ws);
+  const page = await browser.newPage({ viewport: { width: 1400, height: 800 } });
+  await page.goto(app.url);
+  await page.waitForSelector('.node .head');
+  assert.equal(await page.locator('.node .usage').textContent(), '');
+  core.usage.report(node.id, { input: 12000, output: 3400, model: 'deepseek-flash' });
+  core.usage.flushSoon();
+  await page.waitForFunction(() => /15\.4k tok · \$/.test(document.querySelector('.node .usage')?.textContent ?? ''), null, { timeout: 8000 });
+  assert.match(await page.locator('.node .usage').getAttribute('title'), /12000 in, 3400 out \(reported, deepseek-flash\)/);
 });

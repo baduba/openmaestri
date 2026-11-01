@@ -152,6 +152,8 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
   core.on('notify', (n) => broadcast({ t: 'notify', ...n }));
   core.on('chat-message', (workspaceId, message) => broadcast({ t: 'chat.message', workspaceId, message }));
   core.on('chat-progress', (workspaceId, message) => broadcast({ t: 'chat.progress', workspaceId, message }));
+  core.on('usage-changed', () => { for (const w of core.store.workspaces.values()) broadcast({ t: 'usage.state', workspaceId: w.id, usage: core.payload(w).usage }); });
+  core.on('prompts-changed', (workspaceId) => broadcast({ t: 'prompts.changed', workspaceId }));
   core.on('chat-state', (id) => { const w = core.store.workspaces.get(id); if (w) broadcast({ t: 'chat.state', workspaceId: id, chat: core.chatState(w) }); });
   core.portals.on('frame', (id, f) => broadcast({ t: 'portal.frame', id, ...f }, (c) => c.portalViews?.has(id)));
   core.portals.on('nav', (id, nav) => broadcast({ t: 'portal.nav', id, ...nav }, (c) => c.portalViews?.has(id)));
@@ -369,6 +371,15 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
         if (bad.length) send(ws, { t: 'toast', from: 'prompter', message: `Not included: ${bad.map((x) => `@${x.kind}:${x.ref} (${x.reason})`).join('; ')}` });
         break;
       }
+      case 'prompts.list': { const w = wsOf(); send(ws, { t: 'prompts.list', items: core.prompts.list(w.id) }); break; }
+      case 'prompts.get': { const w = wsOf(); const p = core.prompts.get(w.id, m.name, m.scope); send(ws, { t: 'prompts.item', name: p.name, scope: p.scope, text: p.text }); break; }
+      case 'prompts.save': {
+        const w = wsOf();
+        core.prompts.save(w.id, m.name, m.text, { scope: m.global ? 'global' : 'workspace', overwrite: !!m.overwrite });
+        break;
+      }
+      case 'prompts.delete': { const w = wsOf(); core.prompts.remove(w.id, m.name, m.scope); send(ws, { t: 'prompts.deleted', name: String(m.name) }); break; }
+      case 'prompts.undo': { const w = wsOf(); core.prompts.undo(w.id); break; }
       case 'prompter.mentions': {
         const w = wsOf();
         ws.mentionAbort?.abort();

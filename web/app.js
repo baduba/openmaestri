@@ -67,7 +67,10 @@ function onMessage(m) {
     case 'notify': toast(m.message, m.from); maybeSystemNotify(m); break;
     case 'error': toast(m.message, 'error', true); break;
     case 'toast': toast(m.message, m.from); break;
-    case 'chat.history': case 'chat.message': case 'chat.progress': case 'chat.state': case 'chat.search': case 'prompter.mentions': case 'prompter.preview': chatUi.handle(m); break;
+    case 'usage.state':
+      if (state.ws && m.workspaceId === state.ws.id) { state.ws.usage = new Map(Object.entries(m.usage || {})); for (const [id, v] of state.views) v.setUsage?.(state.ws.usage.get(id)); }
+      break;
+    case 'chat.history': case 'chat.message': case 'chat.progress': case 'chat.state': case 'chat.search': case 'prompter.mentions': case 'prompter.preview': case 'prompts.list': case 'prompts.changed': case 'prompts.item': case 'prompts.deleted': chatUi.handle(m); break;
     case 'portal.frame': state.views.get(m.id)?.frame?.(m); break;
     case 'portal.nav': state.views.get(m.id)?.nav?.(m); break;
     case 'portal.error': state.views.get(m.id)?.portalError?.(m.message); break;
@@ -84,6 +87,7 @@ function applyWorkspace(ws, switching) {
   // keyed by ids that arrive over the wire, so Maps (no prototype keys to poison)
   ws.notes = ws.notes instanceof Map ? ws.notes : new Map(Object.entries(ws.notes || {}));
   ws.status = ws.status instanceof Map ? ws.status : new Map(Object.entries(ws.status || {}));
+  ws.usage = ws.usage instanceof Map ? ws.usage : new Map(Object.entries(ws.usage || {}));
   state.ws = ws;
   if (switching) {
     for (const v of state.views.values()) v.destroy();
@@ -312,12 +316,23 @@ function makeView(n) {
   close.title = 'Remove';
   const fileBtn = n.kind === 'note' ? el('button', 'ibtn', '▤') : null;
   if (fileBtn) fileBtn.title = 'File this note into a stack';
-  head.append(dot, title, kind, ...(fileBtn ? [fileBtn] : []), link, close);
+  const usageEl = n.kind === 'terminal' ? el('span', 'usage') : null;
+  head.append(dot, title, ...(usageEl ? [usageEl] : []), kind, ...(fileBtn ? [fileBtn] : []), link, close);
   const body = el('div', 'body');
   const rz = el('div', 'resize');
   root.append(head, body, rz);
 
-  const view = { root, node: n, destroy() { root.remove(); }, update() {} };
+  const view = {
+    root, node: n, destroy() { root.remove(); }, update() {},
+    setUsage(u) {
+      if (!usageEl) return;
+      const k = (v) => (v >= 1e6 ? `${(v / 1e6).toFixed(1)}m` : v >= 1e3 ? `${(v / 1e3).toFixed(1)}k` : String(v));
+      const tok = u?.tokens ? `${k(u.tokens.input + u.tokens.output)} tok` : '';
+      const cost = u?.costUsd != null ? `$${u.costUsd < 0.01 ? u.costUsd.toFixed(4) : u.costUsd.toFixed(2)}` : '';
+      usageEl.textContent = [tok, cost].filter(Boolean).join(' · ') || (u?.turns ? `${u.turns} turns` : '');
+      usageEl.title = u?.tokens ? `${u.tokens.input} in, ${u.tokens.output} out (${u.source}${u.model ? `, ${u.model}` : ''})\n${u.turns} turns, ${Math.round(u.activeSeconds / 60)} min active${u.costUsd == null ? '\nno price known for this model' : ''}` : (u?.turns ? `${u.turns} turns; no token numbers reported yet` : '');
+    },
+  };
   let node = n;
 
   const patch = (p, local = true) => {
@@ -453,6 +468,7 @@ function buildTerminal(view, body, dot, getNode, baseUpdate) {
   view.update = (next) => {
     baseUpdate(next);
     view.setStatus(state.ws.status.get(next.id) || 'idle');
+    view.setUsage(state.ws.usage.get(next.id));
     held.classList.toggle('on', !!next.untrusted);
     if (next.untrusted) heldText.textContent = `This terminal came from an imported file. Its command was NOT run: ${next.command}`;
   };

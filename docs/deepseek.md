@@ -13,7 +13,7 @@ mkdir -p ~/.openmaestri
 install -m 600 /dev/null ~/.openmaestri/env
 cat >> ~/.openmaestri/env <<'ENV'
 DEEPSEEK_API_KEY=sk-your-key
-OPENMAESTRI_DEEPSEEK_MODEL=deepseek-chat
+OPENMAESTRI_DEEPSEEK_MODEL=deepseek-flash
 ENV
 ```
 
@@ -30,7 +30,7 @@ opencode auth login      # choose DeepSeek and paste the key (stored in ~/.local
 opencode models deepseek # lists valid model ids, in provider/model form
 ```
 
-The built-in presets run `opencode -m "deepseek/${OPENMAESTRI_DEEPSEEK_MODEL:-deepseek-chat}"`. If `deepseek-chat` is not in the list that `opencode models deepseek` prints, set `OPENMAESTRI_DEEPSEEK_MODEL` in `~/.openmaestri/env` to one that is.
+The built-in presets run `opencode -m "deepseek/${OPENMAESTRI_DEEPSEEK_MODEL:-deepseek-flash}"`. `deepseek-flash` and `deepseek-v4-pro` are the model names on DeepSeek's API price list at the time of writing. If `opencode models deepseek` shows different ids, set `OPENMAESTRI_DEEPSEEK_MODEL` in `~/.openmaestri/env` to one that it lists.
 
 ## 3. Aider
 
@@ -38,7 +38,7 @@ The built-in presets run `opencode -m "deepseek/${OPENMAESTRI_DEEPSEEK_MODEL:-de
 pip install aider-chat
 ```
 
-The *Aider (DeepSeek)* preset runs `aider --model "deepseek/${OPENMAESTRI_DEEPSEEK_MODEL:-deepseek-chat}"` and reads `DEEPSEEK_API_KEY`.
+The *Aider (DeepSeek)* preset runs `aider --model "deepseek/${OPENMAESTRI_DEEPSEEK_MODEL:-deepseek-flash}"` and reads `DEEPSEEK_API_KEY`.
 
 ## 4. A Maestro on DeepSeek
 

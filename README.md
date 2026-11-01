@@ -83,7 +83,7 @@ openmaestri does not call any model itself. Your agent CLI does, so any model th
 mkdir -p ~/.openmaestri && install -m 600 /dev/null ~/.openmaestri/env
 cat >> ~/.openmaestri/env <<'ENV'
 DEEPSEEK_API_KEY=sk-...
-OPENMAESTRI_DEEPSEEK_MODEL=deepseek-chat
+OPENMAESTRI_DEEPSEEK_MODEL=deepseek-flash
 ENV
 ```
 
