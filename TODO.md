@@ -43,4 +43,4 @@ Legenda: [x] feito · [ ] pendente
 - [x] Fichários (stacks), bands, partituras, desfazer/refazer, tidy, snap, paleta Ctrl+K, exportar/importar workspace
 - [ ] Fase 2: floors com git worktree, landing, hooks; depois revisão de PRs
 - [x] Fase 3: automação de portal (CDP)
-- [ ] Fase 4: chat com memória (say/recall), prompter, prompts salvos, uso dos agentes, descoberta de roles
+- [ ] Fase 4: [x] chat com threads (say/recall) · [ ] memória resumida · [ ] prompter · [ ] prompts salvos · [ ] uso dos agentes · [ ] descoberta de roles

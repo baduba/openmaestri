@@ -29,6 +29,7 @@
       <button id="tidy" title="Auto-arrange">Tidy</button>
       <button id="snap" title="Snap to grid">Snap</button>
       <button id="layouts" title="Saved layouts">Layouts</button>
+      <button id="chat-btn" title="Chat with your Maestro">Chat <span id="chat-badge" class="cbadge" hidden></span></button>
       <button id="palette-btn" title="Command palette (Ctrl+K)">⌘K</button>
       <span class="sep"></span>
       <button id="zoom-out" title="Zoom out">−</button>
@@ -43,6 +44,23 @@
     <div id="floors"></div>
     <div id="hint"></div>
   </main>
+  <aside id="chat" hidden>
+    <div class="chat-head">
+      <b id="chat-title">Chat</b>
+      <span class="chat-tools">
+        <button id="chat-interrupt" title="Interrupt the Maestro (Ctrl-C)">■</button>
+        <button id="chat-clear" title="Erase this thread">⌫</button>
+        <button id="chat-close" title="Close">×</button>
+      </span>
+    </div>
+    <div id="chat-tabs" class="ctabs"></div>
+    <input id="chat-search" placeholder="Search all threads…" autocomplete="off" aria-label="Search chat">
+    <div id="chat-list" class="chat-list" aria-live="polite"></div>
+    <div class="chat-compose">
+      <textarea id="chat-input" rows="3" placeholder="Message your Maestro. Enter sends, Shift+Enter adds a line." aria-label="Message"></textarea>
+      <button id="chat-send" class="primary">Send</button>
+    </div>
+  </aside>
   <div id="toasts"></div>
 
   <dialog id="dlg-term">

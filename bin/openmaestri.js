@@ -3,9 +3,10 @@
 // OPENMAESTRI_SOCKET / OPENMAESTRI_TERMINAL_ID into every pty it spawns.
 import net from 'node:net';
 import { spawn } from 'node:child_process';
+import path from 'node:path';
 import fs from 'node:fs';
 
-const BOOL = new Set(['existing-branch', 'copy', 'no-git', 'copy-ground', 'delete-branch', 'keep-floor', 'keep-branch', 'keep-folder', 'open', 'version', 'json', 'raw-flag', 'batch', 'force', 'none', 'clear', 'without-me', 'no-notify', 'disabled', 'reminder', 'agent', 'note', 'band', 'fichario', 'portal', 'help']);
+const BOOL = new Set(['progress', 'all', 'existing-branch', 'copy', 'no-git', 'copy-ground', 'delete-branch', 'keep-floor', 'keep-branch', 'keep-folder', 'open', 'version', 'json', 'raw-flag', 'batch', 'force', 'none', 'clear', 'without-me', 'no-notify', 'disabled', 'reminder', 'agent', 'note', 'band', 'fichario', 'portal', 'help']);
 
 const HELP = `openmaestri - a spatial workspace for AI agents (open implementation)
 
@@ -45,9 +46,17 @@ Usage:
   openmaestri floor list | land "Name" [--into B] [--delete-branch] [--keep-floor] | delete "Name" [--keep-branch] [--keep-folder] [--force] | set-dir "Name" PATH | unload "Name"
   openmaestri floor status ["Text" --state working|blocked|review|done --progress 2/5 | --clear] [--floor F]
   openmaestri recruit ... [--floor F]   (place the teammate on another floor; "Ground" for the ground floor)
+  openmaestri say "text" [--file PATH] [--attach PATH]... [--progress] [--thread N]   Answer the human in the chat (what a Maestro does)
+  openmaestri recall [thread] [--turns N | --last day|week|month | --from DATE [--to DATE] | --all] [--json] | recall list | recall attachment <id>
   openmaestri guide                                  How agents should use openmaestri (give this to your agent)
   openmaestri debug
 Global flags: --json (machine-readable output)`;
+
+const REPEAT = new Set(['attach']);
+function setFlag(flags, key, value) {
+  if (REPEAT.has(key)) flags[key] = [...(Array.isArray(flags[key]) ? flags[key] : []), value];
+  else flags[key] = value;
+}
 
 export function parseArgs(argv) {
   const pos = [];
@@ -58,9 +67,9 @@ export function parseArgs(argv) {
     if (a.startsWith('--') && a.length > 2) {
       const eq = a.indexOf('=');
       const key = (eq > 0 ? a.slice(2, eq) : a.slice(2));
-      if (eq > 0) flags[key] = a.slice(eq + 1);
+      if (eq > 0) setFlag(flags, key, a.slice(eq + 1));
       else if (BOOL.has(key)) flags[key] = true;
-      else if (argv[i + 1] !== undefined) flags[key] = argv[++i];
+      else if (argv[i + 1] !== undefined) setFlag(flags, key, argv[++i]);
       else flags[key] = true;
     } else pos.push(a);
   }
@@ -209,6 +218,19 @@ export function build({ pos, flags }) {
         case 'status': return { cmd: 'floor.status', args: { text: name, state: flags.state, progress: flags.progress, clear: !!flags.clear, floor: flags.floor } };
         default: throw new Error('usage: floor create|list|land|delete|set-dir|unload|status');
       }
+    }
+    case 'say': {
+      const abs = (p) => path.resolve(String(p));
+      const text = [c1, ...rest].filter((x) => x !== undefined).join(' ');
+      need(text || flags.file || flags.attach, 'say "text" [--file PATH] [--attach PATH]... [--progress] [--thread N]');
+      if (flags.file === true) throw new Error('say --file needs a path to a text or image file');
+      return { cmd: 'say', args: { text, file: flags.file ? abs(flags.file) : undefined, attach: (flags.attach ?? []).map(abs), progress: !!flags.progress, thread: flags.thread } };
+    }
+    case 'recall': {
+      const base = { turns: flags.turns ? Number(flags.turns) : undefined, last: flags.last, from: flags.from, to: flags.to, all: !!flags.all, json: !!flags.json };
+      if (c1 === 'list') return { cmd: 'recall', args: { list: true } };
+      if (c1 === 'attachment') { need(rest[0], 'recall attachment <id>'); return { cmd: 'recall', args: { attachment: rest[0] } }; }
+      return { cmd: 'recall', args: { ...base, thread: c1 } };
     }
     case 'guide': return { cmd: 'guide', args: {} };
     case 'debug': return { cmd: 'debug', args: {} };

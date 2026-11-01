@@ -1,5 +1,6 @@
 import { Terminal } from '/vendor/xterm.mjs';
 import { FitAddon } from '/vendor/addon-fit.mjs';
+import { createChat } from '/chat.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const el = (tag, cls, text) => {
@@ -66,6 +67,7 @@ function onMessage(m) {
     case 'notify': toast(m.message, m.from); maybeSystemNotify(m); break;
     case 'error': toast(m.message, 'error', true); break;
     case 'toast': toast(m.message, m.from); break;
+    case 'chat.history': case 'chat.message': case 'chat.progress': case 'chat.state': case 'chat.search': chatUi.handle(m); break;
     case 'portal.frame': state.views.get(m.id)?.frame?.(m); break;
     case 'portal.nav': state.views.get(m.id)?.nav?.(m); break;
     case 'portal.error': state.views.get(m.id)?.portalError?.(m.message); break;
@@ -86,7 +88,9 @@ function applyWorkspace(ws, switching) {
   if (switching) {
     for (const v of state.views.values()) v.destroy();
     state.views.clear();
-    state.vp = { ...ws.viewport };
+    // a never-moved canvas starts clear of the toolbar, so a node at the origin is not hidden under it
+    const fresh = ws.viewport.x === 0 && ws.viewport.y === 0 && ws.viewport.z === 1;
+    state.vp = fresh ? { x: 40, y: 64, z: 1 } : { ...ws.viewport };
     state.selected = null;
     state.linkFrom = null;
     let saved = null;
@@ -113,6 +117,8 @@ function syncViews() {
   renderSidebar();
   renderFloors();
   syncHistoryButtons();
+  chatUi.sync();
+  markAttention();
   const cur = state.floorId ? ws.floors.find((f) => f.id === state.floorId) : null;
   const status = cur ? cur.status : ws.floorStatus;
   const fs = $('#floor-status');
@@ -276,6 +282,7 @@ function linkPath(a, b) {
 }
 
 function select(id) {
+  if (id && state.ws?.chat?.attention?.includes(id)) send({ t: 'chat.ack', workspaceId: wsId(), terminalId: id });
   state.selected = id;
   for (const [nid, v] of state.views) v.root.classList.toggle('sel', nid === id);
 }
@@ -973,6 +980,14 @@ $('#form-floor').onsubmit = (e) => {
   send({ t: 'floor.create', workspaceId: wsId(), name, mode, branch: f.get('branch') || undefined, dir: mode === 'dir' ? f.get('dir') : undefined, copyGround: f.get('copyGround') === 'on' });
 };
 $('#floor-status').onclick = () => { const text = prompt('What is happening on this floor? (empty clears it)'); if (text !== null) send({ t: 'floor.status', workspaceId: wsId(), floorId: state.floorId, text, state: 'working' }); };
+
+// ---------- chat ----------
+const chatUi = createChat({ state, send, wsId, toast, $, el });
+function markAttention() {
+  const att = new Set(state.ws?.chat?.attention ?? []);
+  for (const [id, v] of state.views) v.root.classList.toggle('attn', att.has(id));
+}
+window.addEventListener('om-chat-state', markAttention);
 
 // test hook (read-only view of state)
 window.__om = { state };

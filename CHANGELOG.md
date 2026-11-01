@@ -4,6 +4,11 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-01
+
+### Added
+- Chat with the Maestro: seven threads, append-only history, `openmaestri say` / `recall`, side panel with progress lines, unread and attention badges, search, interrupt and an attachment vault (docs/chat.md)
+
 ## [0.3.0] - 2026-11-01
 
 ### Added

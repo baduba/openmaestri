@@ -13,6 +13,7 @@ import { Core, CommandError } from './core.js';
 import { dataDir, atomicWrite, safeId } from './store.js';
 import { startIpc, defaultSocketPath, ipcAlive } from './ipc.js';
 import { MAESTRO_BOOTSTRAP } from './prompts.js';
+import { threadId } from './chat.js';
 import { exportWorkspace, importWorkspace, capturePartitura } from './transfer.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -86,8 +87,19 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
       if (url.pathname === '/') { res.writeHead(302, { location: '/', 'set-cookie': res.getHeader('set-cookie') }); return res.end(); }
     }
     if (url.pathname.startsWith('/export/')) return serveExport(url.pathname, res);
+    if (url.pathname.startsWith('/attachment/')) return serveAttachment(url.pathname, res);
     serveStatic(url.pathname, res);
   });
+
+  function serveAttachment(pathname, res) {
+    const [wsId, attId] = pathname.slice('/attachment/'.length).split('/');
+    let file;
+    try { file = core.chat.attachmentPath(safeId(wsId), attId); } catch { res.writeHead(404); return res.end('not found'); }
+    const rec = core.chat.readVault(wsId)[attId];
+    const inline = /^image\/(png|jpeg|gif|webp)$/.test(rec?.mime ?? '');
+    res.writeHead(200, { 'content-type': inline ? rec.mime : 'application/octet-stream', 'content-disposition': `${inline ? 'inline' : 'attachment'}; filename="${rec?.name ?? 'file'}"` });
+    fs.createReadStream(file).pipe(res);
+  }
 
   function serveExport(pathname, res) {
     let ws;
@@ -137,6 +149,9 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
   });
   core.on('workspace-list', () => broadcast({ t: 'summary', ...core.summary() }));
   core.on('notify', (n) => broadcast({ t: 'notify', ...n }));
+  core.on('chat-message', (workspaceId, message) => broadcast({ t: 'chat.message', workspaceId, message }));
+  core.on('chat-progress', (workspaceId, message) => broadcast({ t: 'chat.progress', workspaceId, message }));
+  core.on('chat-state', (id) => { const w = core.store.workspaces.get(id); if (w) broadcast({ t: 'chat.state', workspaceId: id, chat: core.chatState(w) }); });
   core.portals.on('frame', (id, f) => broadcast({ t: 'portal.frame', id, ...f }, (c) => c.portalViews?.has(id)));
   core.portals.on('nav', (id, nav) => broadcast({ t: 'portal.nav', id, ...nav }, (c) => c.portalViews?.has(id)));
   core.on('term-data', (id, data) => broadcast({ t: 'term.out', id, data }, (c) => c.attached?.has(id)));
@@ -338,6 +353,26 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
         const status = m.text ? { text: String(m.text).slice(0, 200), state: ['working', 'blocked', 'review', 'done'].includes(m.state) ? m.state : 'working', progress: null, by: 'you', at: new Date().toISOString() } : null;
         if (rec) rec.status = status; else w.floorStatus = status;
         core.touch(w);
+        break;
+      }
+      case 'chat.history': {
+        const w = wsOf();
+        const tid = threadId(m.threadId) ?? core.chat.active(w.id);
+        send(ws, { t: 'chat.history', threadId: tid, messages: core.chat.history(w.id, tid, { turns: m.turns ?? 100, before: m.before }), progress: core.chat.pendingProgress(w.id, tid), chat: core.chatState(w) });
+        break;
+      }
+      case 'chat.send': { const w = wsOf(); core.chatSend(w, { thread: m.threadId, text: m.text }); break; }
+      case 'chat.switch': { const w = wsOf(); core.chat.setActive(w.id, m.threadId); core.chat.markRead(w.id, m.threadId); break; }
+      case 'chat.rename': { const w = wsOf(); core.chat.rename(w.id, m.threadId, m.title); break; }
+      case 'chat.clear': { const w = wsOf(); core.chat.clear(w.id, m.threadId); break; }
+      case 'chat.markRead': { const w = wsOf(); core.chat.markRead(w.id, m.threadId); break; }
+      case 'chat.interrupt': core.chatInterrupt(wsOf()); break;
+      case 'chat.ack': { const w = wsOf(); core.ackAttention(w, m.terminalId); break; }
+      case 'chat.search': {
+        const w = wsOf();
+        ws.searchSeq = (ws.searchSeq ?? 0) + 1;
+        const seq = ws.searchSeq;
+        send(ws, { t: 'chat.search', requestId: m.requestId, hits: core.chat.search(w.id, m.query, { isCancelled: () => ws.searchSeq > seq }) });
         break;
       }
       case 'undo': { const w = wsOf(); if (!core.undo(w)) send(ws, { t: 'error', message: 'nothing to undo' }); break; }
