@@ -68,21 +68,27 @@ export function readUserEnv(file, resolve) {
     text = fs.readFileSync(fd, 'utf8');
   } catch { return out; } finally { if (fd !== undefined) fs.closeSync(fd); }
   for (const raw of text.split('\n')) {
-    const line = raw.trim();
-    if (!line || line.startsWith('#')) continue;
-    const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line.startsWith('export ') ? line.slice(7).trimStart() : line);
-    if (!m) continue;
-    let v = m[2].trim();
-    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
-    if (refName(v)) {
-      // a reference to a stored secret; without the secret the variable is left out, never set to the reference text
-      const secret = resolve?.(v);
-      if (typeof secret !== 'string') { console.warn(`[env] ${m[1]} points to ${v}, which is not stored; run: openmaestri secrets set ${refName(v)}`); continue; }
-      v = secret;
-    }
-    out[m[1]] = v;
+    const parsed = parseEnvLine(raw, resolve);
+    if (parsed) out[parsed[0]] = parsed[1];
   }
   return out;
+}
+
+/** One line of the env file as [name, value], or null for a comment, a bad line, or a reference that cannot be resolved. */
+function parseEnvLine(raw, resolve) {
+  const line = raw.trim();
+  if (!line || line.startsWith('#')) return null;
+  const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line.startsWith('export ') ? line.slice(7).trimStart() : line);
+  if (!m) return null;
+  let v = m[2].trim();
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+  const name = refName(v);
+  if (!name) return [m[1], v];
+  // a reference to a stored secret; without the secret the variable is left out, never set to the reference text
+  const secret = resolve?.(v);
+  if (typeof secret === 'string') return [m[1], secret];
+  console.warn(`[env] ${m[1]} points to ${v}, which is not stored; run: openmaestri secrets set ${name}`);
+  return null;
 }
 
 /** POSIX single-quote escaping, safe for any path. */

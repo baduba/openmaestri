@@ -315,7 +315,10 @@ async function secretsCommand(parsed, insideTerminal) {
   const [, sub, name] = parsed.pos;
   try {
     const store = new Secrets({ root: dataDir() });
-    if (sub === 'list') { for (const n of store.list()) console.log(`${n}  (secret://${n})`); return 0; }
+    if (sub === 'list') {
+      for (const n of store.list()) console.log(`${n}  (secret://${n})`);
+      return 0;
+    }
     if (sub === 'status') { console.log(`backend: ${store.kind}\nstored: ${store.list().length}`); return 0; }
     if (sub === 'rm' && name) { console.log(store.remove(name) ? `removed ${name}` : `no secret named ${name}`); return 0; }
     if (sub === 'set' && name) {

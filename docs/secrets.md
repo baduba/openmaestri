@@ -35,7 +35,7 @@ Names are lowercase letters, digits, dot, dash and underscore.
 
 ## Where the value lives
 
-- **keyring**: the desktop keyring through `secret-tool` (`apt install libsecret-tools`), used automatically when it works. 
+- **keyring**: the desktop keyring through `secret-tool` (`apt install libsecret-tools`), used automatically when it works (looked up in /usr/bin, /usr/local/bin and /bin only; `OPENMAESTRI_SECRET_TOOL=/abs/path` overrides).
 - **file**: `~/.openmaestri/secrets.json`, mode 0600, used when there is no usable keyring (a server, a container). It has the same trust level as the env file it replaces, so this is not encryption: openmaestri does not invent a home-made cipher whose key would sit next to the data.
 
 `OPENMAESTRI_SECRETS_BACKEND=file|keyring|auto` forces a choice.

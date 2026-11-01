@@ -30,8 +30,16 @@ export function refName(value) {
   return NAME_RE.test(n) ? n : null;
 }
 
+// a fixed list of install locations: the program is never looked up through $PATH, which a project could shadow
+const TOOL_DIRS = ['/usr/bin', '/usr/local/bin', '/bin'];
+function toolPath() {
+  const forced = process.env.OPENMAESTRI_SECRET_TOOL;
+  if (forced && path.isAbsolute(forced)) return forced;
+  return TOOL_DIRS.map((d) => path.join(d, 'secret-tool')).find((f) => fs.existsSync(f)) ?? '/usr/bin/secret-tool';
+}
+
 function tool(args, input) {
-  return spawnSync('secret-tool', args, { input, encoding: 'utf8', timeout: 5000, maxBuffer: 1 << 20 });
+  return spawnSync(toolPath(), args, { input, encoding: 'utf8', timeout: 5000, maxBuffer: 1 << 20 });
 }
 
 class KeyringBackend {
@@ -54,7 +62,7 @@ class KeyringBackend {
     const r = tool(['search', '--all', 'service', 'openmaestri']);
     const names = new Set();
     for (const m of String(r.stdout).matchAll(/^attribute\.name = (.+)$/gm)) if (NAME_RE.test(m[1])) names.add(m[1]);
-    return [...names].sort();
+    return [...names].sort((a, b) => a.localeCompare(b));
   }
 }
 
@@ -87,7 +95,7 @@ class FileBackend {
     fs.chmodSync(this.file, 0o600);
     return true;
   }
-  list() { return Object.keys(this.read()).filter((n) => NAME_RE.test(n)).sort(); }
+  list() { return Object.keys(this.read()).filter((n) => NAME_RE.test(n)).sort((a, b) => a.localeCompare(b)); }
 }
 
 export class Secrets {

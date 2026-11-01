@@ -64,7 +64,7 @@ test('env file: secret:// resolves, unknown references drop the variable', (t) =
   assert.equal(readUserEnv(envFile).DEEPSEEK_API_KEY, undefined, 'without a resolver a reference is not leaked as the key');
 });
 
-test('keyring backend through secret-tool (fake tool on PATH)', (t) => {
+test('keyring backend through secret-tool (fake tool via OPENMAESTRI_SECRET_TOOL)', (t) => {
   const root = mk(t);
   const bin = path.join(root, 'bin'); fs.mkdirSync(bin);
   const db = path.join(root, 'db');
@@ -78,8 +78,8 @@ case "$cmd" in
   search) for f in "$db"/*; do [ -f "$f" ] && echo "attribute.name = $(basename "$f")"; done; exit 0 ;;
 esac
 `, { mode: 0o755 });
-  const old = process.env.PATH; process.env.PATH = `${bin}${path.delimiter}${old}`;
-  t.after(() => { process.env.PATH = old; });
+  process.env.OPENMAESTRI_SECRET_TOOL = path.join(bin, 'secret-tool');
+  t.after(() => { delete process.env.OPENMAESTRI_SECRET_TOOL; });
   const s = new Secrets({ root, env: { OPENMAESTRI_SECRETS_BACKEND: 'keyring' } });
   assert.equal(s.kind, 'keyring');
   s.set('claude', 'sk-ant-xyz');
