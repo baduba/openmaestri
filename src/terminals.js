@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 import pty from 'node-pty';
+import { refName } from './secrets.js';
 
 const require = createRequire(import.meta.url);
 const { Terminal } = require('@xterm/headless');
@@ -56,7 +57,7 @@ const SCROLLBACK = 5000;
  * KEY=VALUE lines from <data dir>/env (keep it chmod 600). This is where API keys such as
  * DEEPSEEK_API_KEY live, so they never end up in workspace.json or in a repository.
  */
-export function readUserEnv(file) {
+export function readUserEnv(file, resolve) {
   const out = {};
   let text;
   let fd;
@@ -67,15 +68,27 @@ export function readUserEnv(file) {
     text = fs.readFileSync(fd, 'utf8');
   } catch { return out; } finally { if (fd !== undefined) fs.closeSync(fd); }
   for (const raw of text.split('\n')) {
-    const line = raw.trim();
-    if (!line || line.startsWith('#')) continue;
-    const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line.startsWith('export ') ? line.slice(7).trimStart() : line);
-    if (!m) continue;
-    let v = m[2].trim();
-    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
-    out[m[1]] = v;
+    const parsed = parseEnvLine(raw, resolve);
+    if (parsed) out[parsed[0]] = parsed[1];
   }
   return out;
+}
+
+/** One line of the env file as [name, value], or null for a comment, a bad line, or a reference that cannot be resolved. */
+function parseEnvLine(raw, resolve) {
+  const line = raw.trim();
+  if (!line || line.startsWith('#')) return null;
+  const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line.startsWith('export ') ? line.slice(7).trimStart() : line);
+  if (!m) return null;
+  let v = m[2].trim();
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+  const name = refName(v);
+  if (!name) return [m[1], v];
+  // a reference to a stored secret; without the secret the variable is left out, never set to the reference text
+  const secret = resolve?.(v);
+  if (typeof secret === 'string') return [m[1], secret];
+  console.warn(`[env] ${m[1]} points to ${v}, which is not stored; run: openmaestri secrets set ${name}`);
+  return null;
 }
 
 /** POSIX single-quote escaping, safe for any path. */
@@ -136,7 +149,7 @@ export class Terminals extends EventEmitter {
     for (const k of Object.keys(env)) {
       if (k.startsWith('OPENMAESTRI_') || k.startsWith('ELECTRON_')) delete env[k];
     }
-    Object.assign(env, readUserEnv(this.env.envFile));
+    Object.assign(env, readUserEnv(this.env.envFile, this.env.resolveSecret));
     Object.assign(env, {
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',

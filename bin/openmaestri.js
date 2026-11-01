@@ -54,6 +54,7 @@ Usage:
   openmaestri prompt list | read "name" | use "name" | save "name" "text" [--global] [--overwrite] | delete "name" | undo   Saved prompts (save/delete: Maestro)
   openmaestri prompt parse|materialize "text with @agent:Name @note:Name @file:path"   Expand mentions (files up to 32 KB, workspace only)
   openmaestri usage ["Agent"] [--days N] [--json] | usage report --in N --out N [--model M] [--cost USD] | usage reset ["Agent"]   Tokens, cost, turns
+  openmaestri secrets set|list|status|rm            Keep API keys outside the env file (secret://name); run in your own shell
   openmaestri doctor                                 Check what is installed and how to fix what is missing (works anywhere)
   openmaestri guide                                  How agents should use openmaestri (give this to your agent)
   openmaestri debug
@@ -306,6 +307,59 @@ async function serve(flags) {
   }
 }
 
+/** Secrets are for people: an agent in a terminal can neither read nor change them through this command. */
+async function secretsCommand(parsed, insideTerminal) {
+  if (insideTerminal) { console.error('openmaestri secrets: run it in your own shell, not inside an agent terminal.'); return 2; }
+  const { Secrets, SecretError } = await import('../src/secrets.js');
+  const { dataDir } = await import('../src/store.js');
+  const [, sub, name] = parsed.pos;
+  try {
+    const store = new Secrets({ root: dataDir() });
+    if (sub === 'list') {
+      for (const n of store.list()) console.log(`${n}  (secret://${n})`);
+      return 0;
+    }
+    if (sub === 'status') { console.log(`backend: ${store.kind}\nstored: ${store.list().length}`); return 0; }
+    if (sub === 'rm' && name) { console.log(store.remove(name) ? `removed ${name}` : `no secret named ${name}`); return 0; }
+    if (sub === 'set' && name) {
+      store.set(name, await readSecretValue());
+      console.log(`stored ${name}. Use it in ${path.join(dataDir(), 'env')} as:  SOME_API_KEY=secret://${name}`);
+      return 0;
+    }
+  } catch (e) {
+    if (!(e instanceof SecretError)) throw e;
+    console.error(`openmaestri secrets: ${e.message}`);
+    return 1;
+  }
+  console.error('usage: openmaestri secrets set NAME   (value from stdin, or typed without echo)\n       openmaestri secrets list | status | rm NAME');
+  return 2;
+}
+
+/** The value comes from a pipe, or is typed with the terminal echo off; it is never an argument (it would show in `ps` and shell history). */
+async function readSecretValue() {
+  if (!process.stdin.isTTY) {
+    const chunks = [];
+    for await (const c of process.stdin) chunks.push(c);
+    return Buffer.concat(chunks).toString('utf8');
+  }
+  process.stderr.write('Value (hidden): ');
+  const { stdin } = process;
+  stdin.setRawMode(true);
+  stdin.resume();
+  stdin.setEncoding('utf8');
+  return new Promise((resolve) => {
+    let v = '';
+    const onData = (ch) => {
+      for (const c of ch) {
+        if (c === '\r' || c === '\n' || c === '\u0004') { stdin.setRawMode(false); stdin.pause(); stdin.off('data', onData); process.stderr.write('\n'); resolve(v); return; }
+        if (c === '\u0003') { stdin.setRawMode(false); process.stderr.write('\n'); process.exit(130); }
+        if (c === '\u007f') v = v.slice(0, -1); else v += c;
+      }
+    };
+    stdin.on('data', onData);
+  });
+}
+
 async function run(argv) {
   const parsed = parseArgs(argv);
   if (parsed.pos[0] === 'doctor') {
@@ -315,6 +369,7 @@ async function run(argv) {
     return rows.some((r) => r.level === 'fail') ? 1 : 0;
   }
   const insideTerminal = !!process.env.OPENMAESTRI_SOCKET;
+  if (parsed.pos[0] === 'secrets') return secretsCommand(parsed, insideTerminal);
   if (!insideTerminal && (parsed.pos.length === 0 || parsed.pos[0] === 'serve') && !parsed.flags.help) return serve(parsed.flags);
   if (!parsed.pos.length || parsed.pos[0] === 'help' || parsed.flags.help) { console.log(HELP); return 0; }
   if (parsed.pos[0] === 'version' || parsed.flags.version) { console.log(JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version); return 0; }

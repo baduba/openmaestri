@@ -1,5 +1,6 @@
 // Core: owns the store, the terminal runtime and the scheduler, and implements
 // every command that either the CLI (inside a terminal) or the UI can issue.
+import { Secrets } from './secrets.js';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -35,7 +36,10 @@ export class Core extends EventEmitter {
   constructor({ dataRoot = dataDir(), socketPath, cliDir, cliBin }) {
     super();
     this.store = new Store(dataRoot);
-    this.terminals = new Terminals({ socketPath, cliDir, cliBin, envFile: path.join(dataRoot, 'env') });
+    // the secret store is opened lazily: a broken keyring must not stop the daemon, only the references that need it
+    let secrets = null;
+    const resolveSecret = (ref) => { try { secrets ??= new Secrets({ root: dataRoot }); return secrets.resolve(ref); } catch { return undefined; } };
+    this.terminals = new Terminals({ socketPath, cliDir, cliBin, envFile: path.join(dataRoot, 'env'), resolveSecret });
     this.socketPath = socketPath;
     this.startedAt = Date.now();
     this.notifyLog = new Map();

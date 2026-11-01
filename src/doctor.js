@@ -1,5 +1,6 @@
 // `openmaestri doctor`: what is installed, what is missing, and the command that fixes it.
 // It never prints a secret; for API keys it only says whether one is set.
+import { Secrets } from './secrets.js';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -45,9 +46,12 @@ export async function runDoctor({ env = process.env, root = dataDir(), socketPat
   const envFile = path.join(root, 'env');
   let mode = null;
   try { mode = fs.statSync(envFile).mode & 0o777; } catch { /* no file */ }
-  const fileKeys = readUserEnv(envFile);
+  let secrets = null;
+  try { secrets = new Secrets({ root, env }); } catch { /* reported below */ }
+  const fileKeys = readUserEnv(envFile, (ref) => secrets?.resolve(ref));
   const hasKey = !!(fileKeys.DEEPSEEK_API_KEY || env.DEEPSEEK_API_KEY);
   add('DeepSeek API key', hasKey ? 'ok' : 'warn', hasKey ? `set (${fileKeys.DEEPSEEK_API_KEY ? envFile : 'environment'})` : 'not set', hasKey ? undefined : `put DEEPSEEK_API_KEY=... in ${envFile} (chmod 600); never in a workspace or a repository`);
+  add('Secret store', secrets ? 'ok' : 'warn', secrets ? `${secrets.kind} (${secrets.list().length} stored)` : 'unavailable', secrets ? undefined : 'unset OPENMAESTRI_SECRETS_BACKEND or install libsecret-tools and unlock the keyring');
   if (mode !== null) add('Keys file permissions', (mode & 0o077) === 0 ? 'ok' : 'warn', `${envFile} is ${mode.toString(8)}`, (mode & 0o077) === 0 ? undefined : `chmod 600 ${envFile}`);
   if (hasKey) add('DeepSeek model', 'ok', fileKeys.OPENMAESTRI_DEEPSEEK_MODEL || env.OPENMAESTRI_DEEPSEEK_MODEL || 'deepseek-flash (default)');
 

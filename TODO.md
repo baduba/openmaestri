@@ -21,7 +21,7 @@ Legenda: [x] feito · [ ] pendente
 ## C. Modelos abertos / DeepSeek
 - [x] 11. Presets prontos: OpenCode (+ DeepSeek), Aider (+ DeepSeek), Claude Code, Codex, Gemini CLI, Goose
 - [x] 12. Guia `docs/deepseek.md`: OpenCode com `DEEPSEEK_API_KEY` (provider deepseek) e Aider com `--model deepseek/deepseek-chat`
-- [ ] 13. Parcial: chaves em `~/.openmaestri/env` fora do workspace.json; falta variáveis por preset/conta e chaveiro do SO
+- [ ] 13. Parcial: chaves em `~/.openmaestri/env` fora do workspace.json; chaveiro e secret:// feitos (v0.10.0); falta variáveis por preset/conta
 - [x] 14. Teste de integração do fluxo "Maestro recruta 2 workers e coordena" com um agente falso (script) para CI sem chave de API
 
 ## D. Produto
@@ -43,7 +43,7 @@ Legenda: [x] feito · [ ] pendente
 - [x] Endurecimento: SSRF nos portais, hooks do git, teto de terminais, vazamento no export
 - [x] `openmaestri doctor`, `recruit --model`, checagem do agente instalado
 - [x] Árvore de arquivos e editor no canvas (v0.9.0) · [ ] floors a partir de PR e lista de PRs (gh/glab) · [ ] hooks e snapshots de floor
-- [ ] Contas com chaveiro (secret://) · [ ] Electron (por último) · [ ] arrastar e soltar arquivos
+- [x] Chaves nomeadas com chaveiro (secret://, v0.10.0) · [ ] alternar várias contas por agente · [ ] Electron (por último) · [ ] arrastar e soltar arquivos
 
 ## F. Fase 1 de paridade (feito em feature/canvas-parity)
 - [x] Fichários (stacks), bands, partituras, desfazer/refazer, tidy, snap, paleta Ctrl+K, exportar/importar workspace
