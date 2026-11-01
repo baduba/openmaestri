@@ -47,6 +47,16 @@ export function commandAvailable(command) {
   availableCache.set(word, { ok, at: Date.now() });
   return { ok, word };
 }
+/** Absolute path of a program as the user's own interactive shell finds it, or null. */
+export function commandPath(word) {
+  if (!word) return null;
+  if (word.includes('/')) { try { fs.accessSync(word, fs.constants.X_OK); return word; } catch { return null; } }
+  try {
+    const out = execFileSync(defaultShell(), ['-ic', 'command -v -- "$0"', word], { timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf8' });
+    const hit = out.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('/')).pop();
+    return hit || null;
+  } catch { return null; }
+}
 const maxTerminals = () => Math.max(1, Number(process.env.OPENMAESTRI_MAX_TERMINALS) || 40);
 
 const DEFAULT_COLS = 100;
@@ -74,20 +84,33 @@ export function readUserEnv(file, resolve) {
   return out;
 }
 
+/** Letters, digits and underscore, not starting with a digit (checked character by character). */
+function isVarName(name) {
+  if (!name) return false;
+  for (let i = 0; i < name.length; i += 1) {
+    const c = name.charCodeAt(i);
+    const letter = (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c === 95;
+    if (!letter && !(i > 0 && c >= 48 && c <= 57)) return false;
+  }
+  return true;
+}
+
 /** One line of the env file as [name, value], or null for a comment, a bad line, or a reference that cannot be resolved. */
 function parseEnvLine(raw, resolve) {
   const line = raw.trim();
   if (!line || line.startsWith('#')) return null;
-  const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line.startsWith('export ') ? line.slice(7).trimStart() : line);
-  if (!m) return null;
-  let v = m[2].trim();
+  const assign = line.startsWith('export ') ? line.slice(7).trimStart() : line;
+  const eq = assign.indexOf('=');
+  const key = eq > 0 ? assign.slice(0, eq) : '';
+  if (!isVarName(key)) return null;
+  let v = assign.slice(eq + 1).trim();
   if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
   const name = refName(v);
-  if (!name) return [m[1], v];
+  if (!name) return [key, v];
   // a reference to a stored secret; without the secret the variable is left out, never set to the reference text
   const secret = resolve?.(v);
-  if (typeof secret === 'string') return [m[1], secret];
-  console.warn(`[env] ${m[1]} points to ${v}, which is not stored; run: openmaestri secrets set ${name}`);
+  if (typeof secret === 'string') return [key, secret];
+  console.warn(`[env] ${key} points to ${v}, which is not stored; run: openmaestri secrets set ${name}`);
   return null;
 }
 

@@ -14,6 +14,7 @@ Usage:
   openmaestri [serve] [--open]                       Start the app (outside a terminal): daemon + web UI. --open launches the browser
   openmaestri list                                   List connected agents, notes and portals
   openmaestri notify "message"                       Send the user a notification
+  openmaestri agent claude|codex|gemini|agy|kimi|opencode|aider|goose "prompt"   One-shot run of an agent CLI, prints its answer (no terminal)
   openmaestri ask "Agent" "prompt" [--timeout 120s]  Send a prompt to a connected agent, wait until it settles, print what it produced
   openmaestri ask --batch '{"A":"prompt","B":"prompt"}'  Ask several agents in parallel; prints a JSON array
   openmaestri ask "Agent" --raw "2\\n"                Send raw keystrokes (\\n \\t \\e \\xNN); prints the resulting terminal text
@@ -111,6 +112,10 @@ export function build({ pos, flags }) {
       if (flags.raw !== undefined) return { cmd: 'ask', args: { name: c1, raw: String(flags.raw === true ? rest.join(' ') : flags.raw), timeoutMs } };
       need(rest.length, 'ask "Agent" "prompt"');
       return { cmd: 'ask', args: { name: c1, prompt: rest.join(' '), timeoutMs } };
+    }
+    case 'agent': {
+      need(c1 && rest.length, 'agent <driver> "prompt" [--model M] [--floor NAME] [--timeout 10m]');
+      return { cmd: 'agent.run', args: { driver: c1, prompt: rest.join(' '), model: flags.model === undefined ? undefined : String(flags.model), floor: flags.floor === undefined ? undefined : String(flags.floor), timeoutMs: duration(flags.timeout) } };
     }
     case 'check': need(c1, 'check "Agent" [--lines N]'); return { cmd: 'check', args: { name: c1, lines: flags.lines ? Number(flags.lines) : undefined } };
     case 'note': {

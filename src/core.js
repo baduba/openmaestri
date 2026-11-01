@@ -7,6 +7,7 @@ import path from 'node:path';
 import { Store, dataDir } from './store.js';
 import { GUIDE } from './prompts.js';
 import { Terminals } from './terminals.js';
+import { DRIVERS, customDrivers, workerEnv, runHeadless, HeadlessError } from './headless.js';
 import { discover as discoverRoles, plan as planRole, diffText, agentKind, RoleError, AGENT_FILES } from './roles.js';
 import { Files, FilesError } from './files.js';
 import { Usage, UsageError } from './usage.js';
@@ -39,6 +40,8 @@ export class Core extends EventEmitter {
     // the secret store is opened lazily: a broken keyring must not stop the daemon, only the references that need it
     let secrets = null;
     const resolveSecret = (ref) => { try { secrets ??= new Secrets({ root: dataRoot }); return secrets.resolve(ref); } catch { return undefined; } };
+    this.resolveSecret = resolveSecret;
+    this.headless = new Set();
     this.terminals = new Terminals({ socketPath, cliDir, cliBin, envFile: path.join(dataRoot, 'env'), resolveSecret });
     this.socketPath = socketPath;
     this.startedAt = Date.now();
@@ -92,6 +95,7 @@ export class Core extends EventEmitter {
     this.portals.stop().catch(() => { /* shutting down */ });
     this.scheduler.stop();
     this.store.flush();
+    for (const ac of this.headless) ac.abort();
     this.terminals.disposeAll();
   }
 
@@ -232,7 +236,7 @@ export class Core extends EventEmitter {
     try {
       return await h.call(this, ws, me, a);
     } catch (e) {
-      if (e instanceof ChatError || e instanceof PromptError || e instanceof UsageError || e instanceof RoleError || e instanceof TerminalError || e instanceof FilesError) fail(e.message);
+      if (e instanceof ChatError || e instanceof PromptError || e instanceof UsageError || e instanceof RoleError || e instanceof TerminalError || e instanceof FilesError || e instanceof HeadlessError) fail(e.message);
       throw e;
     }
   }
@@ -245,6 +249,8 @@ export class Core extends EventEmitter {
 const textOf = (rows) => rows.join('\n');
 const kindLabel = { terminal: 'agent', note: 'note', portal: 'portal', stack: 'stack', band: 'band' };
 const KIND_FLAGS = { agent: 'terminal', note: 'note', portal: 'portal', fichario: 'stack', stack: 'stack', band: 'band' };
+
+const MAX_HEADLESS = 6;
 
 const HANDLERS = {
   guide() {
@@ -292,6 +298,29 @@ const HANDLERS = {
     const state = await this.terminals.waitIdle(target.id, { since, timeoutMs, quietMs: quietMs ?? (raw != null ? 800 : 2500) });
     const output = this.terminals.text(target.id, { fromLine });
     return { text: output || '(no output)', data: { name: target.name, state, output } };
+  },
+
+  /** A one-shot run of any agent CLI in its non-interactive mode: no terminal, the answer comes back as text. */
+  async 'agent.run'(ws, me, { driver, prompt, model, floor, timeoutMs }) {
+    this.requireMaestro(me);
+    const drivers = { ...DRIVERS, ...customDrivers(this.store.settings.drivers) };
+    if (!driver) fail(`usage: agent <driver> "prompt". Drivers: ${Object.keys(drivers).join(', ')}`);
+    if (this.headless.size >= MAX_HEADLESS) fail(`${this.headless.size} one-shot agents are already running (the limit is ${MAX_HEADLESS}); wait for one to finish`);
+    const rec = floor ? ws.floors.find((f) => f.slug === floor || f.name.toLowerCase() === String(floor).toLowerCase()) : null;
+    if (floor && !rec) fail(`no floor named "${floor}" (see: floor list)`);
+    const cwd = [rec?.dir, me.cwd, ws.dir].find((d) => d && fs.existsSync(d)) ?? process.env.HOME;
+    const expanded = materializeMentions(String(prompt ?? ''), this.prompterCtx(ws, me)).text;
+    const ac = new AbortController();
+    this.headless.add(ac);
+    try {
+      const env = workerEnv(process.env, path.join(this.dataRoot, 'env'), this.resolveSecret);
+      const r = await runHeadless({ driver, drivers, prompt: expanded, cwd, env, model, timeoutMs, signal: ac.signal });
+      const secs = (r.ms / 1000).toFixed(1);
+      if (r.timedOut) fail(`${driver} did not finish in time and was stopped (${secs}s)${r.text ? `. Partial output:\n${r.text}` : ''}`);
+      if (r.cancelled) fail(`${driver} was stopped`);
+      if (!r.ok) fail(`${driver} exited with ${r.exitCode ?? r.signal ?? 'an error'} after ${secs}s${r.stderr ? `:\n${r.stderr}` : ''}${r.text ? `\nOutput:\n${r.text}` : ''}`);
+      return { text: `${r.text || '(no output)'}${r.truncated ? '\n[output cut at 400 KB]' : ''}\n[${driver}, ${secs}s, ${path.basename(cwd)}]` };
+    } finally { this.headless.delete(ac); }
   },
 
   async 'ask.batch'(ws, me, { items, timeoutMs }) {

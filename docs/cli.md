@@ -15,6 +15,7 @@ An agent sees only what is connected to it. A **Maestro** terminal sees the whol
 | `list` | Reachable agents, notes, portals with status |
 | `ask "Agent" "prompt" [--timeout 120s]` | Type the prompt (bracketed paste for multi-line), wait until output is quiet, print the new screen text |
 | `ask --batch '{"A":"…","B":"…"}'` | Parallel asks, JSON array `[{agent,state,output}]`; `state` is `idle`, `timeout` or `exited` |
+| `agent <driver> "prompt" [--model M] [--floor NAME] [--timeout 10m]` | One-shot run of an agent CLI in its non-interactive mode (Maestro only); prints the answer. See [one-shot agents](oneshot.html) |
 | `ask "Agent" --raw "\x03"` | Raw keystrokes. Escapes: `\n` Enter, `\t` Tab, `\e` ESC, `\xNN` byte |
 | `check "Agent" [--lines N]` | Current screen of an agent |
 | `notify "message"` | Notification for the human |
