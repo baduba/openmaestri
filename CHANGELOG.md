@@ -4,6 +4,14 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-01
+
+### Added
+- `openmaestri agent <driver> "prompt"`: a one-shot run of any agent CLI in its non-interactive mode (claude, codex, gemini, agy, kimi, opencode, aider, goose, plus opencode-deepseek and aider-deepseek), answer printed, no terminal; custom drivers in settings.json (docs/oneshot.md)
+
+### Security
+- One-shot agents get an allow-listed environment plus the env-file keys, never OPENMAESTRI_*; no shell, stdin closed, time limit that stops the whole process group, at most 6 at once, output cut at 400 KB
+
 ## [0.10.0] - 2026-11-01
 
 ### Added

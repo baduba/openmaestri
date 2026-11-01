@@ -17,10 +17,11 @@ A spatial canvas terminal workspace for AI agents. Open source, local, works wit
 4. [Portals](portals.html): a browser you and your agents share.
 5. [Files](files.html): browse and edit the project folder from the canvas.
 6. [Chat](chat.html): talk to your Maestro; seven threads with memory.
-7. [Saved prompts, usage and roles](agents.html): reuse prompts, see tokens and cost, install roles.
-8. [CLI reference](cli.html): every `openmaestri` command agents can run.
-9. [Architecture](architecture.html): how the daemon, socket and UI fit together.
-10. [Troubleshooting](troubleshooting.html) and [how to report a bug](reporting-bugs.html).
+7. [One-shot agents](oneshot.html): ask any agent CLI a question without a terminal.
+8. [Saved prompts, usage and roles](agents.html): reuse prompts, see tokens and cost, install roles.
+9. [CLI reference](cli.html): every `openmaestri` command agents can run.
+10. [Architecture](architecture.html): how the daemon, socket and UI fit together.
+11. [Troubleshooting](troubleshooting.html) and [how to report a bug](reporting-bugs.html).
 
 ## The idea in one minute
 
