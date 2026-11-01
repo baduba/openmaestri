@@ -228,6 +228,7 @@ test('untrusted terminals start a plain shell, not the imported command', async 
   node.untrusted = false;
   core.terminals.dispose(node.id);
   core.startTerminal(ws, node);
-  await new Promise((r) => setTimeout(r, 900));
+  const deadline = Date.now() + 8000;
+  while (!fs.existsSync(marker) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
   assert.equal(fs.existsSync(marker), true, 'trusted command runs');
 });

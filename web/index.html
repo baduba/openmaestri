@@ -11,7 +11,8 @@
 <body>
   <aside id="sidebar">
     <div class="brand">openmaestri</div>
-    <div class="side-head"><span>Workspaces</span><button id="ws-add" title="New workspace">+</button></div>
+    <div class="side-head"><span>Workspaces</span><span><button id="ws-import" title="Import a workspace file">⭱</button> <button id="ws-add" title="New workspace">+</button></span></div>
+    <input type="file" id="import-file" accept=".json,application/json" hidden>
     <ul id="ws-list"></ul>
     <div id="conn" class="conn off">connecting…</div>
   </aside>
@@ -20,6 +21,15 @@
       <button id="add-term" title="New terminal">+ Terminal</button>
       <button id="add-note" title="New note">+ Note</button>
       <button id="add-portal" title="New portal">+ Portal</button>
+      <button id="add-stack" title="New stack: notes filed together">+ Stack</button>
+      <button id="add-band" title="Group agents in a band">+ Band</button>
+      <span class="sep"></span>
+      <button id="undo" title="Undo (Ctrl+Z)">↶</button>
+      <button id="redo" title="Redo (Ctrl+Shift+Z)">↷</button>
+      <button id="tidy" title="Auto-arrange">Tidy</button>
+      <button id="snap" title="Snap to grid">Snap</button>
+      <button id="layouts" title="Saved layouts">Layouts</button>
+      <button id="palette-btn" title="Command palette (Ctrl+K)">⌘K</button>
       <span class="sep"></span>
       <button id="zoom-out" title="Zoom out">−</button>
       <button id="zoom-label" title="Reset zoom">100%</button>
@@ -43,6 +53,18 @@
       <label class="chk"><input type="checkbox" name="maestro"> Maestro (can recruit, connect and schedule)</label>
       <div class="actions"><button value="cancel" type="button" data-close>Cancel</button><button value="ok" class="primary">Create</button></div>
     </form>
+  </dialog>
+  <dialog id="dlg-band">
+    <form method="dialog" id="form-band">
+      <h3>New band</h3>
+      <label>Name <input name="name" autocomplete="off" placeholder="Band name"></label>
+      <div id="band-members" class="members"></div>
+      <div class="actions"><button type="button" data-close>Cancel</button><button class="primary">Create</button></div>
+    </form>
+  </dialog>
+  <dialog id="palette" class="pal">
+    <input id="pal-input" autocomplete="off" placeholder="Type a command, a node, a workspace or a layout…" aria-label="Command palette">
+    <ul id="pal-list"></ul>
   </dialog>
   <dialog id="dlg-ws">
     <form method="dialog" id="form-ws">

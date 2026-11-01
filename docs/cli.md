@@ -27,7 +27,10 @@ An agent sees only what is connected to it. A **Maestro** terminal sees the whol
 | `note read "N" [offset] [limit]` | Read lines |
 | `note write "N" "text"` | Replace content |
 | `note edit "N" "old" "new"` | Replace one unique substring |
-| `note delete "N"` | Remove |
+| `note delete "N"` | Remove (the text is kept in a trash folder for 7 days so undo can bring it back) |
+| `note create "text" --stack ["Stack"]` | File the new note in a stack (a "fichário"); the stack is created and wired to you if it does not exist |
+| `note stack "N" ["Stack"]` · `note unstack "N"` | File or free an existing note |
+| `note delete --stack "Stack"` | Delete a stack and the notes in it |
 | `portal create URL ["Name"] [--size WxH]` | Web pane (http/https only) |
 | `portal edit "P" --url URL` · `portal close "P"` · `portal info "P"` | Manage |
 
@@ -40,7 +43,12 @@ Page automation (click, fill, snapshot) is not implemented yet.
 | `recruit "Name" [--preset P] [--role R] [--dir PATH] [--command C]` | Start a teammate wired to you |
 | `recruit "New" --preset P --replace "Old"` | Swap what runs in a teammate, keeping connections |
 | `dismiss "Name"` | Stop and remove a teammate |
-| `connect "A" "B"` · `disconnect "A" "B"` | Wire or unwire |
+| `connect "A" "B" [--agent\|--band\|--note\|--fichario\|--portal]` · `disconnect "A" "B"` | Wire or unwire. The flag says what kind of thing `B` is when names collide |
+| `band create "Name" ["Agent" ...] [--without-me]` | Group agents. Members see each other, a cable to the band reaches every member, and a member reaches what its band reaches. An agent is in at most one band |
+| `band add "B" "Agent"` · `band remove "B" "Agent"` · `band dissolve "B"` | Manage a band (agents keep running when it dissolves) |
+| `partitura list` | Saved layouts of agents, notes and cables |
+| `partitura create "Name" ["Agent" ...] [--without-me] [--commands on\|off] [--note-text on\|off] [--description D] [--scope current\|global]` | Save you and your team (and what is wired to them) |
+| `partitura insert "Name"` · `update` · `delete` | Place a layout at a free spot, wired to you; re-save it; remove it |
 | `arrange ["Name" --name N --color C --icon I]` | Rename or restyle |
 | `preset list/show/create/set/delete` | Agent presets |
 | `role list/show/create/write/edit/assign/delete` | Reusable role prompts |
