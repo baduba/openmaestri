@@ -4,6 +4,14 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-01
+
+### Added
+- Files node (`+ Files`): tree of the floor or workspace folder with git status markers, text editor (Ctrl+S), the last 10 versions of each saved file, safe Markdown preview, new / rename / delete (to a trash); see docs/files.md
+
+### Security
+- File access is confined to the node's folder after resolving symbolic links; links out are hidden and never written through; saves refuse a file changed on disk since it was opened; `.git` and `.openmaestri` are not reachable
+
 ## [0.8.0] - 2026-11-01
 
 ### Added
