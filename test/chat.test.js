@@ -212,3 +212,41 @@ test('chat without a Maestro explains what to do', async (t) => {
   assert.throws(() => core.chatSend(ws, { thread: '1', text: 'hello?' }), /no Maestro yet/);
   assert.throws(() => core.chatSend(ws, { thread: '1', text: '   ' }), /no Maestro yet|write something/);
 });
+
+test('chat refuses to type into a terminal whose agent has exited (it would be a plain shell)', async (t) => {
+  const { ws, store, core, dir } = await boot(t);
+  const sink = path.join(dir, 'shell-ran');
+  const boss = store.createNode(ws, 'terminal', { name: 'Maestro', maestro: true, cwd: dir, command: 'echo agent-start' });
+  core.startTerminal(ws, boss);
+  await until(() => core.terminals.get(boss.id).agentExited, 8000);
+  assert.equal(core.terminals.agentRunning(boss.id), false);
+  assert.throws(() => core.chatSend(ws, { thread: '1', text: `touch ${sink}` }), /not running an agent/);
+  await sleep(500);
+  assert.equal(fs.existsSync(sink), false, 'nothing was executed by the fallback shell');
+  assert.equal(core.chat.history(ws.id, 'thread-1').length, 0, 'and nothing was stored as sent');
+  // a plain shell Maestro (no agent command at all) is refused too
+  const plain = store.createNode(ws, 'terminal', { name: 'Shell Maestro', maestro: true, cwd: dir });
+  store.deleteNode(ws, boss.id);
+  core.terminals.dispose(boss.id);
+  core.startTerminal(ws, plain);
+  assert.throws(() => core.chatSend(ws, { thread: '1', text: 'hi' }), /not running an agent/);
+});
+
+test('attachments: a FIFO cannot hang the daemon, and the vault has a size cap', async (t) => {
+  const { chat, ws, dir } = await boot(t);
+  const fifo = path.join(dir, 'pipe');
+  const { execFileSync } = await import('node:child_process');
+  execFileSync('mkfifo', [fifo]);
+  const started = Date.now();
+  assert.throws(() => chat.attach(ws.id, fifo), /regular file|cannot read/);
+  assert.ok(Date.now() - started < 1500, 'refused immediately');
+
+  chat.vaultLimit = 1000;
+  const a = path.join(dir, 'a.txt');
+  fs.writeFileSync(a, 'a'.repeat(600));
+  assert.ok(chat.attach(ws.id, a));
+  const b = path.join(dir, 'b.txt');
+  fs.writeFileSync(b, 'b'.repeat(600));
+  assert.throws(() => chat.attach(ws.id, b), /vault is full/);
+  assert.ok(chat.attach(ws.id, a), 'an attachment that is already stored never counts twice');
+});

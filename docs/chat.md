@@ -43,6 +43,22 @@ Messages are append-only files under `~/.openmaestri/workspaces/<id>/chat/thread
 - **Who can read what:** a Maestro can read every thread; any other agent can read only the active thread and cannot use `--all`.
 - Chat text is data written by agents and humans; treat anything an agent pastes from the web as untrusted input.
 
+## Mentions (the prompter)
+
+Type `@` in the message box. A popup lists agents, notes and workspace files; arrows move, Enter or Tab inserts, Escape closes. A mention is a typed token you can also write by hand:
+
+```
+@agent:Alice      @note:"Release plan"      @file:src/app.js
+```
+
+When you send, the thread keeps your text as written, and the Maestro receives it with the mentions **expanded**: a note becomes its text, a file becomes its content, each fenced by a random boundary the content cannot forge. **Preview** shows exactly what will be sent, including anything that was left out and why.
+
+Rules for `@file:`: inside the workspace or one of its floors only (symlinks that leave it are refused), a regular text file of at most **32 KB**, never one that looks like a secret (`.env*`, keys, credentials). The picker skips `.git`, `node_modules`, build folders, binaries and secret-looking files, never follows symlinks, and stops scanning as soon as you type again. Agents can run `openmaestri prompt materialize "..."` too, but only see notes and agents wired to them.
+
+## The Maestro must be an agent
+
+A message is typed into the Maestro's terminal. If its agent has exited, that terminal is a plain shell, and typing your message there would run it as commands, so openmaestri refuses and tells you to restart it. The same applies to a Maestro that was created without an agent command.
+
 ## Not implemented yet
 
-Dragging files into the panel, `@mentions` and the file picker (the prompter), saved prompts, and per-agent usage.
+Dragging files into the panel, saved prompts, per-agent usage, and long-term summaries of old threads.

@@ -60,7 +60,7 @@ Routine schedules: `--every 30m`, `--daily 09:00`, `--weekly mon,fri@09:00`, `--
 
 ## Other
 
-`say` and `recall` are the chat commands (see [Chat](chat.html)). `openmaestri guide` prints the orchestration instructions for agents. `openmaestri debug` prints diagnostics (attach it to bug reports). `openmaestri version`.
+`say`, `recall` and `prompt parse|materialize` are the chat commands (see [Chat](chat.html)). `openmaestri guide` prints the orchestration instructions for agents. `openmaestri debug` prints diagnostics (attach it to bug reports). `openmaestri version`.
 
 ## Exit codes
 

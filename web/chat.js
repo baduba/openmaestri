@@ -4,6 +4,22 @@
 
 const hhmm = (ts) => new Date(ts).toTimeString().slice(0, 5);
 
+const quoteRef = (ref) => (/^[^\s"\\]+$/.test(ref) ? ref : `"${ref.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`);
+export const mentionToken = (kind, ref) => `@${kind}:${quoteRef(ref)}`;
+
+/** The "@..." fragment being typed right before the caret, or null. */
+export function activeMention(value, caret) {
+  const before = value.slice(0, caret);
+  const at = before.lastIndexOf('@');
+  if (at < 0 || (at > 0 && !/\s/.test(before[at - 1]))) return null;
+  const frag = before.slice(at + 1);
+  if (/[\r\n]/.test(frag) || frag.length > 80) return null;
+  const quoted = frag.includes('"');
+  if (!quoted && /\s/.test(frag)) return null;
+  const m = /^(agent|note|file):/.exec(frag);
+  return { start: at, query: (m ? frag.slice(m[0].length) : frag).replaceAll('"', '').replaceAll('\\', ''), kind: m?.[1] ?? null };
+}
+
 export function createChat({ state, send, wsId, toast, $, el }) {
   const panel = $('#chat');
   const tabs = $('#chat-tabs');
@@ -16,6 +32,11 @@ export function createChat({ state, send, wsId, toast, $, el }) {
   let loadedFor = null;
   let progress = new Map();
   let searchId = 0;
+  let mentionId = 0;
+  let mentionItems = [];
+  let mentionSel = 0;
+  let mentionTimer;
+  const pop = $('#chat-mentions');
 
   const chat = () => state.ws?.chat ?? { threads: [], active: 'thread-1', attention: [], maestroAttention: false };
   const open = () => !panel.hidden;
@@ -97,11 +118,49 @@ export function createChat({ state, send, wsId, toast, $, el }) {
     send({ t: 'chat.send', workspaceId: wsId(), threadId: current, text });
   }
 
+  function closeMentions() { pop.hidden = true; mentionItems = []; }
+  function renderMentions() {
+    pop.replaceChildren();
+    mentionItems.forEach((it, i) => {
+      const li = el('li', i === mentionSel ? 'on' : '');
+      li.setAttribute('role', 'option');
+      li.append(el('span', `mk mk-${it.kind}`, it.kind), el('span', 'mn', it.name), el('span', 'md', it.detail || ''));
+      li.onmousedown = (e) => { e.preventDefault(); pick(i); };
+      pop.append(li);
+    });
+    pop.hidden = !mentionItems.length;
+  }
+  function pick(i) {
+    const it = mentionItems[i];
+    const cur = activeMention(input.value, input.selectionStart);
+    if (!it || !cur) { closeMentions(); return; }
+    const token = `${mentionToken(it.kind, it.ref)} `;
+    input.value = input.value.slice(0, cur.start) + token + input.value.slice(input.selectionStart);
+    const pos = cur.start + token.length;
+    input.setSelectionRange(pos, pos);
+    closeMentions();
+    input.focus();
+  }
+  input.addEventListener('input', () => {
+    clearTimeout(mentionTimer);
+    const cur = activeMention(input.value, input.selectionStart);
+    if (!cur) { closeMentions(); return; }
+    mentionTimer = setTimeout(() => { mentionId += 1; send({ t: 'prompter.mentions', workspaceId: wsId(), requestId: mentionId, query: cur.query }); }, 120);
+  });
+  input.addEventListener('blur', () => setTimeout(closeMentions, 150));
   input.addEventListener('keydown', (e) => {
     e.stopPropagation();
+    if (!pop.hidden) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); mentionSel = (mentionSel + 1) % mentionItems.length; renderMentions(); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); mentionSel = (mentionSel - 1 + mentionItems.length) % mentionItems.length; renderMentions(); return; }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pick(mentionSel); return; }
+      if (e.key === 'Escape') { e.preventDefault(); closeMentions(); return; }
+    }
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
   });
   sendBtn.onclick = submit;
+  $('#chat-preview').onclick = () => { const text = input.value.trim(); if (text) send({ t: 'prompter.preview', workspaceId: wsId(), requestId: ++searchId, text }); };
+  $('#chat-preview-close').onclick = () => { $('#chat-preview-box').hidden = true; };
   $('#chat-close').onclick = () => setOpen(false);
   $('#chat-interrupt').onclick = () => send({ t: 'chat.interrupt', workspaceId: wsId() });
   $('#chat-clear').onclick = () => { if (confirm('Erase everything in this thread?')) send({ t: 'chat.clear', workspaceId: wsId(), threadId: current }); };
@@ -156,6 +215,18 @@ export function createChat({ state, send, wsId, toast, $, el }) {
         case 'chat.state':
           if (m.workspaceId === wsId() && state.ws) { state.ws.chat = m.chat; this.sync(); window.dispatchEvent(new CustomEvent('om-chat-state')); }
           return true;
+        case 'prompter.mentions':
+          if (m.requestId !== mentionId || !activeMention(input.value, input.selectionStart)) return true;
+          mentionItems = m.items;
+          mentionSel = 0;
+          renderMentions();
+          return true;
+        case 'prompter.preview': {
+          const notes = m.mentions.filter((x) => !x.ok).map((x) => `# not included: @${x.kind}:${x.ref} (${x.reason})`);
+          $('#chat-preview-text').textContent = [m.text, ...notes].join('\n');
+          $('#chat-preview-box').hidden = false;
+          return true;
+        }
         case 'chat.search':
           if (m.requestId !== searchId) return true;
           list.replaceChildren();

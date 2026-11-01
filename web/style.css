@@ -149,3 +149,15 @@ dialog select { width: 100%; margin-top: 3px; background: var(--bg); border: 1px
 .chat-compose textarea { flex: 1; resize: none; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
 .node.attn { box-shadow: 0 0 0 2px var(--warn), 0 4px 18px rgba(0,0,0,.28); }
 .node.attn .head::after { content: "●"; color: var(--warn); margin-left: 4px; }
+
+.chat-compose { position: relative; align-items: flex-end; }
+.chat-btns { display: flex; flex-direction: column; gap: 4px; }
+.mentions { position: absolute; left: 10px; right: 90px; bottom: calc(100% - 4px); margin: 0; padding: 4px; list-style: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.35); max-height: 260px; overflow: auto; z-index: 70; }
+.mentions[hidden] { display: none; }
+.mentions li { display: flex; gap: 8px; align-items: baseline; padding: 4px 8px; border-radius: 6px; cursor: pointer; }
+.mentions li.on { background: var(--accent); color: #fff; }
+.mk { font-size: 10px; text-transform: uppercase; opacity: .75; width: 36px; flex: none; }
+.mn { font-weight: 600; }
+.md { opacity: .6; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preview-box { border-top: 1px solid var(--line); padding: 8px 10px; background: var(--bg); }
+.preview-box pre { max-height: 200px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; margin: 6px 0; }

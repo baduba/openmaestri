@@ -4,6 +4,14 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-01
+
+### Added
+- Prompter: `@agent:`/`@note:`/`@file:` mentions with a popup, preview of what the Maestro will receive, a cancellable file index and `openmaestri prompt parse|materialize`
+
+### Security
+- Chat messages are only typed into a Maestro whose agent is still running (an exited agent leaves a plain shell); attachments cannot hang the daemon through a FIFO; the attachment vault has a size cap; thread writes are fsynced
+
 ## [0.4.0] - 2026-11-01
 
 ### Added
