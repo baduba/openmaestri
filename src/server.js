@@ -146,17 +146,17 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
     const active = core.store.workspaces.get(core.store.settings.activeWorkspaceId);
     if (active) send(ws, { t: 'workspace', ws: core.payload(active) });
 
-    ws.on('message', (raw) => {
+    ws.on('message', async (raw) => {
       let m;
       try { m = JSON.parse(raw); } catch { return; }
-      try { handleUi(ws, m); } catch (e) {
+      try { await handleUi(ws, m); } catch (e) {
         send(ws, { t: 'error', message: e.message, reqId: m.reqId });
       }
     });
     ws.on('close', () => ws.attached.clear());
   });
 
-  function handleUi(ws, m) {
+  async function handleUi(ws, m) {
     const s = core.store;
     const wsOf = () => core.wsOrFail(m.workspaceId);
     switch (m.t) {
@@ -280,9 +280,26 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
         core.touch(w);
         break;
       }
+      case 'floor.create': {
+        const w = wsOf();
+        const r = await core.doFloorCreate(w, { name: m.name, branch: m.branch || undefined, copy: m.mode === 'copy', noGit: m.mode === 'plain', dir: m.mode === 'dir' ? m.dir : undefined, copyGround: !!m.copyGround });
+        send(ws, { t: 'toast', message: r.text, from: 'floor' });
+        send(ws, { t: 'floor.focus', id: r.data.id });
+        break;
+      }
+      case 'floor.land': { const r = await core.doFloorLand(wsOf(), { name: m.name, into: m.into || undefined, deleteBranch: !!m.deleteBranch }); send(ws, { t: 'toast', message: r.text, from: 'floor' }); break; }
+      case 'floor.delete': { const r = await core.doFloorDelete(wsOf(), { name: m.name, force: !!m.force }); send(ws, { t: 'toast', message: r.text, from: 'floor' }); break; }
+      case 'floor.status': {
+        const w = wsOf();
+        const rec = m.floorId ? w.floors.find((f) => f.id === m.floorId) : null;
+        const status = m.text ? { text: String(m.text).slice(0, 200), state: ['working', 'blocked', 'review', 'done'].includes(m.state) ? m.state : 'working', progress: null, by: 'you', at: new Date().toISOString() } : null;
+        if (rec) rec.status = status; else w.floorStatus = status;
+        core.touch(w);
+        break;
+      }
       case 'undo': { const w = wsOf(); if (!core.undo(w)) send(ws, { t: 'error', message: 'nothing to undo' }); break; }
       case 'redo': { const w = wsOf(); if (!core.redo(w)) send(ws, { t: 'error', message: 'nothing to redo' }); break; }
-      case 'tidy': core.tidy(wsOf()); break;
+      case 'tidy': core.tidy(wsOf(), typeof m.floorId === 'string' ? m.floorId : null); break;
       case 'stack.addNote': {
         const w = wsOf();
         const st = core.nodeOrFail(w, m.stackId);
@@ -333,7 +350,7 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
       case 'partitura.insert': {
         const w = wsOf();
         const part = core.partiturasFor(w).find((p) => p.id === m.id) || (() => { throw new CommandError('unknown partitura'); })();
-        core.insertPartitura(w, part, null);
+        core.insertPartitura(w, part, null, m.floorId ? w.floors.find((f) => f.id === m.floorId) ?? null : null);
         core.touch(w);
         break;
       }

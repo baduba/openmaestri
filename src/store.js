@@ -109,6 +109,7 @@ export class Store {
     ws.routines ||= [];
     ws.viewport ||= { x: 0, y: 0, z: 1 };
     ws.floorStatus ||= null;
+    ws.floors ||= [];
     return ws;
   }
 
@@ -210,7 +211,8 @@ export class Store {
     const fin = (v, fallback) => (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= 1e6 ? v : fallback);
     const text = (v, max) => (typeof v === 'string' ? v.slice(0, max) : null);
     const base = text(props.name, 80)?.trim() || DEFAULT_NAMES[kind];
-    const spot = fin(props.x) === undefined || fin(props.y) === undefined ? this.freeSpot(ws, d) : null;
+    const floorId = typeof props.floorId === 'string' && ws.floors.some((f) => f.id === props.floorId) ? props.floorId : null;
+    const spot = fin(props.x) === undefined || fin(props.y) === undefined ? this.freeSpot(ws, d, floorId) : null;
     const node = {
       id: uid(),
       kind,
@@ -222,9 +224,10 @@ export class Store {
       color: text(props.color, 32),
       icon: text(props.icon, 64),
     };
+    if (floorId) node.floorId = floorId;
     if (kind === 'terminal') {
       node.command = text(props.command, 4096) ?? '';
-      node.cwd = text(props.cwd, 4096) ?? ws.dir;
+      node.cwd = text(props.cwd, 4096) ?? (floorId ? ws.floors.find((f) => f.id === floorId).dir : ws.dir);
       node.maestro = !!props.maestro;
       node.role = text(props.role, 128);
       node.preset = text(props.preset, 128);
@@ -243,10 +246,11 @@ export class Store {
   }
 
   /** First spot on a coarse grid that does not overlap an existing node. */
-  freeSpot(ws, size) {
+  freeSpot(ws, size, floorId = null) {
     const gap = 40;
+    const here = ws.nodes.filter((n) => (n.floorId ?? null) === floorId);
     const hits = (x, y) =>
-      ws.nodes.some((n) => x < n.x + n.w + gap && x + size.w + gap > n.x && y < n.y + n.h + gap && y + size.h + gap > n.y);
+      here.some((n) => x < n.x + n.w + gap && x + size.w + gap > n.x && y < n.y + n.h + gap && y + size.h + gap > n.y);
     for (let row = 0; row < 40; row++) {
       for (let col = 0; col < 6; col++) {
         const x = col * (size.w + gap), y = row * (size.h + gap);

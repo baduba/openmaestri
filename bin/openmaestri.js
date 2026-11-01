@@ -5,7 +5,7 @@ import net from 'node:net';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 
-const BOOL = new Set(['open', 'version', 'json', 'raw-flag', 'batch', 'force', 'none', 'clear', 'without-me', 'no-notify', 'disabled', 'reminder', 'agent', 'note', 'band', 'fichario', 'portal', 'help']);
+const BOOL = new Set(['existing-branch', 'copy', 'no-git', 'copy-ground', 'delete-branch', 'keep-floor', 'keep-branch', 'keep-folder', 'open', 'version', 'json', 'raw-flag', 'batch', 'force', 'none', 'clear', 'without-me', 'no-notify', 'disabled', 'reminder', 'agent', 'note', 'band', 'fichario', 'portal', 'help']);
 
 const HELP = `openmaestri - a spatial workspace for AI agents (open implementation)
 
@@ -39,7 +39,10 @@ Usage:
       schedules: --every 30m | --daily 09:00 | --weekly mon,fri@09:00 | --once "2026-12-01 15:00"
       options:   --terminal "Name" | --count N | --until DATE | --pre-run "cmd" ({{output}} in the command) | --no-notify | --disabled
   openmaestri workspace list|create|rename ...
-  openmaestri floor status ["Text" --state working|blocked|review|done --progress 2/5 | --clear]
+  openmaestri floor create "Name" [--from PATH] [--branch B] [--existing-branch] [--copy] [--no-git] [--copy-ground] [--partitura P] | --dir PATH | --pull-request N|URL
+  openmaestri floor list | land "Name" [--into B] [--delete-branch] [--keep-floor] | delete "Name" [--keep-branch] [--keep-folder] [--force] | set-dir "Name" PATH | unload "Name"
+  openmaestri floor status ["Text" --state working|blocked|review|done --progress 2/5 | --clear] [--floor F]
+  openmaestri recruit ... [--floor F]   (place the teammate on another floor; "Ground" for the ground floor)
   openmaestri guide                                  How agents should use openmaestri (give this to your agent)
   openmaestri debug
 Global flags: --json (machine-readable output)`;
@@ -130,14 +133,14 @@ export function build({ pos, flags }) {
       const common = { agents: rest.slice(1), withoutMe: !!flags['without-me'], commands: onOff(flags.commands), noteText: onOff(flags['note-text']), description: flags.description, icon: flags.icon, color: flags.color, scope: flags.scope };
       switch (c1) {
         case 'list': return { cmd: 'partitura.list', args: {} };
-        case 'insert': need(a, 'partitura insert "Name"'); return { cmd: 'partitura.insert', args: { name: a } };
+        case 'insert': need(a, 'partitura insert "Name" [--floor F]'); return { cmd: 'partitura.insert', args: { name: a, floor: flags.floor } };
         case 'create': need(a, 'partitura create "Name" ["Agent" ...] [--commands on|off] [--note-text on|off] [--description D] [--scope current|global]'); return { cmd: 'partitura.create', args: { name: a, ...common } };
         case 'update': need(a, 'partitura update "Name" ["Agent" ...] [--name N] [flags]'); return { cmd: 'partitura.update', args: { name: a, newName: flags.name, ...common } };
         case 'delete': need(a, 'partitura delete "Name"'); return { cmd: 'partitura.delete', args: { name: a } };
         default: throw new Error('usage: partitura list|insert|create|update|delete');
       }
     }
-    case 'recruit': return { cmd: 'recruit', args: { name: c1, preset: flags.preset, role: flags.role, dir: flags.dir, command: flags.command, color: flags.color, icon: flags.icon, replace: flags.replace, account: flags.account } };
+    case 'recruit': return { cmd: 'recruit', args: { name: c1, preset: flags.preset, role: flags.role, dir: flags.dir, command: flags.command, color: flags.color, icon: flags.icon, replace: flags.replace, account: flags.account, floor: flags.floor } };
     case 'dismiss': need(c1, 'dismiss "Name"'); return { cmd: 'dismiss', args: { name: c1 } };
     case 'connect': need(c1 && rest[0], 'connect "From" "To" [--agent|--band|--note|--fichario|--portal]'); return { cmd: 'connect', args: { from: c1, to: rest[0], kind: ['agent', 'band', 'note', 'fichario', 'portal'].find((k) => flags[k]) } };
     case 'disconnect': need(c1 && rest[0], 'disconnect "From" "To"'); return { cmd: 'disconnect', args: { from: c1, to: rest[0] } };
@@ -186,8 +189,18 @@ export function build({ pos, flags }) {
       }
     }
     case 'floor': {
-      if (c1 !== 'status') throw new Error('floor: only "floor status" is implemented (git-worktree floors are planned)');
-      return { cmd: 'floor.status', args: { text: rest[0], state: flags.state, progress: flags.progress, clear: !!flags.clear } };
+      const [name, p2] = rest;
+      switch (c1) {
+        case 'create': need(name || flags['pull-request'], 'floor create "Name" [--from PATH] [--branch B] [--existing-branch] [--copy] [--no-git] [--copy-ground] [--partitura P] | --dir PATH | --pull-request N|URL');
+          return { cmd: 'floor.create', args: { name, from: flags.from, branch: flags.branch, existingBranch: !!flags['existing-branch'], copy: !!flags.copy, noGit: !!flags['no-git'], copyGround: !!flags['copy-ground'], partitura: flags.partitura, dir: flags.dir, pullRequest: flags['pull-request'] } };
+        case 'list': return { cmd: 'floor.list', args: {} };
+        case 'land': need(name, 'floor land "Name" [--into BRANCH] [--delete-branch] [--keep-floor]'); return { cmd: 'floor.land', args: { name, into: flags.into, deleteBranch: !!flags['delete-branch'], keepFloor: !!flags['keep-floor'] } };
+        case 'delete': need(name, 'floor delete "Name" [--keep-branch] [--keep-folder] [--force]'); return { cmd: 'floor.delete', args: { name, keepBranch: !!flags['keep-branch'], keepFolder: !!flags['keep-folder'], force: !!flags.force } };
+        case 'set-dir': need(name && p2, 'floor set-dir "Name" PATH'); return { cmd: 'floor.set-dir', args: { name, path: p2 } };
+        case 'unload': need(name, 'floor unload "Name"'); return { cmd: 'floor.unload', args: { name } };
+        case 'status': return { cmd: 'floor.status', args: { text: name, state: flags.state, progress: flags.progress, clear: !!flags.clear, floor: flags.floor } };
+        default: throw new Error('usage: floor create|list|land|delete|set-dir|unload|status');
+      }
     }
     case 'guide': return { cmd: 'guide', args: {} };
     case 'debug': return { cmd: 'debug', args: {} };

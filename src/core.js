@@ -9,6 +9,7 @@ import { Terminals } from './terminals.js';
 import { History } from './history.js';
 import { tidy as tidyLayout } from './layout.js';
 import { capturePartitura, instantiatePartitura } from './transfer.js';
+import { createFloor, removeFloor, landFloor, floorStateOf, findFloor, groundOf, floorById, repoTop, git, withLock, FloorError } from './floors.js';
 import { Scheduler, parseSchedule, describeSchedule, nextRun } from './routines.js';
 
 export class CommandError extends Error {}
@@ -113,8 +114,8 @@ export class Core extends EventEmitter {
     return true;
   }
 
-  tidy(ws) {
-    const pos = tidyLayout(ws);
+  tidy(ws, floorId = null) {
+    const pos = tidyLayout(ws, { x: 0, y: 0 }, floorId);
     for (const [id, p] of pos) this.store.patchNode(ws, id, p);
     this.touch(ws);
   }
@@ -132,7 +133,11 @@ export class Core extends EventEmitter {
 
   // ---------- name resolution ----------
   reachable(ws, me) {
-    return me.maestro ? ws.nodes.filter((n) => n.id !== me.id) : this.store.neighbors(ws, me.id);
+    if (!me.maestro) return this.store.neighbors(ws, me.id);
+    // a Maestro sees its whole floor, plus whatever is cabled to it from other floors
+    const mine = (me.floorId ?? null);
+    const extra = new Set(this.store.neighbors(ws, me.id).map((n) => n.id));
+    return ws.nodes.filter((n) => n.id !== me.id && n.kind !== 'band' && ((n.floorId ?? null) === mine || extra.has(n.id)));
   }
 
   resolve(ws, me, name, kinds = null) {
@@ -171,7 +176,8 @@ export class Core extends EventEmitter {
     const gap = 60;
     const x = anchor.x + anchor.w + gap;
     let y = anchor.y;
-    const overlaps = (yy) => ws.nodes.some((n) => x < n.x + n.w + 20 && x + size.w + 20 > n.x && yy < n.y + n.h + 20 && yy + size.h + 20 > n.y);
+    const sameFloor = ws.nodes.filter((n) => (n.floorId ?? null) === (anchor.floorId ?? null));
+    const overlaps = (yy) => sameFloor.some((n) => x < n.x + n.w + 20 && x + size.w + 20 > n.x && yy < n.y + n.h + 20 && yy + size.h + 20 > n.y);
     while (overlaps(y)) y += 40;
     return { x, y };
   }
@@ -267,7 +273,7 @@ const HANDLERS = {
   // ----- notes -----
   'note.create'(ws, me, { content = '', name, color, stack }) {
     const pos = this.placeBeside(ws, me, { w: 320, h: 260 });
-    const note = this.store.createNode(ws, 'note', { name: name || (String(content).split('\n')[0].slice(0, 40).trim() || 'Note'), text: content, color, ...pos });
+    const note = this.store.createNode(ws, 'note', { name: name || (String(content).split('\n')[0].slice(0, 40).trim() || 'Note'), text: content, color, floorId: me.floorId, ...pos });
     if (stack) this.fileIntoStack(ws, me, note, stack === true ? 'Stack' : String(stack));
     else this.store.connect(ws, me.id, note.id);
     this.touch(ws);
@@ -332,7 +338,7 @@ const HANDLERS = {
     if (!['http:', 'https:', 'about:'].includes(u.protocol)) fail('only http(s) URLs are allowed');
     const dims = size && /^(\d+)x(\d+)$/.exec(size);
     const pos = this.placeBeside(ws, me, { w: 520, h: 380 });
-    const node = this.store.createNode(ws, 'portal', { name: name || u.hostname || 'Portal', url: u.href, w: dims ? +dims[1] : undefined, h: dims ? +dims[2] : undefined, ...pos });
+    const node = this.store.createNode(ws, 'portal', { floorId: me.floorId, name: name || u.hostname || 'Portal', url: u.href, w: dims ? +dims[1] : undefined, h: dims ? +dims[2] : undefined, ...pos });
     this.store.connect(ws, me.id, node.id);
     this.touch(ws);
     return { text: node.name };
@@ -358,7 +364,7 @@ const HANDLERS = {
   },
 
   // ----- orchestration (maestro only) -----
-  recruit(ws, me, { name, preset, role, dir, command, color, icon, replace }) {
+  recruit(ws, me, { name, preset, role, dir, command, color, icon, replace, floor }) {
     this.requireMaestro(me);
     const presetObj = preset ? this.store.settings.presets.find((p) => p.name.toLowerCase() === String(preset).toLowerCase()) : null;
     if (preset && !presetObj) fail(`no preset named "${preset}" (see: preset list)`);
@@ -372,15 +378,17 @@ const HANDLERS = {
       return { text: old.name };
     }
     if (!name) fail('usage: recruit "Name" [--preset P] [--role R] [--dir PATH] [--command C]');
-    const cwd = dir ? path.resolve(ws.dir, dir) : ws.dir;
+    const target = floor === undefined ? floorById(ws, me.floorId) ?? groundOf(ws) : findFloor(ws, floor);
+    const cwd = dir ? path.resolve(target.dir, dir) : target.dir;
     if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) fail(`directory does not exist: ${cwd}`);
     let rolePrompt = null;
     if (role) {
       const r = this.findRole(ws, role);
       rolePrompt = r.prompt;
     }
-    const pos = this.placeBeside(ws, me, { w: 640, h: 400 });
-    const node = this.store.createNode(ws, 'terminal', { name, command: cmd, cwd, color, icon, role: role || null, preset: presetObj?.name ?? null, maestro: !!presetObj?.maestro, ...pos });
+    const anchor = { ...me, floorId: target.id };
+    const pos = this.placeBeside(ws, anchor, { w: 640, h: 400 });
+    const node = this.store.createNode(ws, 'terminal', { name, command: cmd, cwd, color, icon, role: role || null, preset: presetObj?.name ?? null, maestro: !!presetObj?.maestro, floorId: target.id, ...pos });
     this.store.connect(ws, me.id, node.id);
     this.startTerminal(ws, node);
     if (rolePrompt) setTimeout(() => { try { this.terminals.deliver(node.id, rolePrompt); } catch {} }, 3000);
@@ -511,10 +519,10 @@ const HANDLERS = {
     this.emit('workspace-list');
     return { text: `updated ${old.name}` };
   },
-  'partitura.insert'(ws, me, { name }) {
+  'partitura.insert'(ws, me, { name, floor }) {
     this.requireMaestro(me);
     const part = this.findPartitura(ws, name);
-    const { created } = this.insertPartitura(ws, part, me);
+    const { created } = this.insertPartitura(ws, part, me, floor === undefined ? null : findFloor(ws, floor));
     this.touch(ws);
     return { text: `inserted ${part.name}: ${created.map((n) => n.name).join(', ')}` };
   },
@@ -708,13 +716,63 @@ const HANDLERS = {
     this.emit('workspace-list');
     return { text: w.name };
   },
-  'floor.status'(ws, me, { text, state, progress, clear }) {
-    if (clear) { ws.floorStatus = null; this.touch(ws); return { text: 'cleared' }; }
-    if (text == null) return { text: ws.floorStatus ? `${ws.floorStatus.state ?? 'working'}${ws.floorStatus.progress ? ` (${ws.floorStatus.progress})` : ''}: ${ws.floorStatus.text}` : '(no status)' };
+  'floor.status'(ws, me, { text, state, progress, clear, floor }) {
+    const target = floor === undefined ? floorById(ws, me.floorId) ?? groundOf(ws) : findFloor(ws, floor);
+    const mine = (me.floorId ?? null) === target.id;
+    const set = (v) => { if (target.id === null) ws.floorStatus = v; else floorById(ws, target.id).status = v; };
+    if (clear) { if (!mine && !me.maestro) fail('you can only clear the status of your own floor'); set(null); this.touch(ws); return { text: 'cleared' }; }
+    if (text == null) return { text: target.status ? `${target.status.state ?? 'working'}${target.status.progress ? ` (${target.status.progress})` : ''}: ${target.status.text}` : '(no status)' };
+    if (!mine && !me.maestro) fail('you can only post the status of your own floor');
     if (state && !['working', 'blocked', 'review', 'done'].includes(state)) fail('state must be working, blocked, review or done');
-    ws.floorStatus = { text, state: state ?? 'working', progress: progress ?? null, by: me.name, at: new Date().toISOString() };
+    set({ text, state: state ?? 'working', progress: progress ?? null, by: me.name, at: new Date().toISOString() });
     this.touch(ws);
     return { text: 'status posted' };
+  },
+
+  // ----- floors (Maestro) -----
+  async 'floor.create'(ws, me, args) {
+    this.requireMaestro(me);
+    return this.doFloorCreate(ws, args);
+  },
+  async 'floor.list'(ws, me) {
+    this.requireMaestro(me);
+    const rows = [`${me.floorId == null ? '*' : ' '} Ground   ${ws.dir}${ws.floorStatus ? `   [${ws.floorStatus.state}] ${ws.floorStatus.text}` : ''}`];
+    for (const f of ws.floors) {
+      let extra;
+      try { const st = await floorStateOf(f); extra = st.branch ? `  ${st.dirty ? 'uncommitted changes, ' : ''}${st.ahead} commit(s) ahead` : ''; } catch { extra = '  (checkout missing)'; }
+      rows.push(`${me.floorId === f.id ? '*' : ' '} ${f.name.padEnd(8)} ${f.kind}${f.branch ? ` ${f.branch}` : ''}  ${f.dir}${extra}${f.status ? `   [${f.status.state}] ${f.status.text}` : ''}`);
+    }
+    return { text: textOf(rows) };
+  },
+  async 'floor.land'(ws, me, args) {
+    this.requireMaestro(me);
+    if (me.floorId != null) fail('floors are landed from the ground floor');
+    return this.doFloorLand(ws, args);
+  },
+  async 'floor.delete'(ws, me, args) {
+    this.requireMaestro(me);
+    if (me.floorId != null) fail('floors are deleted from the ground floor');
+    return this.doFloorDelete(ws, args);
+  },
+  'floor.set-dir'(ws, me, { name, path: p }) {
+    this.requireMaestro(me);
+    const f = findFloor(ws, name);
+    if (f.id === null) fail('the ground floor is the workspace directory');
+    const rec = floorById(ws, f.id);
+    if (rec.kind === 'worktree' || rec.kind === 'clone') fail(`"${rec.name}" has a checkout of its own; delete the floor and create it on a folder instead`);
+    const d = path.resolve(ws.dir, String(p ?? ''));
+    if (!fs.existsSync(d) || !fs.statSync(d).isDirectory()) fail(`directory does not exist: ${d}`);
+    rec.dir = d; rec.kind = 'dir';
+    this.touch(ws);
+    return { text: `${rec.name} -> ${d}` };
+  },
+  'floor.unload'(ws, me, { name }) {
+    this.requireMaestro(me);
+    const f = findFloor(ws, name);
+    let n = 0;
+    for (const node of ws.nodes.filter((x) => (x.floorId ?? null) === f.id && x.kind === 'terminal')) { this.terminals.dispose(node.id); n++; }
+    this.touch(ws);
+    return { text: `unloaded ${f.name}: stopped ${n} terminal(s). They restart when you open the floor` };
   },
 
   debug(ws, me) {
@@ -763,7 +821,7 @@ Core.prototype.fileIntoStack = function (ws, me, note, stackName) {
   let st = this.reachable(ws, me).find((n) => n.kind === 'stack' && n.name.toLowerCase() === stackName.toLowerCase());
   if (!st) {
     const pos = this.placeBeside(ws, me, { w: 360, h: 300 });
-    st = this.store.createNode(ws, 'stack', { name: stackName, ...pos });
+    st = this.store.createNode(ws, 'stack', { name: stackName, floorId: me.floorId, ...pos });
     this.store.connect(ws, me.id, st.id);
   }
   if (note.stackId && note.stackId !== st.id) this.store.removeFromStack(ws, note.id);
@@ -785,8 +843,9 @@ Core.prototype.capture = function (ws, me, { name, agents, withoutMe, commands, 
     return capturePartitura(this.store, ws, [...ids], { name, description: description ?? '', icon: icon ?? null, color: color ?? null, commands: commands !== false, noteText: noteText !== false, scope });
   } catch (e) { return fail(e.message); }
 };
-Core.prototype.insertPartitura = function (ws, part, me) {
-  const out = instantiatePartitura(this.store, ws, part);
+Core.prototype.insertPartitura = function (ws, part, me, floor = null) {
+  const target = floor ?? (me ? floorById(ws, me.floorId) ?? groundOf(ws) : groundOf(ws));
+  const out = instantiatePartitura(this.store, ws, part, { floorId: target.id, baseDir: target.dir });
   for (const n of out.created) {
     if (n.kind === 'terminal') {
       if (me) this.store.connect(ws, me.id, n.id);
@@ -794,4 +853,71 @@ Core.prototype.insertPartitura = function (ws, part, me) {
     }
   }
   return out;
+};
+
+/** Fill a new floor from the ground canvas and/or a partitura. */
+Core.prototype.seedFloor = function (ws, me, floor, { copyGround, partitura }) {
+  if (copyGround) {
+    const ground = ws.nodes.filter((n) => (n.floorId ?? null) === null && !n.stackId).map((n) => n.id);
+    if (ground.length) {
+      const part = capturePartitura(this.store, ws, ground, { name: `ground-${floor.slug}`, commands: true, noteText: true, scope: 'current' });
+      this.startAll(ws, instantiatePartitura(this.store, ws, part, { floorId: floor.id, baseDir: floor.dir, origin: { x: 0, y: 0 } }).created);
+    }
+  }
+  if (partitura) {
+    const part = this.findPartitura(ws, partitura);
+    this.startAll(ws, instantiatePartitura(this.store, ws, part, { floorId: floor.id, baseDir: floor.dir, origin: { x: 0, y: 0 } }).created);
+  }
+};
+Core.prototype.startAll = function (ws, nodes) {
+  for (const n of nodes) if (n.kind === 'terminal') this.startTerminal(ws, n);
+};
+/** Stop a floor's terminals, delete its nodes and checkout. Returns a text tail with any warnings. */
+Core.prototype.dropFloor = async function (ws, floor, opts) {
+  const rec = floorById(ws, floor.id);
+  const nodes = ws.nodes.filter((x) => x.floorId === floor.id);
+  for (const n of nodes) this.terminals.dispose(n.id); // processes first: they may hold the folder open
+  // remove the checkout before the nodes, so a refusal (uncommitted changes) loses nothing
+  const { warnings } = await withLock(ws.id, () => removeFloor(ws, rec, opts));
+  for (const n of nodes) this.store.deleteNode(ws, n.id);
+  return warnings.length ? `\nnote: ${warnings.join('; ')}` : '';
+};
+
+Core.prototype.doFloorCreate = async function (ws, { name, from, branch, existingBranch, copy, noGit, copyGround, partitura, dir, pullRequest }) {
+  const spec = { name, from, branch, existingBranch, copy, noGit, dir };
+  try {
+    if (pullRequest !== undefined) {
+      const m = /(?:\/pull\/)?(\d{1,7})\/?$/.exec(String(pullRequest));
+      if (!m) fail('--pull-request takes a number or a pull request URL');
+      const top = await repoTop(ws.dir);
+      if (!top) fail('pull request floors need a git repository');
+      const ref = `refs/openmaestri/pr-${m[1]}`;
+      await withLock(ws.id, () => git(top, ['fetch', '--no-tags', 'origin', `+pull/${m[1]}/head:${ref}`], { timeout: 120000 }));
+      Object.assign(spec, { name: name || `PR ${m[1]}`, branch: `pr-${m[1]}`, startPoint: ref });
+    }
+    const created = await withLock(ws.id, () => createFloor(ws, spec));
+    this.seedFloor(ws, null, created, { copyGround, partitura });
+    this.touch(ws);
+    return { text: `${created.name}: ${created.kind}${created.branch ? ` on ${created.branch}` : ''} at ${created.dir}`, data: { id: created.id, dir: created.dir, branch: created.branch } };
+  } catch (e) { return e instanceof FloorError ? fail(e.message) : Promise.reject(e); }
+};
+Core.prototype.doFloorLand = async function (ws, { name, into, deleteBranch, keepFloor }) {
+  const f = findFloor(ws, name);
+  if (f.id === null) fail('the ground floor cannot be landed');
+  try {
+    const out = await withLock(ws.id, () => landFloor(ws, f, { into }));
+    let tail = '';
+    if (!keepFloor) tail = await this.dropFloor(ws, f, { keepBranch: !deleteBranch });
+    this.touch(ws);
+    return { text: `landed ${f.name} into ${out.into}: ${out.summary}${tail}` };
+  } catch (e) { return e instanceof FloorError ? fail(e.message) : Promise.reject(e); }
+};
+Core.prototype.doFloorDelete = async function (ws, { name, keepBranch, keepFolder, force }) {
+  const f = findFloor(ws, name);
+  if (f.id === null) fail('the ground floor cannot be deleted');
+  try {
+    const tail = await this.dropFloor(ws, f, { keepBranch, keepFolder, force });
+    this.touch(ws);
+    return { text: `deleted ${f.name}${tail}` };
+  } catch (e) { return e instanceof FloorError ? fail(e.message) : Promise.reject(e); }
 };
