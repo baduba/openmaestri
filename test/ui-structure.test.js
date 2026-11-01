@@ -57,7 +57,9 @@ test('UI: bands, stacks, palette, tidy, undo, export and a held-back imported co
   const ta = page.locator('.node', { hasText: 'Docs' }).locator('.note-text');
   await ta.fill('two, edited');
   await ta.blur();
-  await page.waitForTimeout(600);
+  // the UI saves after a short debounce; on a slow runner that can take longer than a fixed pause
+  const savedBy = Date.now() + 8000;
+  while (Date.now() < savedBy && store.readNote(ws.id, n2.id) !== 'two, edited') await page.waitForTimeout(100);
   assert.equal(store.readNote(ws.id, n2.id), 'two, edited');
   assert.equal(store.readNote(ws.id, n1.id), 'one');
 
