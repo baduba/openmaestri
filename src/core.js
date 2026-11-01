@@ -59,7 +59,7 @@ export class Core extends EventEmitter {
   }
 
   stop() {
-    this.portals.stop();
+    this.portals.stop().catch(() => { /* shutting down */ });
     this.scheduler.stop();
     this.store.flush();
     this.terminals.disposeAll();
@@ -973,7 +973,12 @@ Core.prototype.doFloorDelete = async function (ws, { name, keepBranch, keepFolde
 
 /** Run a portal action, turning browser-side failures into plain command errors. */
 Core.prototype.runPortal = async function (fn) {
-  try { return await fn(); } catch (e) { if (e instanceof PortalError) fail(e.message); throw e; }
+  try {
+    return await fn();
+  } catch (e) {
+    if (e instanceof PortalError) fail(e.message);
+    throw e;
+  }
 };
 /** Folders an agent may upload files from: every workspace and floor directory. */
 Core.prototype.uploadRoots = function () {
@@ -986,6 +991,7 @@ Core.prototype.uploadRoots = function () {
 /** A portal whose node no longer exists anywhere has no reason to keep a browser open. */
 Core.prototype.reapPortals = function () {
   for (const id of [...this.portals.map.keys()]) {
-    if (![...this.store.workspaces.values()].some((w) => w.nodes.some((n) => n.id === id))) this.portals.dispose(id);
+    const alive = [...this.store.workspaces.values()].some((w) => w.nodes.some((n) => n.id === id));
+    if (!alive) this.portals.dispose(id).catch(() => { /* already gone */ });
   }
 };

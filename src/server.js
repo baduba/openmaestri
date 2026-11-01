@@ -156,7 +156,11 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
         send(ws, { t: 'error', message: e.message, reqId: m.reqId });
       }
     });
-    ws.on('close', () => { ws.attached.clear(); for (const id of ws.portalViews) core.portals.detach(id); ws.portalViews.clear(); });
+    ws.on('close', () => {
+      ws.attached.clear();
+      for (const id of ws.portalViews) core.portals.detach(id).catch(() => { /* browser already closed */ });
+      ws.portalViews.clear();
+    });
   });
 
   async function handleUi(ws, m) {

@@ -151,7 +151,7 @@ class Portal extends EventEmitter {
       this.refs.clear();
       const u = p.frame.url;
       if (u.startsWith('http://') || u.startsWith('https://') || u === 'about:blank') this.node.url = u;
-      this.refreshNav();
+      void this.refreshNav();
     });
     cdp.on('Page.screencastFrame', (p, sid) => {
       if (sid !== this.session) return;
@@ -281,7 +281,12 @@ class Portal extends EventEmitter {
           if (interactive) for (const c of n.childIds ?? []) { const ch = byId.get(c); if (ch) ch.skipText = true; }
         }
       }
-      for (const cid of n.childIds ?? []) { const c = byId.get(cid); if (c) { if (n.skipText && c.role?.value === 'StaticText') c.skipText = true; walk(c, nextDepth); } }
+      for (const cid of n.childIds ?? []) {
+        const c = byId.get(cid);
+        if (!c) continue;
+        if (n.skipText && c.role?.value === 'StaticText') c.skipText = true;
+        walk(c, nextDepth);
+      }
     };
     const root = nodes.find((n) => !n.parentId) ?? nodes[0];
     if (root) walk(root, 0);
@@ -392,7 +397,10 @@ class Portal extends EventEmitter {
     await this.cmd('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
   }
 
-  async selectAll(target) { if (target) await this.focus(target); await this.key('ctrl+a'); }
+  async selectAll(target) {
+    if (target) await this.focus(target);
+    await this.key('ctrl+a');
+  }
 
   async select(target, option) {
     const { objectId } = await this.resolve(target);
@@ -495,7 +503,11 @@ class Portal extends EventEmitter {
   }
 
   startLogs() { this.logs = []; }
-  readLogs() { if (!this.logs) fail('logging is off. Run `portal logs-start` once, after navigating'); const out = this.logs.splice(0); return out.length ? out.join('\n') : '(no new messages)'; }
+  readLogs() {
+    if (!this.logs) fail('logging is off. Run `portal logs-start` once, after navigating');
+    const out = this.logs.splice(0);
+    return out.length ? out.join('\n') : '(no new messages)';
+  }
 
   // ---------------------------------------------------------------- human input from the canvas
   async input(ev) {
@@ -583,7 +595,9 @@ export class Portals extends EventEmitter {
   }
 
   reap() {
-    for (const [id, p] of this.map) if (!p.viewers && Date.now() - p.lastUse > IDLE_MS) this.dispose(id);
+    for (const [id, p] of this.map) {
+      if (!p.viewers && Date.now() - p.lastUse > IDLE_MS) void this.dispose(id);
+    }
   }
 
   async stop() {
