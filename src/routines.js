@@ -1,0 +1,129 @@
+// Routines: a command (prompt) typed into a terminal on a schedule.
+// Schedules: {kind:'every', ms} | {kind:'daily', time:'HH:MM'} |
+//            {kind:'weekly', days:[0-6], time:'HH:MM'} | {kind:'once', at: ISO}
+import { exec } from 'node:child_process';
+import { uid } from './store.js';
+
+const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+
+export function parseDuration(s) {
+  const m = /^(\d+)\s*(s|m|h|d)$/.exec(String(s).trim());
+  if (!m) throw new Error(`bad duration "${s}" (use 30s, 15m, 2h, 1d)`);
+  return Number(m[1]) * { s: 1000, m: 60000, h: 3600000, d: 86400000 }[m[2]];
+}
+
+function parseTime(t) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(t).trim());
+  if (!m || +m[1] > 23 || +m[2] > 59) throw new Error(`bad time "${t}" (use HH:MM)`);
+  return [+m[1], +m[2]];
+}
+
+export function parseSchedule(opts) {
+  if (opts.every) {
+    const ms = parseDuration(opts.every);
+    if (ms < 10000) throw new Error('--every must be at least 10s');
+    return { kind: 'every', ms };
+  }
+  if (opts.daily) { parseTime(opts.daily); return { kind: 'daily', time: opts.daily }; }
+  if (opts.weekly) {
+    const [days, time] = String(opts.weekly).split('@');
+    parseTime(time || '');
+    const set = days.split(',').map((d) => DAYS.indexOf(d.trim().toLowerCase().slice(0, 3)));
+    if (set.some((d) => d < 0)) throw new Error(`bad weekday list "${days}" (mon,fri)`);
+    return { kind: 'weekly', days: [...new Set(set)], time };
+  }
+  if (opts.once) {
+    const at = new Date(String(opts.once).replace(' ', 'T'));
+    if (Number.isNaN(at.getTime())) throw new Error(`bad date "${opts.once}" (YYYY-MM-DD HH:MM)`);
+    return { kind: 'once', at: at.toISOString() };
+  }
+  throw new Error('a schedule is required: --every, --daily, --weekly or --once');
+}
+
+export function nextRun(schedule, from = Date.now()) {
+  switch (schedule.kind) {
+    case 'every': return from + schedule.ms;
+    case 'once': { const t = Date.parse(schedule.at); return t > from ? t : null; }
+    case 'daily':
+    case 'weekly': {
+      const [h, m] = parseTime(schedule.time);
+      for (let add = 0; add < 8; add++) {
+        const d = new Date(from);
+        d.setDate(d.getDate() + add);
+        d.setHours(h, m, 0, 0);
+        const okDay = schedule.kind === 'daily' || schedule.days.includes(d.getDay());
+        if (okDay && d.getTime() > from) return d.getTime();
+      }
+      return null;
+    }
+    default: return null;
+  }
+}
+
+export function describeSchedule(s) {
+  switch (s.kind) {
+    case 'every': return `every ${s.ms >= 3600000 ? s.ms / 3600000 + 'h' : s.ms >= 60000 ? s.ms / 60000 + 'm' : s.ms / 1000 + 's'}`;
+    case 'daily': return `daily ${s.time}`;
+    case 'weekly': return `weekly ${s.days.map((d) => DAYS[d]).join(',')}@${s.time}`;
+    case 'once': return `once ${new Date(s.at).toLocaleString()}`;
+    default: return s.kind;
+  }
+}
+
+export class Scheduler {
+  /**
+   * @param {object} deps
+   * @param {() => Iterable<object>} deps.workspaces
+   * @param {(ws, routine, text) => void} deps.fire   types `text` into the routine's target
+   * @param {() => void} deps.changed                 persist + broadcast
+   */
+  constructor(deps) {
+    this.deps = deps;
+    this.timer = null;
+  }
+
+  start() { this.timer = setInterval(() => this.tick(), 1000); this.timer.unref?.(); }
+  stop() { clearInterval(this.timer); }
+
+  create(ws, { name, terminalId, command, schedule, reminder, count, until, preRun, notify = true, enabled = true }) {
+    if (ws.routines.some((r) => r.name.toLowerCase() === name.toLowerCase())) throw new Error(`routine "${name}" already exists`);
+    const r = {
+      id: uid(), name, terminalId, command, schedule,
+      reminder: !!reminder, count: count ?? null, until: until ?? null, preRun: preRun ?? null,
+      notify, enabled, fireCount: 0, lastFiredAt: null,
+      nextRunAt: nextRun(schedule),
+    };
+    ws.routines.push(r);
+    this.deps.changed(ws);
+    return r;
+  }
+
+  async runNow(ws, r) {
+    let text = r.command;
+    if (r.preRun) {
+      const out = await new Promise((res) =>
+        exec(r.preRun, { cwd: ws.dir, timeout: 60000, maxBuffer: 1 << 20 }, (_e, stdout) => res(String(stdout || '').trim())),
+      );
+      text = text.includes('{{output}}') ? text.replaceAll('{{output}}', out) : text;
+    }
+    this.deps.fire(ws, r, text);
+    r.fireCount += 1;
+    r.lastFiredAt = new Date().toISOString();
+  }
+
+  async tick() {
+    const now = Date.now();
+    for (const ws of this.deps.workspaces()) {
+      let dirty = false;
+      for (const r of ws.routines) {
+        if (!r.enabled || r.nextRunAt == null || r.nextRunAt > now) continue;
+        try { await this.runNow(ws, r); } catch (e) { console.error(`[routine] ${r.name}: ${e.message}`); }
+        const done = (r.count != null && r.fireCount >= r.count) || (r.until && Date.parse(r.until) <= now);
+        r.nextRunAt = done ? null : nextRun(r.schedule, now);
+        if (r.nextRunAt == null) r.enabled = false;
+        dirty = true;
+      }
+      if (dirty) this.deps.changed(ws);
+    }
+  }
+}

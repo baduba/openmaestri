@@ -1,0 +1,45 @@
+{
+  "name": "openmaestri",
+  "version": "0.1.0",
+  "description": "Spatial canvas terminal workspace for AI agents (open implementation).",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "openmaestri": "bin/openmaestri.js"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/*.test.js",
+    "check": "node --check src/server.js && node --check bin/openmaestri.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-serialize": "^0.14.0",
+    "@xterm/headless": "^6.0.0",
+    "@xterm/xterm": "^6.0.0",
+    "node-pty": "1.1.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.64.1"
+  },
+  "homepage": "https://baduba.github.io/openmaestri/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/baduba/openmaestri.git"
+  },
+  "bugs": {
+    "url": "https://github.com/baduba/openmaestri/issues"
+  },
+  "keywords": [
+    "ai-agents",
+    "terminal",
+    "orchestrator",
+    "deepseek",
+    "opencode",
+    "canvas"
+  ]
+}

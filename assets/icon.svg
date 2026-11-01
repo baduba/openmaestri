@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="openmaestri">
+  <rect width="128" height="128" rx="28" fill="#101216"/>
+  <g fill="none" stroke="#6ea8fe" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M28 92V38l36 34 36-34v54"/>
+  </g>
+  <circle cx="28" cy="38" r="7" fill="#4cc38a"/><circle cx="100" cy="38" r="7" fill="#f0b429"/><circle cx="64" cy="72" r="7" fill="#ef5b5b"/>
+</svg>

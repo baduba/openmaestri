@@ -1,0 +1,287 @@
+// Entry point: starts the core, the CLI socket and the local web UI.
+//   OPENMAESTRI_PORT   (default 7777, 0 = random)
+//   OPENMAESTRI_DATA_DIR
+// The UI gives shell access, so it is bound to loopback only and every request
+// needs the per-install token (cookie or ?token=) plus a same-origin Host/Origin.
+import fs from 'node:fs';
+import http from 'node:http';
+import crypto from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { WebSocketServer } from 'ws';
+import { Core, CommandError } from './core.js';
+import { dataDir, atomicWrite } from './store.js';
+import { startIpc, defaultSocketPath, ipcAlive } from './ipc.js';
+import { MAESTRO_BOOTSTRAP } from './prompts.js';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(here, '..');
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json' };
+
+export function loadToken(dir) {
+  const file = path.join(dir, 'token');
+  try {
+    const t = fs.readFileSync(file, 'utf8').trim();
+    if (t.length >= 32) return t;
+  } catch {}
+  const t = crypto.randomBytes(24).toString('hex');
+  atomicWrite(file, t);
+  return t;
+}
+
+const safeEq = (a, b) => {
+  const x = Buffer.from(String(a)), y = Buffer.from(String(b));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+};
+
+function cookieToken(req) {
+  const m = /(?:^|;\s*)om_token=([^;]+)/.exec(req.headers.cookie || '');
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777), dataRoot = dataDir(), socketPath = process.env.OPENMAESTRI_SOCKET_PATH || defaultSocketPath(), quiet = false } = {}) {
+  if (await ipcAlive(socketPath)) {
+    throw Object.assign(new Error('openmaestri is already running'), { code: 'ALREADY_RUNNING' });
+  }
+  fs.mkdirSync(dataRoot, { recursive: true, mode: 0o700 });
+  const token = loadToken(dataRoot);
+  const cliBin = path.join(root, 'bin', 'openmaestri.js');
+  const core = new Core({ dataRoot, socketPath, cliDir: path.join(root, 'bin', 'shims'), cliBin });
+  core.start();
+  const ipc = await startIpc(core, socketPath);
+
+  const allowedHost = (h) => {
+    const m = /^(127\.0\.0\.1|localhost|\[::1\]):(\d+)$/.exec(h || '');
+    return !!m && Number(m[2]) === actualPort;
+  };
+  const authed = (req, url) => {
+    if (!allowedHost(req.headers.host)) return false;
+    const origin = req.headers.origin;
+    if (origin && !allowedHost(new URL(origin).host)) return false;
+    const t = url.searchParams.get('token') || cookieToken(req);
+    return !!t && safeEq(t, token);
+  };
+
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url, 'http://x');
+    if (!authed(req, url)) {
+      res.writeHead(403, { 'content-type': 'text/plain' });
+      return res.end('forbidden: open the URL printed by openmaestri (it carries the token)');
+    }
+    if (url.searchParams.get('token')) {
+      res.setHeader('set-cookie', `om_token=${token}; HttpOnly; SameSite=Strict; Path=/`);
+      if (url.pathname === '/') { res.writeHead(302, { location: '/', 'set-cookie': res.getHeader('set-cookie') }); return res.end(); }
+    }
+    serveStatic(url.pathname, res);
+  });
+
+  function serveStatic(pathname, res) {
+    const vendor = {
+      '/vendor/xterm.mjs': 'node_modules/@xterm/xterm/lib/xterm.mjs',
+      '/vendor/xterm.css': 'node_modules/@xterm/xterm/css/xterm.css',
+      '/vendor/addon-fit.mjs': 'node_modules/@xterm/addon-fit/lib/addon-fit.mjs',
+    };
+    let file;
+    if (vendor[pathname]) file = path.join(root, vendor[pathname]);
+    else {
+      const rel = pathname === '/' ? 'index.html' : pathname.slice(1);
+      file = path.join(root, 'web', rel);
+      if (!file.startsWith(path.join(root, 'web') + path.sep)) { res.writeHead(400); return res.end(); }
+    }
+    fs.readFile(file, (err, buf) => {
+      if (err) { res.writeHead(404); return res.end('not found'); }
+      res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+      res.end(buf);
+    });
+  }
+
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 8 * 1024 * 1024 });
+  server.on('upgrade', (req, socket, head) => {
+    const url = new URL(req.url, 'http://x');
+    if (!authed(req, url)) { socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); return socket.destroy(); }
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+  });
+
+  const send = (ws, msg) => ws.readyState === 1 && ws.send(JSON.stringify(msg));
+  const broadcast = (msg, filter = () => true) => {
+    const s = JSON.stringify(msg);
+    for (const c of wss.clients) if (c.readyState === 1 && filter(c)) c.send(s);
+  };
+
+  core.on('workspace', (id) => {
+    const ws = core.store.workspaces.get(id);
+    if (ws) broadcast({ t: 'workspace', ws: core.payload(ws) });
+  });
+  core.on('workspace-list', () => broadcast({ t: 'summary', ...core.summary() }));
+  core.on('notify', (n) => broadcast({ t: 'notify', ...n }));
+  core.on('term-data', (id, data) => broadcast({ t: 'term.out', id, data }, (c) => c.attached?.has(id)));
+  core.on('term-status', (id, status, code) => broadcast({ t: 'term.status', id, status, code }));
+
+  wss.on('connection', (ws) => {
+    ws.attached = new Set();
+    send(ws, { t: 'summary', ...core.summary() });
+    const active = core.store.workspaces.get(core.store.settings.activeWorkspaceId);
+    if (active) send(ws, { t: 'workspace', ws: core.payload(active) });
+
+    ws.on('message', (raw) => {
+      let m;
+      try { m = JSON.parse(raw); } catch { return; }
+      try { handleUi(ws, m); } catch (e) {
+        send(ws, { t: 'error', message: e.message, reqId: m.reqId });
+      }
+    });
+    ws.on('close', () => ws.attached.clear());
+  });
+
+  function handleUi(ws, m) {
+    const s = core.store;
+    const wsOf = () => core.wsOrFail(m.workspaceId);
+    switch (m.t) {
+      case 'workspace.select': {
+        const w = core.wsOrFail(m.id);
+        s.settings.activeWorkspaceId = w.id;
+        s.saveSettings();
+        send(ws, { t: 'workspace', ws: core.payload(w), select: true });
+        break;
+      }
+      case 'workspace.create': {
+        const w = s.createWorkspace({ name: String(m.name || 'Workspace'), dir: m.dir, from: m.from });
+        s.settings.activeWorkspaceId = w.id;
+        s.saveSettings();
+        broadcast({ t: 'summary', ...core.summary() });
+        send(ws, { t: 'workspace', ws: core.payload(w), select: true });
+        break;
+      }
+      case 'workspace.rename': {
+        const w = core.wsOrFail(m.id);
+        w.name = s.uniqueWorkspaceName(String(m.name || w.name));
+        s.saveWorkspace(w.id);
+        broadcast({ t: 'summary', ...core.summary() });
+        break;
+      }
+      case 'workspace.delete': {
+        const w = core.wsOrFail(m.id);
+        for (const n of w.nodes) core.terminals.dispose(n.id);
+        s.deleteWorkspace(m.id);
+        broadcast({ t: 'summary', ...core.summary() });
+        const next = s.workspaces.get(s.settings.activeWorkspaceId);
+        send(ws, { t: 'workspace', ws: core.payload(next), select: true });
+        break;
+      }
+      case 'viewport.set': {
+        const w = wsOf();
+        w.viewport = { x: +m.x || 0, y: +m.y || 0, z: Math.min(4, Math.max(0.1, +m.z || 1)) };
+        s.saveWorkspace(w.id);
+        break;
+      }
+      case 'node.create': {
+        const w = wsOf();
+        const props = { ...m.props };
+        if (m.preset) {
+          const p = s.settings.presets.find((x) => x.name === m.preset);
+          if (p) { props.command = p.command; props.maestro = !!(props.maestro || p.maestro); props.preset = p.name; props.name ||= p.name; }
+        }
+        if (props.cwd) props.cwd = path.resolve(w.dir, props.cwd);
+        const node = s.createNode(w, m.kind, props);
+        if (node.kind === 'terminal') {
+          core.startTerminal(w, node);
+          // a Maestro running a real agent gets told what it is once the agent has booted
+          if (node.maestro && node.command) setTimeout(() => { try { core.terminals.deliver(node.id, MAESTRO_BOOTSTRAP); } catch {} }, 5000).unref?.();
+        }
+        core.touch(w);
+        break;
+      }
+      case 'node.patch': {
+        const w = wsOf();
+        s.patchNode(w, m.id, m.patch || {});
+        core.touch(w);
+        break;
+      }
+      case 'node.delete': {
+        const w = wsOf();
+        core.terminals.dispose(m.id);
+        s.deleteNode(w, m.id);
+        core.touch(w);
+        break;
+      }
+      case 'note.write': {
+        const w = wsOf();
+        core.nodeOrFail(w, m.id);
+        s.writeNote(w.id, m.id, String(m.text ?? ''));
+        // not broadcast back to the sender, who already has the text; other tabs get it
+        const msg = JSON.stringify({ t: 'note', workspaceId: w.id, id: m.id, text: String(m.text ?? '') });
+        for (const c of wss.clients) if (c !== ws && c.readyState === 1) c.send(msg);
+        break;
+      }
+      case 'conn.create': {
+        const w = wsOf();
+        s.connect(w, m.from, m.to);
+        core.touch(w);
+        break;
+      }
+      case 'conn.delete': {
+        const w = wsOf();
+        s.disconnect(w, m.id);
+        core.touch(w);
+        break;
+      }
+      case 'term.attach': {
+        const w = wsOf();
+        const node = core.nodeOrFail(w, m.id);
+        if (node.kind !== 'terminal') break;
+        core.startTerminal(w, node);
+        ws.attached.add(node.id);
+        send(ws, { t: 'term.snapshot', id: node.id, data: core.terminals.snapshot(node.id) });
+        break;
+      }
+      case 'term.detach': ws.attached.delete(m.id); break;
+      case 'term.in': core.terminals.write(m.id, String(m.data)); break;
+      case 'term.resize': core.terminals.resize(m.id, m.cols, m.rows); break;
+      case 'term.restart': {
+        const w = wsOf();
+        const node = core.nodeOrFail(w, m.id);
+        core.terminals.dispose(node.id);
+        core.startTerminal(w, node);
+        send(ws, { t: 'term.snapshot', id: node.id, data: '' });
+        core.touch(w);
+        break;
+      }
+      case 'term.kill': core.terminals.kill(m.id); break;
+      default: throw new CommandError(`unknown message: ${m.t}`);
+    }
+  }
+
+  // idle/working badge: push status changes of live terminals once a second
+  const lastStatus = new Map();
+  const statusTimer = setInterval(() => {
+    for (const [id] of core.terminals.rt) {
+      const st = core.terminals.status(id);
+      if (lastStatus.get(id) !== st) { lastStatus.set(id, st); broadcast({ t: 'term.status', id, status: st }); }
+    }
+  }, 1000);
+  statusTimer.unref();
+
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
+  const actualPort = server.address().port;
+  const url = `http://127.0.0.1:${actualPort}/?token=${token}`;
+  if (!quiet) {
+    console.log(`openmaestri running\n  UI:     ${url}\n  socket: ${socketPath}\n  data:   ${dataRoot}`);
+  }
+
+  const close = async () => {
+    clearInterval(statusTimer);
+    core.stop();
+    for (const c of wss.clients) c.terminate();
+    await new Promise((r) => server.close(r));
+    await new Promise((r) => ipc.close(r));
+    try { fs.unlinkSync(socketPath); } catch {}
+  };
+  return { core, server, url, port: actualPort, token, close, socketPath };
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const app = await main();
+  const bye = async () => { await app.close(); process.exit(0); };
+  process.on('SIGINT', bye);
+  process.on('SIGTERM', bye);
+}

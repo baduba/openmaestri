@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or idea (Discussions)
+    url: https://github.com/baduba/openmaestri/discussions
+    about: Ask how to do something or float an idea before filing an issue
+  - name: Security vulnerability
+    url: https://github.com/baduba/openmaestri/security/advisories/new
+    about: Report privately, not as a public issue
+  - name: Documentation
+    url: https://baduba.github.io/openmaestri/
+    about: Guides, CLI reference and troubleshooting

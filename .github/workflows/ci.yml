@@ -1,0 +1,43 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium for the UI test
+        run: npx playwright-core install --with-deps chromium
+      - run: npm test
+  deb:
+    runs-on: ubuntu-22.04
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: scripts/build-deb.sh
+      - name: Smoke-test the package contents
+        run: |
+          dpkg-deb -I dist/*.deb
+          dpkg-deb -x dist/*.deb /tmp/pkg
+          node /tmp/pkg/usr/lib/openmaestri/bin/openmaestri.js version
+          node -e "require('/tmp/pkg/usr/lib/openmaestri/node_modules/node-pty')"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openmaestri-deb
+          path: dist/*.deb

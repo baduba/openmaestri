@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=openmaestri
+GenericName=Agent workspace
+Comment=A spatial canvas terminal workspace for AI agents
+Exec=openmaestri serve --open
+Icon=openmaestri
+Terminal=false
+Type=Application
+Categories=Development;
+Keywords=agents;terminal;ai;orchestrator;
+StartupNotify=false
