@@ -540,7 +540,14 @@ class Portal extends EventEmitter {
   }
 
   // ---------------------------------------------------------------- human input from the canvas
-  async input(ev) {
+  /** Human input is applied one event at a time, in arrival order: handlers run concurrently, and keys must not overtake each other. */
+  input(ev) {
+    const run = (this.inputQueue ?? Promise.resolve()).then(() => this.applyInput(ev));
+    this.inputQueue = run.catch(() => { /* the caller sees the error; the queue keeps going */ });
+    return run;
+  }
+
+  async applyInput(ev) {
     await this.start();
     const n = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
     if (ev.kind === 'mouse') {

@@ -4,6 +4,10 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed
+- Human input into a portal is applied one event at a time, in arrival order (concurrent handlers could reorder keys)
+- The portal UI test waits for typed keys to land instead of reading the field at once (it failed about one run in three)
+
 ## [0.9.0] - 2026-11-01
 
 ### Added
