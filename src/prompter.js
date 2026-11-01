@@ -179,7 +179,7 @@ export async function fileIndex(root, { signal, limit = INDEX_LIMIT, maxDepth = 
     }
   };
   await walk(root, 0);
-  files.sort();
+  files.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   return { files, aborted, truncated: files.length >= limit };
 }
 
