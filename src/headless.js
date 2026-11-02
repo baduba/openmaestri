@@ -63,16 +63,28 @@ export function aiderFailure(text) {
   return at < 0 ? '' : lines.slice(at).join(' ').replace(/\s+/g, ' ').trim().slice(0, 400);
 }
 
+/**
+ * opencode does not exit when the model refuses the call (free quota used up, bad key): it retries and sits silent until the timeout.
+ * With --print-logs --log-level ERROR the refusal shows up on stderr, and this reads it so the run can stop at once.
+ * The title helper (small=true) fails on its own and does not count.
+ */
+export function opencodeFatal(stderr) {
+  const m = /level=ERROR[^\n]*message="stream error"[^\n]*small=false[^\n]*error\.error="([^"\n]{1,300})"/.exec(stderr);
+  return m ? `opencode stopped: ${m[1].replace(/^AI_\w+Error: /, '')}` : '';
+}
+
+const OPENCODE_RUN = ['run', '--print-logs', '--log-level', 'ERROR'];
+
 export const DRIVERS = {
   claude: { bin: 'claude', keys: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL'], args: (p, o) => ['-p', p, ...withModel('--model', o.model)] },
   codex: { bin: 'codex', keys: ['OPENAI_API_KEY', 'OPENAI_BASE_URL'], args: (p, o) => ['exec', '--skip-git-repo-check', ...withModel('--model', o.model), p] },
   gemini: { bin: 'gemini', keys: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'], args: (p, o) => [...withModel('--model', o.model), '-p', p], hint: geminiHint },
-  opencode: { bin: 'opencode', keys: PROVIDER_KEYS, args: (p, o) => ['run', ...withModel('-m', o.model), p] },
+  opencode: { bin: 'opencode', keys: PROVIDER_KEYS, args: (p, o) => [...OPENCODE_RUN, ...withModel('-m', o.model), p], fatal: opencodeFatal },
   aider: { bin: 'aider', keys: PROVIDER_KEYS, args: (p, o) => ['--message', p, ...AIDER_ONE_SHOT, ...withModel('--model', o.model)], failure: aiderFailure },
   agy: { bin: 'agy', keys: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'], args: (p, o) => ['-p', p, ...withModel('--model', o.model)] },
   kimi: { bin: 'kimi', keys: ['MOONSHOT_API_KEY', 'KIMI_API_KEY'], args: (p, o) => ['-p', p, ...withModel('--model', o.model)], tidy: tidyKimi },
   goose: { bin: 'goose', keys: PROVIDER_KEYS, args: (p, o) => ['run', '--no-session', '-q', ...gooseModel(o.model), '-t', p] },
-  'opencode-deepseek': { bin: 'opencode', keys: ['DEEPSEEK_API_KEY'], args: (p, o) => ['run', '-m', `deepseek/${o.model || DEEPSEEK(o.env)}`, p] },
+  'opencode-deepseek': { bin: 'opencode', keys: ['DEEPSEEK_API_KEY'], args: (p, o) => [...OPENCODE_RUN, '-m', `deepseek/${o.model || DEEPSEEK(o.env)}`, p], fatal: opencodeFatal },
   'aider-deepseek': { bin: 'aider', keys: ['DEEPSEEK_API_KEY'], args: (p, o) => ['--message', p, ...AIDER_ONE_SHOT, '--model', `deepseek/${o.model || DEEPSEEK(o.env)}`], failure: aiderFailure },
 };
 
@@ -151,6 +163,7 @@ export async function runHeadless({ driver, drivers = DRIVERS, prompt, cwd, env,
     let truncated = false;
     let timedOut = false;
     let cancelled = false;
+    let fatal = '';
     let done = false;
     const kill = (sig) => {
       // killing the docker client does not stop the container, so the container is removed by name too (rm -f also clears one that never started)
@@ -164,7 +177,11 @@ export async function runHeadless({ driver, drivers = DRIVERS, prompt, cwd, env,
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', (c) => { if (out.length < MAX_OUT) out += c.slice(0, MAX_OUT - out.length); else truncated = true; });
-    child.stderr.on('data', (c) => { err = (err + c).slice(-MAX_ERR); });
+    child.stderr.on('data', (c) => {
+      err = (err + c).slice(-MAX_ERR);
+      // some tools never exit after the provider refuses the call; the driver says what a refusal looks like and the run stops there
+      if (!fatal && d.fatal) { fatal = d.fatal(err); if (fatal) stop(); }
+    });
     const finish = (r) => {
       if (done) return;
       done = true;
@@ -176,8 +193,8 @@ export async function runHeadless({ driver, drivers = DRIVERS, prompt, cwd, env,
       const tidy = d.tidy ? d.tidy(raw) : raw;
       const hint = !ok && d.hint ? d.hint(raw.stderr) : '';
       const failure = ok && d.failure ? d.failure(tidy.text) : '';
-      const notes = [hint, failure].filter(Boolean);
-      resolve({ truncated, timedOut, cancelled, ms: Date.now() - started, ...r, text: tidy.text, stderr: [...notes, tidy.stderr].filter(Boolean).join('\n'), ok: ok && !failure, reportedError: Boolean(failure) });
+      const notes = [hint, failure, fatal].filter(Boolean);
+      resolve({ truncated, timedOut, cancelled, ms: Date.now() - started, ...r, text: tidy.text, stderr: [...notes, tidy.stderr].filter(Boolean).join('\n'), ok: ok && !failure && !fatal, reportedError: Boolean(failure || fatal) });
     };
     child.on('error', (e) => finish({ exitCode: null, signal: null, stderr: `${err}${e.message}`.trim() }));
     child.on('close', (code, sig) => finish({ exitCode: code, signal: sig }));
