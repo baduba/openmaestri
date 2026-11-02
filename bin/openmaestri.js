@@ -189,7 +189,7 @@ export function build({ pos, flags }) {
             file = JSON.parse(fs.readFileSync(fd, 'utf8'));
           } catch (e) {
             if (/at most 5 MB/.test(e.message)) throw e;
-            throw new Error(`${a} cannot be read as JSON`);
+            throw new Error(`${a} cannot be read as JSON`, { cause: e });
           } finally { if (fd !== undefined) fs.closeSync(fd); }
           return { cmd: 'partitura.import', args: { file, name: flags.name } };
         }
