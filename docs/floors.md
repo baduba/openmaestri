@@ -26,7 +26,8 @@ The floors folder is added to the repository's `.git/info/exclude`, so it never 
 ```bash
 openmaestri floor create "Login" [--branch B] [--existing-branch] [--copy] [--no-git] [--copy-ground] [--partitura P]
 openmaestri floor create "Mine" --dir ~/work/my-worktree
-openmaestri floor create --pull-request 123          # fetches origin pull/123/head into a floor
+openmaestri floor prs                               # open pull/merge requests with their checks
+openmaestri floor create --pull-request 123          # fetches the pull request into a floor (GitLab: merge request)
 openmaestri recruit "Dev" --preset "OpenCode (DeepSeek)" --floor "Login"
 openmaestri floor status "tests passing" --state review --progress 4/5
 openmaestri floor list
@@ -53,3 +54,20 @@ The floor bar at the bottom left switches floors (`+ Floor` creates one). The pa
 - Hooks that run on floor creation or landing are not implemented yet.
 - **Repository hooks do not run** during floor operations (`post-checkout`, `pre-merge-commit`...): they are code from the repository. Set `OPENMAESTRI_GIT_HOOKS=1` before starting openmaestri if you want them.
 - Everything shells out to your installed `git`, with argument arrays (no shell), validated branch names and a 60 second timeout.
+
+## Pull requests and merge requests
+
+`openmaestri floor prs` lists the open pull requests (GitHub, through `gh`) or merge requests (GitLab, through `glab`) of the workspace repository, with the state of their checks:
+
+```
+#12   ok   feat/x         ana     Add the files browser
+#9    FAIL draft wip      bo      WIP
+```
+
+`ok`, `FAIL`, `...` (running) and `-` (no checks) come from GitHub's check results. GitLab's list does not include pipelines, so merge requests show `?`. `--json` prints the rows for scripts, `--provider github|gitlab` is needed only when the `origin` URL is on a self-hosted host.
+
+Then `openmaestri floor create --pull-request 12` (a number, `#12`, or the page URL) fetches that request into its own floor, on a branch `pr-12`, so an agent can review or fix it without touching your checkout.
+
+- It uses **your** `gh` or `glab`, already signed in; openmaestri never sees or keeps a token. If the program is missing, the message tells you where to get it.
+- It is read-only: nothing is pushed, commented or merged. Titles, branch names and authors are written by other people, so control characters and direction-changing characters are removed before they are shown.
+- A `gh` or `glab` that resolves inside the workspace is refused, like the agent CLIs.

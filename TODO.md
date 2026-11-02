@@ -34,19 +34,19 @@ Legenda: [x] feito · [ ] pendente
 - [x] 19. Pacote `.deb` (amd64) com binário `openmaestri`, `.desktop` e ícone, gerado por script e pelo CI
 - [x] 20. GitHub Actions: lint, testes, build do .deb e anexo na Release por tag
 - [x] 21. README no estilo do original (hero, quick start, o que faz, FAQ, docs)
-- [ ] 22. Docs escritas em `docs/`; falta ativar o GitHub Pages (depende do merge do PR #1 em main)
+- [x] 22. Docs em `docs/` publicadas no GitHub Pages
 - [x] 23. Templates de issue (bug com diagnóstico `openmaestri debug`, feature, pergunta) + guia "como reportar bug"
 - [x] 24. CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, PR template, labels `good first issue`, licença MIT
-- [ ] 25. Código publicado (PR #1 aberto, CI verde); falta merge, tag v0.1.0 e Release com o .deb
+- [x] 25. Código publicado; releases com .deb a cada versão (v0.1.0 em diante)
 
 ## G. Depois da fase 4 (planejadores kimi + agy)
 - [x] Endurecimento: SSRF nos portais, hooks do git, teto de terminais, vazamento no export
 - [x] `openmaestri doctor`, `recruit --model`, checagem do agente instalado
-- [x] Árvore de arquivos e editor no canvas (v0.9.0) · [ ] floors a partir de PR e lista de PRs (gh/glab) · [ ] hooks e snapshots de floor
+- [x] Árvore de arquivos e editor no canvas (v0.9.0) · [x] lista de PRs e floors a partir de PR (gh/glab, v0.14.0) · [ ] hooks e snapshots de floor
 - [x] Chaves nomeadas com chaveiro (secret://, v0.10.0) · [ ] alternar várias contas por agente · [ ] Electron (por último) · [ ] arrastar e soltar arquivos
 
 ## F. Fase 1 de paridade (feito em feature/canvas-parity)
 - [x] Fichários (stacks), bands, partituras, desfazer/refazer, tidy, snap, paleta Ctrl+K, exportar/importar workspace
 - [ ] Fase 2: floors com git worktree, landing, hooks; depois revisão de PRs
 - [x] Fase 3: automação de portal (CDP)
-- [ ] Fase 4: [x] chat com threads (say/recall) · [ ] memória resumida · [x] prompter (popup, preview, índice cancelável; falta arrastar e soltar) · [x] prompts salvos · [x] uso dos agentes (relatado/parseado, sem estimativa) · [x] descoberta/instalação de roles · [x] memória longa (local, sem modelo) · [ ] arrastar e soltar
+- [ ] Fase 4: [x] chat com threads (say/recall) · [x] memória resumida · [x] prompter (popup, preview, índice cancelável; falta arrastar e soltar) · [x] prompts salvos · [x] uso dos agentes (relatado/parseado, sem estimativa) · [x] descoberta/instalação de roles · [x] memória longa (local, sem modelo) · [ ] arrastar e soltar
