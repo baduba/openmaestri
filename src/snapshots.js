@@ -30,6 +30,8 @@ async function topOf(floor) {
 
 // year to millisecond, and never equal to or below the previous one: names sort in the order they were made
 let lastStamp = 0;
+const nulList = (text) => text.split('\0').filter(Boolean);
+
 const stamp = () => {
   const now = Date.now();
   lastStamp = now > lastStamp ? now : lastStamp + 1;
@@ -40,6 +42,15 @@ async function hasHead(top) {
   try { await git(top, ['rev-parse', '--verify', '-q', 'HEAD']); return true; } catch { return false; }
 }
 
+const maxNewFiles = () => Math.max(1, Number(process.env.OPENMAESTRI_SNAPSHOT_MAX_FILES) || 20000);
+
+/** A tree full of files that git does not ignore (an unignored node_modules, a build folder) would make every snapshot slow and heavy: say so instead. */
+async function checkSize(top) {
+  const out = await git(top, ['ls-files', '--others', '--exclude-standard', '-z'], { raw: true, timeout: 120000 });
+  const count = nulList(out).length;
+  if (count > maxNewFiles()) fail(`${count} new files are not ignored by git, which is too many to snapshot. Add the generated folders (node_modules, build, dist...) to .gitignore, or raise OPENMAESTRI_SNAPSHOT_MAX_FILES`);
+}
+
 /** @returns {{id: string, commit: string, label: string}} */
 export async function takeSnapshot(floor, label = '') {
   const top = await topOf(floor);
@@ -47,6 +58,7 @@ export async function takeSnapshot(floor, label = '') {
   const env = { ...IDENTITY, GIT_INDEX_FILE: path.join(tmp, 'index') };
   try {
     const head = await hasHead(top);
+    await checkSize(top);
     if (head) await git(top, ['read-tree', 'HEAD'], { env });
     await git(top, ['add', '-A', '--', '.'], { env, timeout: 180000 });
     const tree = await git(top, ['write-tree'], { env });
@@ -84,8 +96,6 @@ export async function dropSnapshots(repo, floor) {
     for (const ref of out.split('\n').filter(Boolean)) await git(repo, ['update-ref', '-d', ref]);
   } catch { /* the repository is gone or has none */ }
 }
-
-const nulList = (text) => text.split('\0').filter(Boolean);
 
 /** Remove a file or link inside `top`; then its parent folders while they are empty. */
 function removeInside(top, rel) {

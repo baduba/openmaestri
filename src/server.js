@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import crypto from 'node:crypto';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
@@ -17,6 +18,7 @@ import { threadId } from './chat.js';
 import { commandAvailable } from './terminals.js';
 import { materialize as materializeMentions } from './prompter.js';
 import { exportWorkspace, importWorkspace, capturePartitura } from './transfer.js';
+import { agentChoices, checkFolder, writeInstructions, WelcomeError } from './welcome.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -498,6 +500,36 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
         s.settings.partituras = list.filter((p) => p.id !== m.id);
         s.saveSettings();
         broadcast({ t: 'summary', ...core.summary() });
+        break;
+      }
+      case 'welcome.info': {
+        const w = wsOf();
+        const fallback = process.env.OPENMAESTRI_WORKSPACE_DIR || process.cwd();
+        send(ws, { t: 'welcome.info', needed: process.env.OPENMAESTRI_NO_WELCOME !== '1' && !s.settings.onboarded && w.nodes.length === 0, dir: w.dir === os.homedir() ? fallback : w.dir, agents: agentChoices(s.settings.presets, (c) => commandAvailable(c).ok) });
+        break;
+      }
+      case 'welcome.skip': s.settings.onboarded = true; s.saveSettings(); break;
+      case 'welcome.start': {
+        const w = wsOf();
+        if (w.nodes.length) throw new CommandError('this workspace already has nodes; the welcome setup is for an empty one');
+        const preset = s.settings.presets.find((x) => x.name === m.preset && x.command && !x.maestro) ?? (() => { throw new CommandError('pick one of the listed agents'); })();
+        let dir;
+        try { dir = checkFolder(m.dir); } catch (e) { throw e instanceof WelcomeError ? new CommandError(e.message) : e; }
+        w.dir = dir;
+        if (w.name === 'Home') w.name = s.uniqueWorkspaceName(path.basename(dir) || 'Project');
+        const node = s.createNode(w, 'terminal', { name: preset.name, command: preset.command, preset: preset.name, maestro: true, cwd: dir, x: 80, y: 80, w: 780, h: 480 });
+        let note = '';
+        if (m.instructions) {
+          try { const r = writeInstructions(dir, preset.command, preset.name); note = r.created ? ` ${r.file} was created.` : ` ${r.file} already exists and was left alone.`; } catch (e) { throw e instanceof WelcomeError ? new CommandError(e.message) : e; }
+        }
+        s.settings.onboarded = true;
+        s.saveSettings();
+        core.audit.record('welcome.start', { preset: preset.name, folder: path.basename(dir), instructions: !!m.instructions }, 'ui');
+        core.startTerminal(w, node);
+        core.touch(w);
+        broadcast({ t: 'summary', ...core.summary() });
+        send(ws, { t: 'workspace', ws: core.payload(w), select: true });
+        send(ws, { t: 'toast', from: 'agent', message: `${preset.name} is starting as your Maestro in ${path.basename(dir)}.${note}` });
         break;
       }
       case 'workspace.import': {

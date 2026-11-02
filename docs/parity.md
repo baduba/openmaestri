@@ -31,7 +31,7 @@ Legend: done = works and is tested · partial = some of it · missing = not star
 | Agent accounts, usage and identity | 41 | partial | usage per terminal with tokens, cost estimate (reported or parsed, never guessed), DeepSeek prices with peak hours, `usage report`; role discovery and install with dry run. Named secrets (`secret://`) in the desktop keyring or a 0600 file, see [secrets](secrets.html). Missing: switching between several accounts of one agent, identity |
 | Sandboxes, Docker, WSL, remote tunnels | 18+ | missing | |
 | Auto-layout (tidy/snap), command palette | 4 | done | tidy by depth from the Maestro, snap to grid, Ctrl+K palette. Missing: drawing recognition |
-| App shell (window, tray, preferences, onboarding, updates) | 40 | partial | runs in the browser; `.deb` ships updates through apt. Missing: Electron shell, tray, preferences screen, onboarding |
+| App shell (window, tray, preferences, onboarding, updates) | 40 | partial | runs in the browser; `.deb` ships updates through apt. First-run welcome (folder, agent, optional AGENTS.md). Missing: Electron shell, tray, preferences screen |
 | Licensing | 7 | not applicable | openmaestri is MIT |
 
 ## Order of work

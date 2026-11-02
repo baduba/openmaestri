@@ -4,6 +4,14 @@ title: Getting started
 
 # Getting started
 
+## First start: the welcome screen
+
+The first time you open openmaestri with an empty canvas, a welcome window asks for two things: the **folder of your project** and the **agent** that will be your Maestro. The agents found on your machine come first and the first one is already selected, so for most people it is one click on **Start**.
+
+It then opens that agent in a terminal inside your project folder, marked as the Maestro, so it can recruit and coordinate other agents. Ticking **Add an AGENTS.md** also writes a short instructions file for the agents (`CLAUDE.md` for Claude, `GEMINI.md` for Gemini). An existing file is never changed.
+
+**Skip** closes the window for good. Nothing is shown when the workspace already has nodes, and `OPENMAESTRI_NO_WELCOME=1` turns the window off altogether.
+
 ## Install
 
 **Debian / Ubuntu**

@@ -2,6 +2,7 @@ import { Terminal } from '/vendor/xterm.mjs';
 import { FitAddon } from '/vendor/addon-fit.mjs';
 import { createChat } from '/chat.js';
 import { buildFiles } from '/files.js';
+import { createWelcome } from '/welcome.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const el = (tag, cls, text) => {
@@ -38,6 +39,7 @@ function connect() {
 }
 const send = (m) => socket?.readyState === 1 && socket.send(JSON.stringify(m));
 const wsId = () => state.ws?.id;
+const welcome = createWelcome({ send, wsId });
 function setConn(ok) {
   const c = $('#conn');
   c.classList.toggle('off', !ok);
@@ -72,6 +74,7 @@ function onMessage(m) {
       if (state.ws && m.workspaceId === state.ws.id) { state.ws.usage = new Map(Object.entries(m.usage || {})); for (const [id, v] of state.views) v.setUsage?.(state.ws.usage.get(id)); }
       break;
     case 'chat.history': case 'chat.message': case 'chat.progress': case 'chat.state': case 'chat.search': case 'prompter.mentions': case 'prompter.preview': case 'prompts.list': case 'prompts.changed': case 'prompts.item': case 'prompts.deleted': chatUi.handle(m); break;
+    case 'welcome.info': welcome.handle(m); break;
     case 'files.result': state.views.get(m.id)?.filesResult?.(m); break;
     case 'portal.frame': state.views.get(m.id)?.frame?.(m); break;
     case 'portal.nav': state.views.get(m.id)?.nav?.(m); break;
@@ -86,6 +89,7 @@ const nodeFloor = (n) => n.floorId ?? null;
 const isVisible = (n) => nodeFloor(n) === state.floorId;
 
 function applyWorkspace(ws, switching) {
+  queueMicrotask(() => welcome.check());
   // keyed by ids that arrive over the wire, so Maps (no prototype keys to poison)
   ws.notes = ws.notes instanceof Map ? ws.notes : new Map(Object.entries(ws.notes || {}));
   ws.status = ws.status instanceof Map ? ws.status : new Map(Object.entries(ws.status || {}));

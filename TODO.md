@@ -14,9 +14,9 @@ Legenda: [x] feito · [ ] pendente
 
 ## B. Fechar o MVP
 - [x] 7. Corrigir o teste de UI (saída do CLI no terminal do navegador) e deixar `npm test` verde
-- [ ] 8. Tela de boas-vindas: criar o primeiro workspace, escolher agente e abrir o primeiro terminal em 2 cliques
+- [x] 8. (v0.16.0) Tela de boas-vindas: criar o primeiro workspace, escolher agente e abrir o primeiro terminal em 2 cliques
 - [x] 9. Orquestrador "Maestro" de verdade: preset com prompt de sistema que ensina o agente a usar `openmaestri` (list/ask/recruit/note)
-- [ ] 10. Parcial: `openmaestri guide` e prompt inicial do Maestro existem; falta gerar AGENTS.md/CLAUDE.md por workspace (opt-in)
+- [x] 10. `openmaestri guide`, prompt inicial do Maestro e AGENTS.md/CLAUDE.md opcional na tela de boas-vindas (v0.16.0)
 
 ## C. Modelos abertos / DeepSeek
 - [x] 11. Presets prontos: OpenCode (+ DeepSeek), Aider (+ DeepSeek), Claude Code, Codex, Gemini CLI, Goose

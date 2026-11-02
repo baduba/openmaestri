@@ -151,3 +151,14 @@ test('run --floors leaves a snapshot per agent in the report', async (t) => {
   await cmd(boss, 'floor.rollback', { name: floorName, id });
   assert.equal(read(floor.dir, 'agent.txt').trim(), 'by agent', 'what the agent produced can be brought back');
 });
+
+test('a tree with too many unignored new files is refused with advice', async (t) => {
+  const { boss, cmd } = await setup(t);
+  const dir = (await cmd(boss, 'floor.create', { name: 'Work' })).data.dir;
+  for (let i = 0; i < 6; i += 1) write(dir, `gen/f${i}.txt`, 'x');
+  process.env.OPENMAESTRI_SNAPSHOT_MAX_FILES = '4';
+  t.after(() => { delete process.env.OPENMAESTRI_SNAPSHOT_MAX_FILES; });
+  await assert.rejects(cmd(boss, 'floor.snapshot', { name: 'Work' }), /6 new files are not ignored.*\.gitignore/);
+  write(dir, '.gitignore', 'gen/\n');
+  assert.match((await cmd(boss, 'floor.snapshot', { name: 'Work' })).text, /snapshot \d{17}/);
+});
