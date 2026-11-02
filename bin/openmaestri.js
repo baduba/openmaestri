@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 
-const BOOL = new Set(['no-check', 'summary', 'archive', 'apply', 'trust', 'global', 'overwrite', 'progress', 'all', 'existing-branch', 'copy', 'no-git', 'copy-ground', 'delete-branch', 'keep-floor', 'no-hooks', 'clear-hooks', 'keep-branch', 'keep-folder', 'open', 'version', 'json', 'raw-flag', 'batch', 'force', 'none', 'clear', 'without-me', 'no-notify', 'disabled', 'reminder', 'agent', 'floors', 'dry-run', 'no-network', 'yes', 'verify', 'note', 'band', 'fichario', 'portal', 'help']);
+const BOOL = new Set(['no-check', 'no-handoff', 'ask', 'summary', 'archive', 'apply', 'trust', 'global', 'overwrite', 'progress', 'all', 'existing-branch', 'copy', 'no-git', 'copy-ground', 'delete-branch', 'keep-floor', 'no-hooks', 'clear-hooks', 'keep-branch', 'keep-folder', 'open', 'version', 'json', 'raw-flag', 'batch', 'force', 'none', 'clear', 'without-me', 'no-notify', 'disabled', 'reminder', 'agent', 'floors', 'dry-run', 'no-network', 'yes', 'verify', 'note', 'band', 'fichario', 'portal', 'help']);
 
 const HELP = `openmaestri - a spatial workspace for AI agents (open implementation)
 
@@ -38,7 +38,8 @@ Usage:
   Maestro terminals only:
   openmaestri recruit "Name" [--preset P] [--role R] [--dir PATH] [--command C] [--color C]
   openmaestri recruit "Name" --preset "OpenCode (DeepSeek)" --model deepseek-v4-pro [--no-check]   (checks the agent is installed)
-  openmaestri recruit "New" --preset P --replace "Old"
+  openmaestri recruit "New" --preset P --replace "Old" [--handoff ask | --no-handoff]   (the old agent leaves a handoff note; with ask it also writes its own)
+  openmaestri handoff "Agent" [--ask]               Leave a note with the state of an agent for whoever works next
   openmaestri dismiss "Name"
   openmaestri connect "From" "To" [--agent|--band|--note|--fichario|--portal]   |   disconnect "From" "To"
   openmaestri band create "Name" ["Agent" ...] [--without-me] | add "Band" "Agent" | remove "Band" "Agent" | dissolve "Band"
@@ -219,7 +220,8 @@ export function build({ pos, flags }) {
         default: throw new Error('usage: partitura list|insert|create|update|delete|export|import');
       }
     }
-    case 'recruit': return { cmd: 'recruit', args: { name: c1, preset: flags.preset, role: flags.role, dir: flags.dir, command: flags.command, color: flags.color, icon: flags.icon, replace: flags.replace, account: flags.account, floor: flags.floor, model: flags.model, noCheck: !!flags['no-check'] } };
+    case 'recruit': return { cmd: 'recruit', args: { name: c1, preset: flags.preset, role: flags.role, dir: flags.dir, command: flags.command, color: flags.color, icon: flags.icon, replace: flags.replace, account: flags.account, floor: flags.floor, model: flags.model, noCheck: !!flags['no-check'], noHandoff: !!flags['no-handoff'], handoff: flags.handoff === undefined ? undefined : String(flags.handoff) } };
+    case 'handoff': need(c1, 'handoff "Agent" [--ask]'); return { cmd: 'handoff', args: { name: c1, ask: !!flags.ask } };
     case 'dismiss': need(c1, 'dismiss "Name"'); return { cmd: 'dismiss', args: { name: c1 } };
     case 'connect': need(c1 && rest[0], 'connect "From" "To" [--agent|--band|--note|--fichario|--portal]'); return { cmd: 'connect', args: { from: c1, to: rest[0], kind: ['agent', 'band', 'note', 'fichario', 'portal'].find((k) => flags[k]) } };
     case 'disconnect': need(c1 && rest[0], 'disconnect "From" "To"'); return { cmd: 'disconnect', args: { from: c1, to: rest[0] } };

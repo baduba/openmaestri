@@ -10,6 +10,7 @@ import path from 'node:path';
 import { Store, dataDir } from './store.js';
 import { GUIDE } from './prompts.js';
 import { Terminals } from './terminals.js';
+import { handoffText, takeoverLine, SELF_REPORT_PROMPT } from './handoff.js';
 import { DRIVERS, customDrivers, workerEnv, runHeadless, HeadlessError, checkSandbox, quotaRefused } from './headless.js';
 import { discover as discoverRoles, plan as planRole, diffText, agentKind, RoleError, AGENT_FILES } from './roles.js';
 import { Files, FilesError } from './files.js';
@@ -562,7 +563,7 @@ const HANDLERS = {
   },
 
   // ----- orchestration (maestro only) -----
-  recruit(ws, me, { name, preset, role, dir, command, color, icon, replace, floor, model, noCheck, account }) {
+  async recruit(ws, me, { name, preset, role, dir, command, color, icon, replace, floor, model, noCheck, account, noHandoff, handoff }) {
     this.requireMaestro(me);
     const accountName = account ?? this.store.settings.presets.find((p) => p.name.toLowerCase() === String(preset ?? '').toLowerCase())?.account ?? null;
     if (accountName) this.accounts.env(accountName); // fails with a clear message when it does not exist
@@ -581,11 +582,15 @@ const HANDLERS = {
     }
     if (replace) {
       const old = this.resolveAny(ws, replace, ['terminal']);
+      // the retiring agent leaves a note first, unless the terminal was a plain shell or the Maestro said not to
+      const note = noHandoff || !old.command ? null : await this.writeHandoff(ws, me, old, { ask: handoff === 'ask' });
+      const oldName = old.name;
       this.terminals.dispose(old.id);
       this.store.patchNode(ws, old.id, { command: cmd, ...(name ? { name } : {}) });
       this.startTerminal(ws, old);
+      if (note && cmd) setTimeout(() => { try { this.terminals.deliver(old.id, takeoverLine(note, oldName)); } catch { /* the terminal was closed meanwhile */ } }, 3000).unref?.();
       this.touch(ws);
-      return { text: old.name };
+      return { text: note ? `${old.name} (handoff note: ${note})` : old.name, data: { name: old.name, handoff: note } };
     }
     if (!name) fail('usage: recruit "Name" [--preset P] [--role R] [--dir PATH] [--command C]');
     const target = floor === undefined ? floorById(ws, me.floorId) ?? groundOf(ws) : findFloor(ws, floor);
@@ -605,6 +610,14 @@ const HANDLERS = {
     if (rolePrompt) setTimeout(() => { try { this.terminals.deliver(node.id, rolePrompt); } catch {} }, 3000);
     this.touch(ws);
     return { text: node.name, data: { name: node.name } };
+  },
+
+  /** `handoff "Agent" [--ask]`: leave a note with the state of an agent, for whoever works next. The agent stays. */
+  async handoff(ws, me, { name, ask }) {
+    this.requireMaestro(me);
+    const n = this.resolve(ws, me, name, ['terminal']);
+    const note = await this.writeHandoff(ws, me, n, { ask: !!ask });
+    return { text: `note "${note}" written and cabled to ${n.name}`, data: { note } };
   },
 
   dismiss(ws, me, { name }) {
@@ -1791,4 +1804,25 @@ Core.prototype.unloadWorkspace = function (w) {
 Core.prototype.filesRoot = function (ws, node) {
   if (node.kind !== 'files') throw new FilesError('that is not a file browser');
   return node.floorId ? (ws.floors.find((f) => f.id === node.floorId)?.dir ?? ws.dir) : ws.dir;
+};
+
+/** Build the handoff note of a terminal and put it on the canvas, cabled to the Maestro and to that terminal. Returns the note's name. */
+Core.prototype.writeHandoff = async function (ws, me, node, { ask = false } = {}) {
+  let selfReport = '';
+  if (ask && this.terminals.agentRunning(node.id) && node.id !== me.id) {
+    try { selfReport = (await HANDLERS.ask.call(this, ws, me, { name: node.name, prompt: SELF_REPORT_PROMPT, timeoutMs: 90000 })).data.output; } catch { /* it did not answer: the facts below still stand */ }
+  }
+  const info = { name: node.name, folder: path.basename(node.cwd ?? ''), command: node.command, selfReport, screen: this.terminals.text(node.id, { lastLines: 120 }) };
+  const floor = floorById(ws, node.floorId);
+  if (floor && floor.id !== groundOf(ws).id) Object.assign(info, { floor: floor.name, branch: floor.branch });
+  if (node.cwd) {
+    try { info.status = await git(node.cwd, ['status', '--short'], { timeout: 10000 }); info.diffstat = await git(node.cwd, ['diff', '--stat', 'HEAD'], { timeout: 10000 }); } catch { /* not a repository */ }
+  }
+  info.notes = this.store.neighbors(ws, node.id).filter((x) => x.kind === 'note').map((x) => x.name).filter((x) => !x.startsWith('Handoff:'));
+  const stamp = new Date().toISOString().slice(11, 16);
+  const made = HANDLERS['note.create'].call(this, ws, me, { content: handoffText({ ...info, at: new Date() }), name: `Handoff: ${node.name} ${stamp}` });
+  const note = this.resolveAny(ws, made.text, ['note']);
+  this.store.connect(ws, node.id, note.id);
+  this.audit.record('handoff', { agent: node.name, ask, note: note.name }, 'terminal');
+  return note.name;
 };
