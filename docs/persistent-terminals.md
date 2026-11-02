@@ -25,3 +25,14 @@ or tick **Keep terminals running when openmaestri restarts** in *Preferences* (c
 - A terminal whose agent had exited before the restart comes back as the shell it fell back to, and chat messages are not typed into it.
 - Scrolling back happens in tmux's own history, not in the canvas scrollback of a freshly attached terminal, which starts from the screen as tmux redraws it.
 - If tmux is missing or fails, terminals start as plain ones and a warning is logged.
+
+## See them, end them
+
+```bash
+openmaestri persist list          # each session: terminal id, since when, what runs in it
+openmaestri persist stop --yes    # end all of them (and the programs in them)
+openmaestri ps                    # terminals kept in tmux are marked
+openmaestri doctor                # how many sessions are running now
+```
+
+Sessions keep using memory after you quit, on purpose; this is how you check on them. `persist` runs only in your own shell, never inside an agent terminal.

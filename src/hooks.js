@@ -3,7 +3,9 @@
 // e.g. `npm test`; it runs in the floor folder with the same privileges as a terminal, but with a
 // short allow-listed environment (no keys), no input, a time limit, and the whole process group
 // stopped on timeout.
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
+import { checkSandbox, dockerArgs } from './headless.js';
 
 const KEEP = /^(PATH|HOME|USER|LOGNAME|SHELL|LANG|LANGUAGE|TZ|TMPDIR|LC_[A-Z]+|XDG_[A-Z_]+|NVM_[A-Z_]+|HTTPS?_PROXY|NO_PROXY|https?_proxy|no_proxy)$/;
 const MAX_TAIL = 4096;
@@ -20,7 +22,7 @@ export function checkCommand(cmd) {
 const timeoutMs = () => Math.min(Math.max(Number(process.env.OPENMAESTRI_HOOK_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS, 1000), 30 * 60 * 1000);
 
 /** @returns {Promise<{ok: boolean, exitCode: number|null, timedOut: boolean, output: string, ms: number}>} */
-export function runHook(command, { cwd, base = process.env }) {
+export function runHook(command, { cwd, base = process.env, sandbox = null, docker = null }) {
   const env = {};
   for (const [k, v] of Object.entries(base)) if (KEEP.test(k) && typeof v === 'string') env[k] = v;
   Object.assign(env, { TERM: 'dumb', NO_COLOR: '1', CI: '1', OPENMAESTRI_HOOK: '1' });
@@ -28,11 +30,25 @@ export function runHook(command, { cwd, base = process.env }) {
   return new Promise((resolve) => {
     // Intentional: the hook is a shell command the user configured for their own project.
     // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
-    const child = spawn('/bin/sh', ['-c', checkCommand(command)], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    // inside a sandbox the command runs in the container (same folder rule as the agents); otherwise on this machine
+    const cmd = checkCommand(command);
+    let file = '/bin/sh';
+    let argv = ['-c', cmd];
+    let containerName = null;
+    if (sandbox) {
+      if (!docker) throw new HookError('a sandboxed hook needs the path of the docker program');
+      containerName = `om-hook-${crypto.randomBytes(6).toString('hex')}`;
+      file = docker;
+      argv = dockerArgs(checkSandbox(sandbox), { name: containerName, cwd, bin: 'sh', args: ['-c', cmd], envNames: Object.keys(env) });
+    }
+    const child = spawn(file, argv, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
     let output = '';
     let timedOut = false;
     let done = false;
-    const kill = (sig) => { try { process.kill(-child.pid, sig); } catch { try { child.kill(sig); } catch { /* gone */ } } };
+    const kill = (sig) => {
+      if (containerName && sig === 'SIGKILL') spawnSync(docker, ['kill', containerName], { stdio: 'ignore', timeout: 10000 });
+      try { process.kill(-child.pid, sig); } catch { try { child.kill(sig); } catch { /* gone */ } }
+    };
     const timer = setTimeout(() => { timedOut = true; kill('SIGTERM'); setTimeout(() => kill('SIGKILL'), 3000).unref(); }, timeoutMs());
     const take = (c) => { output = (output + c).slice(-MAX_TAIL); };
     child.stdout.setEncoding('utf8').on('data', take);

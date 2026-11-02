@@ -126,11 +126,24 @@ export async function runHeadless({ driver, drivers = DRIVERS, prompt, cwd, env,
       clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
       kill('SIGKILL');
-      resolve({ text: out.trim(), stderr: err.trim(), truncated, timedOut, cancelled, ms: Date.now() - started, ...r, ok: !timedOut && !cancelled && r.exitCode === 0 });
+      resolve({ text: out.trim(), stderr: containerName ? explainDocker(err.trim(), box) : err.trim(), truncated, timedOut, cancelled, ms: Date.now() - started, ...r, ok: !timedOut && !cancelled && r.exitCode === 0 });
     };
     child.on('error', (e) => finish({ exitCode: null, signal: null, stderr: `${err}${e.message}`.trim() }));
     child.on('close', (code, sig) => finish({ exitCode: code, signal: sig }));
   });
+}
+
+/** Docker's own errors are long and cryptic; say what to do about the common ones. */
+export function explainDocker(stderr, box) {
+  const low = stderr.toLowerCase();
+  const has = (...needles) => needles.some((n) => low.includes(n));
+  if (has('cannot connect to the docker daemon', 'is the docker daemon running')) return 'Docker is installed but its service is not running. Start it (sudo systemctl start docker) and try again.';
+  if (has('permission denied while trying to connect to the docker')) return 'Your user is not allowed to use Docker. Add it to the docker group (sudo usermod -aG docker $USER), log in again, and retry.';
+  if (has('unable to find image', 'pull access denied', 'manifest unknown', 'repository does not exist')) {
+    const image = typeof box === 'string' ? box : box?.image ?? 'the image';
+    return `The image ${image} was not found. Pull or build it first: docker pull ${image}`;
+  }
+  return stderr;
 }
 
 const IMAGE_RE = /^[a-z0-9][a-z0-9._/:@-]{0,200}$/;

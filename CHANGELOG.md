@@ -4,6 +4,17 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-11-02
+
+### Added
+- Floor hooks can run in a Docker container (`floor hooks --sandbox IMAGE`), and a `run --floors --sandbox` checks each agent's work in a container too
+- `openmaestri persist list|stop --yes`; `ps` marks terminals kept in tmux
+- `doctor` checks Docker (installed and reachable), persistent sessions, permissions of `accounts.json` and `secrets.json`, and the desktop window
+- Docker errors say what to do (service stopped, no permission, image missing)
+
+### Security
+- A run in a container no longer checks its result outside the container
+
 ## [0.20.0] - 2026-11-02
 
 ### Added

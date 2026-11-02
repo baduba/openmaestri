@@ -1,6 +1,6 @@
 {
   "name": "openmaestri-desktop",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "private": true,
   "description": "Optional desktop window for openmaestri: one window, a tray icon, system notifications.",
   "main": "main.mjs",

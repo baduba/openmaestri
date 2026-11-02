@@ -22,6 +22,7 @@ What is done, what is next, and what is deliberately left out. The order follows
 | 0.18 | Floor hooks, routine history, files dropped on the chat |
 | 0.19 | Process list, workspace groups and unload, notes with pictures, editor tabs/search/colours, chat export and agent-written summaries |
 | 0.20 | Persistent terminals (tmux), Docker sandbox for one-shot agents, optional desktop window, preferences |
+| 0.21 | Hooks in containers, `persist list/stop`, a fuller `doctor`, clearer Docker errors |
 
 ## Next
 

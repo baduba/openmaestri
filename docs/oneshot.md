@@ -69,6 +69,8 @@ You provide the image: it must contain the agent program (`claude`, `aider`...).
 - `--no-network` removes the network entirely (useful for review jobs that need no API);
 - the container is killed on timeout or cancel, not just the `docker` client.
 
+If Docker is not running, you are not allowed to use it, or the image is missing, the message says which and what to do.
+
 A custom driver can carry its own sandbox in `settings.json`: `"sandbox": { "image": "my-agents:latest", "network": "none", "memory": "1g" }`. Programs that sign in through files in your home folder (for example a logged-in `claude`) do not find them inside the container; give them a key through an [account](accounts.html) instead.
 
 ## Safety

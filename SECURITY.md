@@ -17,6 +17,10 @@ Only the latest release receives fixes while the project is 0.x.
 
 Workspace files are validated against a closed format and a refused file changes nothing; keys, agent runs, imports and exports are written to a hash-chained audit log (`openmaestri audit --verify`). It is tamper-evident, not tamper-proof; see docs/audit.md.
 
+## Agents, containers and hooks
+
+One-shot agents can run in a Docker container with only the working folder shared (`--sandbox`), floor hooks can run there too, and every key travels by name. Without `--sandbox` an agent or a hook runs as you and is not isolated; see docs/oneshot.md. `openmaestri doctor` checks Docker, tmux, the permissions of `accounts.json` and `secrets.json`, and the desktop window.
+
 ## What is in scope
 
 - Anything that lets a web page, another local user, or another origin reach the UI server, the WebSocket, or the agent socket without the token
