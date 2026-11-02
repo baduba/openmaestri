@@ -18,6 +18,20 @@ const withModel = (flag, model) => (model ? [flag, model] : []);
 const PROVIDER_KEYS = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'DEEPSEEK_API_KEY', 'OPENROUTER_API_KEY', 'MISTRAL_API_KEY', 'GROQ_API_KEY', 'XAI_API_KEY'];
 
 /** name -> { bin, keys, args(prompt, {model, env}) }. `keys` are the secret variables the tool is given. The prompt is always its own argv entry: no shell is involved. */
+/** Colour codes some tools print even with NO_COLOR set (ESC [ ... m); they would show as junk in a report. */
+export function stripAnsi(text) {
+  let out = '';
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '\u001b' && text[i + 1] === '[') {
+      let j = i + 2;
+      while (j < text.length && (text[j] === ';' || (text[j] >= '0' && text[j] <= '9'))) j++;
+      if (text[j] === 'm') { i = j; continue; }
+    }
+    out += text[i];
+  }
+  return out;
+}
+
 /** kimi marks its answer with a bullet and prints its version and a resume hint on stderr; neither is part of the answer. */
 export function tidyKimi({ text, stderr }) {
   const noise = (l) => /^kimi version \S+$/.test(l.trim()) || l.trim().startsWith('To resume this session:');
@@ -158,7 +172,7 @@ export async function runHeadless({ driver, drivers = DRIVERS, prompt, cwd, env,
       signal?.removeEventListener('abort', onAbort);
       kill('SIGKILL');
       const ok = !timedOut && !cancelled && r.exitCode === 0;
-      const raw = { text: out.trim(), stderr: containerName ? explainDocker(err.trim(), box) : err.trim() };
+      const raw = { text: stripAnsi(out.trim()), stderr: stripAnsi(containerName ? explainDocker(err.trim(), box) : err.trim()) };
       const tidy = d.tidy ? d.tidy(raw) : raw;
       const hint = !ok && d.hint ? d.hint(raw.stderr) : '';
       const failure = ok && d.failure ? d.failure(tidy.text) : '';
