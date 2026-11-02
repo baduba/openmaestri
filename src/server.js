@@ -117,7 +117,12 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
     if (!wsKey || !tid || !core.store.workspaces.has(wsKey)) { res.writeHead(404); return res.end('not found'); }
     const title = core.chat.list(wsKey).find((t) => t.id === tid)?.title ?? tid;
     const rows = core.chat.history(wsKey, tid, { archive: true, turns: 100000 });
-    const body = rows.map((m) => `**${m.sender}** (${new Date(m.ts).toISOString().slice(0, 16).replace('T', ' ')} UTC)\n\n${redactChat(m.text)}${m.attachments.length ? `\n\n_attachments: ${m.attachments.map((a) => a.name).join(', ')}_` : ''}`).join('\n\n---\n\n');
+    const entry = (m) => {
+      const when = new Date(m.ts).toISOString().slice(0, 16).replace('T', ' ');
+      const files = m.attachments.length ? `\n\n_attachments: ${m.attachments.map((a) => a.name).join(', ')}_` : '';
+      return `**${m.sender}** (${when} UTC)\n\n${redactChat(m.text)}${files}`;
+    };
+    const body = rows.map(entry).join('\n\n---\n\n');
     res.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8', 'content-disposition': `attachment; filename="${tid}.md"` });
     res.end(`# ${title.replace(/[\r\n]+/g, ' ')}\n\n${body || '(empty)'}\n`);
   }

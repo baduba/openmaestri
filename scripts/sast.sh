@@ -21,7 +21,7 @@ njs_one() {
   local out code
   for _ in 1 2 3 4; do
     out=$(njsscan --exit-warning "$1" 2>&1); code=$?
-    if [ "$code" -eq 0 ]; then return 0; fi
+    if [[ "$code" -eq 0 ]]; then return 0; fi
     if ! echo "$out" | grep -q "could not be scanned"; then echo "$out"; return 1; fi
   done
   echo "njsscan could not scan $1 after 4 tries"; return 1

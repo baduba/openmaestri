@@ -177,16 +177,31 @@ function renderSidebar() {
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(w);
   }
-  const names = [...groups.keys()].sort((a, b) => (a === '' ? -1 : b === '' ? 1 : a.localeCompare(b)));
+  const names = [...groups.keys()].sort(groupOrder);
   for (const g of names) {
     if (g !== '') {
       const head = el('li', 'ws-group', `${collapsed.has(g) ? '▸' : '▾'} ${g}`);
-      head.onclick = () => { if (collapsed.has(g)) collapsed.delete(g); else collapsed.add(g); saveCollapsed(collapsed); renderSidebar(); };
+      head.onclick = () => toggleGroup(collapsed, g);
       ul.append(head);
       if (collapsed.has(g)) continue;
     }
     for (const w of groups.get(g)) ul.append(workspaceRow(w));
   }
+}
+
+/** Ungrouped workspaces first, then the groups by name. */
+function groupOrder(a, b) {
+  if (a === b) return 0;
+  if (a === '') return -1;
+  if (b === '') return 1;
+  return a.localeCompare(b);
+}
+
+function toggleGroup(collapsed, g) {
+  if (collapsed.has(g)) collapsed.delete(g);
+  else collapsed.add(g);
+  saveCollapsed(collapsed);
+  renderSidebar();
 }
 
 function readCollapsed() {
@@ -198,7 +213,9 @@ function saveCollapsed(set) {
 
 function workspaceRow(w) {
   const li = el('li', w.id === (state.ws?.id) ? 'active' : '');
-  li.append(el('span', 'name', `${w.icon ? `${w.icon} ` : ''}${w.name}`), el('span', 'count', `${w.running ? '● ' : ''}${w.nodes}`));
+  const label = (w.icon ? w.icon + ' ' : '') + w.name;
+  const count = (w.running ? '● ' : '') + w.nodes;
+  li.append(el('span', 'name', label), el('span', 'count', count));
   const x = el('button', 'x', '×');
   x.title = 'Delete workspace';
   x.onclick = (e) => { e.stopPropagation(); if (confirm(`Delete workspace "${w.name}" and everything in it?`)) send({ t: 'workspace.delete', id: w.id }); };
@@ -539,7 +556,7 @@ function buildNote(view, body, dot, getNode, baseUpdate, patch) {
     if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type)) return false;
     if (file.size > 5 * 1024 * 1024) { toast(`${file.name || 'picture'} is over 5 MB`, 'note', true); return true; }
     const reader = new FileReader();
-    reader.onload = () => send({ t: 'note.image', workspaceId: wsId(), id: getNode().id, name: file.name || 'picture.png', data: String(reader.result).split(',')[1] ?? '' });
+    reader.onload = () => send({ t: 'note.image', workspaceId: wsId(), id: getNode().id, name: file.name || 'picture.png', data: (typeof reader.result === 'string' ? reader.result : '').split(',')[1] ?? '' });
     reader.readAsDataURL(file);
     return true;
   };

@@ -317,7 +317,7 @@ export class Terminals extends EventEmitter {
   }
 
   /** The pid of a terminal's shell, or null. */
-  pidOf(id) { const rt = this.rt.get(id); return rt && rt.status === 'running' ? rt.proc.pid : null; }
+  pidOf(id) { const rt = this.rt.get(id); return rt?.status === 'running' ? rt.proc.pid : null; }
 
   dispose(id) {
     const rt = this.rt.get(id);

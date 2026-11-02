@@ -99,6 +99,7 @@ function duration(v) {
   if (!m) throw new Error(`bad duration: ${v}`);
   return Number(m[1]) * { ms: 1, s: 1000, m: 60000, undefined: 1000 }[m[2]];
 }
+const optStr = (v) => (v === undefined ? undefined : v === true ? '' : String(v));
 const onOff = (v) => (v === undefined ? undefined : /^(on|true|1|yes)$/i.test(String(v)));
 
 /** Map argv to {cmd, args}. Throws Error with a usage message on bad input. */
@@ -255,7 +256,7 @@ export function build({ pos, flags }) {
       switch (c1) {
         case 'list': return { cmd: 'workspace.list', args: {} };
         case 'create': need(name && flags.dir, 'workspace create "Name" --dir PATH [--from "Source"]'); return { cmd: 'workspace.create', args: { name, dir: flags.dir, from: flags.from } };
-        case 'set': need(name && (flags.icon !== undefined || flags.group !== undefined), 'workspace set "Name" [--icon X] [--group G]'); return { cmd: 'workspace.set', args: { name, icon: flags.icon === undefined ? undefined : String(flags.icon === true ? '' : flags.icon), group: flags.group === undefined ? undefined : String(flags.group === true ? '' : flags.group) } };
+        case 'set': need(name && (flags.icon !== undefined || flags.group !== undefined), 'workspace set "Name" [--icon X] [--group G]'); return { cmd: 'workspace.set', args: { name, icon: optStr(flags.icon), group: optStr(flags.group) } };
         case 'unload': need(name, 'workspace unload "Name"'); return { cmd: 'workspace.unload', args: { name } };
         case 'rename': need(name && more[0], 'workspace rename "Current" "New"'); return { cmd: 'workspace.rename', args: { name, newName: more[0] } };
         default: throw new Error('usage: workspace list|create|rename|set|unload');

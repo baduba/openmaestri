@@ -19,54 +19,65 @@ export function languageOf(path) {
   return Object.hasOwn(LANG_BY_EXT, ext) ? LANG_BY_EXT[ext] : null;
 }
 
-const code = (c) => c.charCodeAt(0);
+const code = (c) => c.codePointAt(0);
 const isDigit = (c) => code(c) >= 48 && code(c) <= 57;
 const isAlpha = (c) => (code(c) >= 65 && code(c) <= 90) || (code(c) >= 97 && code(c) <= 122) || c === '_' || c === '$';
 const isWord = (c) => isAlpha(c) || isDigit(c);
-const isNumberPart = (c) => isDigit(c) || c === '.' || c === '_' || c === 'x' || c === 'X' || (code(c) >= 97 && code(c) <= 102) || (code(c) >= 65 && code(c) <= 70);
+const isHexLetter = (c) => (code(c) >= 97 && code(c) <= 102) || (code(c) >= 65 && code(c) <= 70);
+const isNumberPart = (c) => isDigit(c) || isHexLetter(c) || c === '.' || c === '_' || c === 'x' || c === 'X';
+
+/** End of a quoted string that starts at `i` (a line for ' and ", the rest of the file for `). */
+function stringEnd(text, i) {
+  const quote = text[i];
+  for (let j = i + 1; j < text.length; j += 1) {
+    if (text[j] === '\\') j += 1;
+    else if (text[j] === quote) return j + 1;
+    else if (text[j] === '\n' && quote !== '`') return j;
+  }
+  return text.length;
+}
+
+function lineEnd(text, i) {
+  const j = text.indexOf('\n', i);
+  return j < 0 ? text.length : j;
+}
+
+function runEnd(text, i, test) {
+  let j = i + 1;
+  while (j < text.length && test(text[j])) j += 1;
+  return j;
+}
+
+/** One coloured token at `i` as [end, class], or null when the text there is plain. */
+function tokenAt(text, i, lang, keywords) {
+  const c = text[i];
+  const comment = COMMENT[lang];
+  if (comment && text.startsWith(comment, i)) return [lineEnd(text, i), 'hl-c'];
+  if (lang === 'js' && text.startsWith('/*', i)) { const j = text.indexOf('*/', i + 2); return [j < 0 ? text.length : j + 2, 'hl-c']; }
+  if (c === '"' || c === "'" || (c === '`' && lang === 'js')) return [stringEnd(text, i), 'hl-s'];
+  if (isDigit(c) && (i === 0 || !isWord(text[i - 1]))) return [runEnd(text, i, isNumberPart), 'hl-n'];
+  if (isAlpha(c)) { const j = runEnd(text, i, isWord); return keywords.has(text.slice(i, j)) ? [j, 'hl-k'] : [j, null]; }
+  return null;
+}
 
 /** @returns {Array<[string, string|null]>} pieces of text with a colour class or null */
 export function tokenize(text, lang) {
-  const kw = new Set((KEYWORDS[lang] ?? '').split(' '));
-  const lineComment = COMMENT[lang];
+  const keywords = new Set((KEYWORDS[lang] ?? '').split(' '));
   const out = [];
-  let plain = '';
-  const flush = () => { if (plain) { out.push([plain, null]); plain = ''; } };
-  const push = (t, cls) => { flush(); out.push([t, cls]); };
+  let plainFrom = 0;
   let i = 0;
   while (i < text.length) {
-    const c = text[i];
-    if (lineComment && text.startsWith(lineComment, i)) {
-      let j = text.indexOf('\n', i);
-      if (j < 0) j = text.length;
-      push(text.slice(i, j), 'hl-c'); i = j; continue;
+    const tok = tokenAt(text, i, lang, keywords);
+    if (!tok) { i += 1; continue; }
+    const [end, cls] = tok;
+    if (cls) {
+      if (i > plainFrom) out.push([text.slice(plainFrom, i), null]);
+      out.push([text.slice(i, end), cls]);
+      plainFrom = end;
     }
-    if (lang === 'js' && text.startsWith('/*', i)) {
-      let j = text.indexOf('*/', i + 2);
-      j = j < 0 ? text.length : j + 2;
-      push(text.slice(i, j), 'hl-c'); i = j; continue;
-    }
-    if (c === '"' || c === "'" || (c === '`' && lang === 'js')) {
-      let j = i + 1;
-      while (j < text.length && text[j] !== c && (text[j] !== '\n' || c === '`')) { if (text[j] === '\\') j += 1; j += 1; }
-      j = Math.min(text.length, j + 1);
-      push(text.slice(i, j), 'hl-s'); i = j; continue;
-    }
-    if (isDigit(c) && (i === 0 || !isWord(text[i - 1]))) {
-      let j = i + 1;
-      while (j < text.length && isNumberPart(text[j])) j += 1;
-      push(text.slice(i, j), 'hl-n'); i = j; continue;
-    }
-    if (isAlpha(c)) {
-      let j = i + 1;
-      while (j < text.length && isWord(text[j])) j += 1;
-      const word = text.slice(i, j);
-      if (kw.has(word)) push(word, 'hl-k'); else plain += word;
-      i = j; continue;
-    }
-    plain += c; i += 1;
+    i = end;
   }
-  flush();
+  if (plainFrom < text.length) out.push([text.slice(plainFrom), null]);
   return out;
 }
 

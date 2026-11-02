@@ -946,7 +946,8 @@ const HANDLERS = {
     const drivers = { ...DRIVERS, ...customDrivers(this.store.settings.drivers) };
     if (!drivers[driver]) fail(`no driver named "${driver}". Available: ${Object.keys(drivers).join(', ')}`);
     const r = await this.execAgent({ driver, drivers, prompt, cwd: ws.dir, timeoutMs: timeoutMs ?? 5 * 60 * 1000, ws, account });
-    if (!r.ok || !r.text) fail(`${driver} could not write the summary${r.stderr ? `: ${r.stderr.split('\n')[0]}` : ''}`);
+    const why = r.stderr ? `: ${r.stderr.split('\n')[0]}` : '';
+    if (!r.ok || !r.text) fail(`${driver} could not write the summary${why}`);
     this.chat.memory.saveModelSummary(ws.id, tid, { text: r.text, driver, messages: rows.length });
     this.audit.record('chat.summarize', { thread: tid, driver, messages: rows.length, by: me.name }, 'terminal');
     return { text: `saved a summary of ${rows.length} messages written by ${driver}. Read it with: recall --summary` };

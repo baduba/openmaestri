@@ -2,8 +2,8 @@
 // Everything that comes from a file or a file name goes in through textContent / createElement,
 // never innerHTML: this page can drive shells, and a file is untrusted text.
 
-import { renderMarkdown } from '/markdown.js';
-import { highlightInto, languageOf } from '/highlight.js';
+import { renderMarkdown } from './markdown.js';
+import { highlightInto, languageOf } from './highlight.js';
 export { renderMarkdown };
 
 const el = (tag, cls, text) => {
@@ -18,6 +18,13 @@ const el = (tag, cls, text) => {
  * @param body     the node body element
  * @param ctx      { send(msg), nodeId(), wsId(), confirm(text) }
  */
+/** Why a file is shown empty and read-only, or ''. */
+function unreadableNote(r) {
+  if (r.binary) return 'Binary file: not shown.';
+  if (r.tooLarge) return 'Over 1 MB: not opened here.';
+  return '';
+}
+
 export function buildFiles(view, body, dot, ctx) {
   dot.style.background = 'var(--accent)';
   const pane = el('div', 'files');
@@ -163,7 +170,11 @@ export function buildFiles(view, body, dot, ctx) {
       del.onclick = async () => {
         if (!ctx.confirm(`Delete "${p}"? It moves to a trash, it is not erased.`)) return;
         const x = await ask('remove', { path: p });
-        if (x) { open.delete(p); if (st.current === p) st.current = [...open.keys()].at(-1) ?? null; await refresh(); show(); }
+        if (!x) return;
+        open.delete(p);
+        if (st.current === p) st.current = [...open.keys()].at(-1) ?? null;
+        await refresh();
+        show();
       };
       li.append(label, ren, del, kids);
       ul.append(li);
@@ -178,11 +189,15 @@ export function buildFiles(view, body, dot, ctx) {
   }
 
   async function openFile(p, line) {
-    if (open.has(p)) { switchTo(p); if (line) jumpTo(line); return; }
+    if (open.has(p)) {
+      switchTo(p);
+      if (line) jumpTo(line);
+      return;
+    }
     const r = await ask('read', { path: p });
     if (!r) return;
     remember();
-    const file = { path: p, text: r.text ?? '', mtime: r.mtimeMs, dirty: false, lang: languageOf(p), readonly: !!(r.binary || r.tooLarge), note: r.binary ? 'Binary file: not shown.' : r.tooLarge ? 'Over 1 MB: not opened here.' : '' };
+    const file = { path: p, text: r.text ?? '', mtime: r.mtimeMs, dirty: false, lang: languageOf(p), readonly: !!(r.binary || r.tooLarge), note: unreadableNote(r) };
     open.set(p, file);
     st.current = p;
     show();
