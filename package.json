@@ -1,6 +1,6 @@
 {
   "name": "openmaestri",
-  "version": "0.21.2",
+  "version": "0.21.3",
   "description": "Spatial canvas terminal workspace for AI agents (open implementation).",
   "type": "module",
   "license": "MIT",

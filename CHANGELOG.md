@@ -4,6 +4,8 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.21.3] - 2026-11-02
+
 ### Fixed
 - `openmaestri --version` outside a terminal started the server instead of printing the version (found installing the released `.deb` in a clean Ubuntu container)
 
