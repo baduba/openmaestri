@@ -590,7 +590,12 @@ class Portal extends EventEmitter {
       setTimeout(() => { try { if (this.child.exitCode === null) this.child.kill('SIGKILL'); } catch { /* gone */ } }, 3000).unref();
     }
     this.cdp = null;
-    if (this.profile) { const p = this.profile; this.profile = null; setTimeout(() => fs.rmSync(p, { recursive: true, force: true }), 500).unref(); }
+    if (this.profile) {
+      const p = this.profile;
+      this.profile = null;
+      // the browser may still be writing into its profile for a moment; retry, and never let a leftover folder crash the daemon
+      setTimeout(() => { try { fs.rmSync(p, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch { /* left in the temp folder */ } }, 500).unref();
+    }
   }
 }
 
