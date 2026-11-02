@@ -73,6 +73,13 @@ export function opencodeFatal(stderr) {
   return m ? `opencode stopped: ${m[1].replace(/^AI_\w+Error: /, '')}` : '';
 }
 
+/** True when a run failed because the account ran out of quota, credit or rate allowance (not because of the task). */
+export function quotaRefused(r) {
+  if (!r || r.ok || r.timedOut || r.cancelled) return false;
+  const text = `${r.stderr ?? ''}\n${r.text ?? ''}`;
+  return /free usage limit|usage limit|quota|rate.?limit|too many requests|\b429\b|insufficient (?:credit|balance|funds)|credit balance|out of credits?|billing/i.test(text);
+}
+
 const OPENCODE_RUN = ['run', '--print-logs', '--log-level', 'ERROR'];
 
 export const DRIVERS = {

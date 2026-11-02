@@ -27,7 +27,8 @@ An agent sees only what is connected to it. A **Maestro** terminal sees the whol
 | `desktop` | The optional desktop window. See [desktop](desktop.html) |
 | `audit [--verify] [--tail N]` | (your own shell) Show or verify the append-only audit log. See [audit](audit.html) |
 | `run "task" --agents a,b [--floors] [--dry-run] [--model M] [--timeout 10m]` | The same task to several one-shot agents in parallel, one report (also kept as a note). Maestro only. See [one-shot agents](oneshot.html) |
-| `agent <driver> "prompt" [--model M] [--floor NAME] [--timeout 10m]` | One-shot run of an agent CLI in its non-interactive mode (Maestro only); prints the answer. See [one-shot agents](oneshot.html) |
+| `agent <driver> "prompt" [--model M] [--floor NAME] [--timeout 10m] [--fallback d1,d2]` | One-shot run of an agent CLI in its non-interactive mode (Maestro only); prints the answer. See [one-shot agents](oneshot.html) |
+| `fallback [list]`, `fallback set DRIVER d1,d2`, `fallback clear DRIVER` | Who answers when a driver's account is out of quota (Maestro only). See [one-shot agents](oneshot.html) |
 | `ask "Agent" --raw "\x03"` | Raw keystrokes. Escapes: `\n` Enter, `\t` Tab, `\e` ESC, `\xNN` byte |
 | `check "Agent" [--lines N]` | Current screen of an agent |
 | `notify "message"` | Notification for the human |
