@@ -4,7 +4,11 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed
+- `openmaestri --version` outside a terminal started the server instead of printing the version (found installing the released `.deb` in a clean Ubuntu container)
+
 ### Changed
+- README: the `.deb` steps name no fixed version and show how to get Node 22 on Ubuntu 24.04 and Debian 12, where apt has an older one
 - README: a section on one-shot agents with which agents were checked against the real programs, and a Status paragraph that matches what exists today
 
 ## [0.21.2] - 2026-11-02

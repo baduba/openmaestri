@@ -37,10 +37,16 @@ Running three agents in three terminals means you are the message bus: copy this
 ### Debian / Ubuntu (`.deb`)
 
 ```bash
-# Node.js 22+ is required (https://nodejs.org or NodeSource)
-sudo apt install ./openmaestri_0.8.0_amd64.deb
+# Node.js 22+ is required. Ubuntu 24.04 and Debian 12 ship older versions in apt,
+# so install it first from NodeSource (https://github.com/nodesource/distributions):
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+sudo apt install ./openmaestri_*_amd64.deb
+openmaestri --version
 openmaestri serve --open
 ```
+
+Without Node 22 the install stops with "held broken packages" because the package depends on `nodejs (>= 22)`.
 
 Download the `.deb` from the [latest release](https://github.com/baduba/openmaestri/releases/latest).
 
