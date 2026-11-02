@@ -19,7 +19,7 @@ test('built-in drivers put the prompt in its own argument, with the model when g
   assert.deepEqual(DRIVERS.codex.args('hi', {}), ['exec', '--skip-git-repo-check', 'hi']);
   assert.deepEqual(DRIVERS.agy.args('hi', { model: 'gemini-3.8-flash' }), ['-p', 'hi', '--model', 'gemini-3.8-flash']);
   assert.deepEqual(DRIVERS.kimi.args('hi', {}), ['-p', 'hi']);
-  assert.deepEqual(DRIVERS['opencode-deepseek'].args('hi', { env: {} }), ['run', '-m', 'deepseek/deepseek-flash', 'hi']);
+  assert.deepEqual(DRIVERS['opencode-deepseek'].args('hi', { env: {} }), ['run', '--print-logs', '--log-level', 'ERROR', '-m', 'deepseek/deepseek-flash', 'hi']);
   assert.deepEqual(DRIVERS['aider-deepseek'].args('hi', { env: { OPENMAESTRI_DEEPSEEK_MODEL: 'deepseek-v4-pro' } }).slice(-2), ['--model', 'deepseek/deepseek-v4-pro']);
 });
 

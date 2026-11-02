@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tidyKimi, geminiHint, gooseModel, aiderFailure, stripAnsi, DRIVERS } from '../src/headless.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { tidyKimi, geminiHint, gooseModel, aiderFailure, opencodeFatal, runHeadless, stripAnsi, DRIVERS } from '../src/headless.js';
 
 test('kimi: the bullet and the version and resume lines are not part of the answer', () => {
   const r = tidyKimi({ text: '• OK\n• keep this bullet', stderr: 'kimi version 2.4.0\n• User wants just OK.\n\nTo resume this session: kimi -r session_abc' });
@@ -44,4 +47,30 @@ test('colour codes are removed from what a tool prints', () => {
   assert.equal(stripAnsi('\u001b[91m\u001b[1mError: \u001b[0m{ "a": 1 }'), 'Error: { "a": 1 }');
   assert.equal(stripAnsi('plain [91m text and a lone \u001b'), 'plain [91m text and a lone \u001b');
   assert.equal(stripAnsi('\u001b[38;5;12mblue\u001b[0m'), 'blue');
+});
+
+const REFUSED = 'timestamp=2026-11-02T22:11:27.029Z level=ERROR run=fc8ef597 message="stream error" providerID=opencode modelID=big-pickle session.id=ses_x small=false agent=build mode=primary error.error="AI_APICallError: Free usage limit reached. Free models work in OpenCode (https://opencode.ai); subscribe to OpenCode Go to keep going: https://opencode.ai/go"';
+const TITLE_ONLY = 'timestamp=2026-11-02T22:11:32.649Z level=ERROR run=fc8ef597 message="stream error" providerID=opencode modelID=big-pickle session.id=ses_x small=true agent=title mode=primary error.error="AI_RetryError: Failed after 3 attempts."';
+
+test('opencode: a refused call is recognised from its error log, the title helper alone is not', () => {
+  assert.match(opencodeFatal(REFUSED), /^opencode stopped: Free usage limit reached\./);
+  assert.doesNotMatch(opencodeFatal(REFUSED), /AI_APICallError/);
+  assert.equal(opencodeFatal(TITLE_ONLY), '');
+  assert.equal(opencodeFatal('level=INFO message="all LSPs are disabled"'), '');
+  assert.deepEqual(DRIVERS.opencode.args('hi', {}).slice(0, 4), ['run', '--print-logs', '--log-level', 'ERROR']);
+  assert.equal(DRIVERS.opencode.fatal, opencodeFatal);
+  assert.equal(DRIVERS['opencode-deepseek'].fatal, opencodeFatal);
+});
+
+test('opencode: a run that never exits after a refusal is stopped at once and reported', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-oc-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const bin = path.join(dir, 'opencode');
+  fs.writeFileSync(bin, `#!/usr/bin/env bash\necho '${REFUSED}' >&2\nsleep 60\n`, { mode: 0o755 });
+  const r = await runHeadless({ driver: 'opencode', prompt: 'hi', cwd: dir, env: { PATH: process.env.PATH }, timeoutMs: 30000, resolveBin: () => bin });
+  assert.equal(r.ok, false);
+  assert.equal(r.timedOut, false);
+  assert.equal(r.reportedError, true);
+  assert.ok(r.ms < 10000, `stopped in ${r.ms} ms`);
+  assert.match(r.stderr, /opencode stopped: Free usage limit reached/);
 });
