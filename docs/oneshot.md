@@ -43,6 +43,16 @@ Any agent works; DeepSeek is only the pair of cheapest presets.
 | `goose` | `goose run -t PROMPT` |
 | `opencode-deepseek`, `aider-deepseek` | the two above with `deepseek/<model>` (`OPENMAESTRI_DEEPSEEK_MODEL`, default `deepseek-flash`) |
 
+Status of each driver, checked against the real program (2026-11-02):
+
+| Driver | Status |
+| --- | --- |
+| `claude`, `kimi`, `agy` | run end to end: the answer comes back, the exit code and time are reported |
+| `gemini` | flags match `gemini --help`; the run needs a Gemini account that is still supported (Google ended the CLI for individual accounts and points to Antigravity, so use `agy`) |
+| `codex`, `opencode`, `aider`, `goose` | flags written from each tool's documentation and exercised with stand-in programs, not yet with the real ones |
+
+Run `openmaestri doctor` to see which programs are installed on your machine. If a flag of yours differs, override the driver as shown below.
+
 These flags are what each tool documents today. When a tool changes them, or you want another tool, add or override a driver in `~/.openmaestri/settings.json`:
 
 ```json
