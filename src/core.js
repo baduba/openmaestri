@@ -13,6 +13,7 @@ import { Terminals } from './terminals.js';
 import { DRIVERS, customDrivers, workerEnv, runHeadless, HeadlessError } from './headless.js';
 import { discover as discoverRoles, plan as planRole, diffText, agentKind, RoleError, AGENT_FILES } from './roles.js';
 import { Files, FilesError } from './files.js';
+import { Persist } from './persist.js';
 import { redact as redactChat } from './memory.js';
 import { tree as procTree, summarize as procSummary, stopProcess, ProcError } from './procinfo.js';
 import { runHook, describeHook, checkCommand, HookError } from './hooks.js';
@@ -46,6 +47,7 @@ export class Core extends EventEmitter {
   constructor({ dataRoot = dataDir(), socketPath, cliDir, cliBin }) {
     super();
     this.store = new Store(dataRoot);
+    this.persist = null;
     // the secret store is opened lazily: a broken keyring must not stop the daemon, only the references that need it
     let secrets = null;
     const resolveSecret = (ref) => { try { secrets ??= new Secrets({ root: dataRoot }); return secrets.resolve(ref); } catch { return undefined; } };
@@ -84,6 +86,12 @@ export class Core extends EventEmitter {
     // the undo baseline of a workspace is its state when it appeared, so even its first change can be undone
     this.store.onCreate = (ws) => this.history.entry(ws);
     this.store.load();
+    // persistent terminals are decided once the settings are known; leftovers of deleted terminals are cleared
+    const wantsPersist = process.env.OPENMAESTRI_PERSIST === 'tmux' || this.store.settings.persistTerminals === true;
+    this.persist = wantsPersist ? Persist.detect() : null;
+    if (wantsPersist && !this.persist) console.warn('[persist] tmux was asked for but is not installed; terminals will not survive a restart');
+    this.terminals.persist = this.persist;
+    this.persist?.sweep([...this.store.workspaces.values()].flatMap((w) => w.nodes.filter((n) => n.kind === 'terminal').map((n) => n.id)));
     for (const ws of this.store.workspaces.values()) this.history.entry(ws);
     this.scheduler.start();
     this.terminals.on('data', (id, data) => this.emit('term-data', id, data));
