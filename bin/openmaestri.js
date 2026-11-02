@@ -532,9 +532,9 @@ async function run(argv) {
   if (parsed.pos[0] === 'accounts') return accountsCommand(parsed, insideTerminal);
   if (parsed.pos[0] === 'desktop' && !insideTerminal) return desktopCommand();
   if (parsed.pos[0] === 'persist') return persistCommand(parsed, insideTerminal);
+  if (parsed.pos[0] === 'version' || parsed.flags.version) { console.log(JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version); return 0; }
   if (!insideTerminal && (parsed.pos.length === 0 || parsed.pos[0] === 'serve') && !parsed.flags.help) return serve(parsed.flags);
   if (!parsed.pos.length || parsed.pos[0] === 'help' || parsed.flags.help) { console.log(HELP); return 0; }
-  if (parsed.pos[0] === 'version' || parsed.flags.version) { console.log(JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version); return 0; }
   const socket = process.env.OPENMAESTRI_SOCKET;
   const terminalId = process.env.OPENMAESTRI_TERMINAL_ID;
   if (!socket || !terminalId) {
