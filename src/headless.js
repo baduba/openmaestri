@@ -18,14 +18,28 @@ const withModel = (flag, model) => (model ? [flag, model] : []);
 const PROVIDER_KEYS = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'DEEPSEEK_API_KEY', 'OPENROUTER_API_KEY', 'MISTRAL_API_KEY', 'GROQ_API_KEY', 'XAI_API_KEY'];
 
 /** name -> { bin, keys, args(prompt, {model, env}) }. `keys` are the secret variables the tool is given. The prompt is always its own argv entry: no shell is involved. */
+/** kimi marks its answer with a bullet and prints its version and a resume hint on stderr; neither is part of the answer. */
+export function tidyKimi({ text, stderr }) {
+  const noise = (l) => /^kimi version \S+$/.test(l.trim()) || l.trim().startsWith('To resume this session:');
+  return {
+    text: text.startsWith('• ') ? text.slice(2) : text,
+    stderr: stderr.split('\n').filter((l) => !noise(l)).join('\n').trim(),
+  };
+}
+
+/** Google ended the Gemini CLI for individual accounts; say so instead of leaving a bare authentication error. */
+export function geminiHint(stderr) {
+  return stderr.includes('IneligibleTierError') ? 'Google no longer supports the Gemini CLI for individual accounts. Use the agy driver (Antigravity) instead.' : '';
+}
+
 export const DRIVERS = {
   claude: { bin: 'claude', keys: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL'], args: (p, o) => ['-p', p, ...withModel('--model', o.model)] },
   codex: { bin: 'codex', keys: ['OPENAI_API_KEY', 'OPENAI_BASE_URL'], args: (p, o) => ['exec', ...withModel('--model', o.model), p] },
-  gemini: { bin: 'gemini', keys: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'], args: (p, o) => [...withModel('--model', o.model), '-p', p] },
+  gemini: { bin: 'gemini', keys: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'], args: (p, o) => [...withModel('--model', o.model), '-p', p], hint: geminiHint },
   opencode: { bin: 'opencode', keys: PROVIDER_KEYS, args: (p, o) => ['run', ...withModel('-m', o.model), p] },
   aider: { bin: 'aider', keys: PROVIDER_KEYS, args: (p, o) => ['--message', p, '--yes-always', '--no-auto-commits', '--no-pretty', ...withModel('--model', o.model)] },
   agy: { bin: 'agy', keys: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'], args: (p, o) => ['-p', p, ...withModel('--model', o.model)] },
-  kimi: { bin: 'kimi', keys: ['MOONSHOT_API_KEY', 'KIMI_API_KEY'], args: (p, o) => ['-p', p, ...withModel('--model', o.model)] },
+  kimi: { bin: 'kimi', keys: ['MOONSHOT_API_KEY', 'KIMI_API_KEY'], args: (p, o) => ['-p', p, ...withModel('--model', o.model)], tidy: tidyKimi },
   goose: { bin: 'goose', keys: PROVIDER_KEYS, args: (p) => ['run', '-t', p] },
   'opencode-deepseek': { bin: 'opencode', keys: ['DEEPSEEK_API_KEY'], args: (p, o) => ['run', '-m', `deepseek/${o.model || DEEPSEEK(o.env)}`, p] },
   'aider-deepseek': { bin: 'aider', keys: ['DEEPSEEK_API_KEY'], args: (p, o) => ['--message', p, '--yes-always', '--no-auto-commits', '--no-pretty', '--model', `deepseek/${o.model || DEEPSEEK(o.env)}`] },
@@ -108,8 +122,8 @@ export async function runHeadless({ driver, drivers = DRIVERS, prompt, cwd, env,
     let cancelled = false;
     let done = false;
     const kill = (sig) => {
-      // killing the docker client does not stop the container, so the container is killed by name too
-      if (containerName && sig === 'SIGKILL') spawnSync(bin, ['kill', containerName], { stdio: 'ignore', timeout: 10000 });
+      // killing the docker client does not stop the container, so the container is removed by name too (rm -f also clears one that never started)
+      if (containerName && sig === 'SIGKILL') spawnSync(bin, ['rm', '-f', containerName], { stdio: 'ignore', timeout: 10000 });
       try { process.kill(-child.pid, sig); } catch { try { child.kill(sig); } catch { /* gone */ } }
     };
     const stop = () => { kill('SIGTERM'); setTimeout(() => kill('SIGKILL'), 3000).unref(); };
@@ -126,7 +140,11 @@ export async function runHeadless({ driver, drivers = DRIVERS, prompt, cwd, env,
       clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
       kill('SIGKILL');
-      resolve({ text: out.trim(), stderr: containerName ? explainDocker(err.trim(), box) : err.trim(), truncated, timedOut, cancelled, ms: Date.now() - started, ...r, ok: !timedOut && !cancelled && r.exitCode === 0 });
+      const ok = !timedOut && !cancelled && r.exitCode === 0;
+      const raw = { text: out.trim(), stderr: containerName ? explainDocker(err.trim(), box) : err.trim() };
+      const tidy = d.tidy ? d.tidy(raw) : raw;
+      const hint = !ok && d.hint ? d.hint(raw.stderr) : '';
+      resolve({ truncated, timedOut, cancelled, ms: Date.now() - started, ...r, text: tidy.text, stderr: hint ? `${hint}\n${tidy.stderr}`.trim() : tidy.stderr, ok });
     };
     child.on('error', (e) => finish({ exitCode: null, signal: null, stderr: `${err}${e.message}`.trim() }));
     child.on('close', (code, sig) => finish({ exitCode: code, signal: sig }));

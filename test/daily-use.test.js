@@ -63,10 +63,16 @@ test('ps command: lists reachable terminals and stops a process inside one', asy
   const out = await cmd(boss, 'ps', { all: true });
   assert.match(out.text, /Busy\s+\d+\s+\d+ proc\s+\d+ MB/);
   assert.match(out.text, /sleep 60/);
-  const pid = out.text.split('\n').find((l) => l.includes('sleep 60')).trim().split(/\s+/)[0];
   await assert.rejects(cmd(worker, 'ps', {}), /only available to Maestro/);
   await assert.rejects(cmd(boss, 'ps', { stop: 'Busy', pid: String(process.pid) }), /not running under this terminal/);
-  assert.match((await cmd(boss, 'ps', { stop: 'Busy', pid })).text, /sent SIGTERM/);
+  // a process can end between the listing and the stop (a loaded machine), so list again and retry
+  let stopped = null;
+  for (let i = 0; i < 3 && !stopped; i++) {
+    const line = (await cmd(boss, 'ps', { all: true })).text.split('\n').find((l) => l.includes('sleep 60'));
+    if (!line) break;
+    try { stopped = await cmd(boss, 'ps', { stop: 'Busy', pid: line.trim().split(/\s+/)[0] }); } catch (e) { if (!/ESRCH/.test(e.message)) throw e; }
+  }
+  assert.match(stopped.text, /sent SIGTERM/);
   assert.ok(core.audit.read(5).some((e) => e.event === 'ps.stop'));
 });
 
