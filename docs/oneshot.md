@@ -34,22 +34,24 @@ Any agent works; DeepSeek is only the pair of cheapest presets.
 | Driver | Runs |
 | --- | --- |
 | `claude` | `claude -p PROMPT [--model M]` |
-| `codex` | `codex exec [--model M] PROMPT` |
+| `codex` | `codex exec --skip-git-repo-check [--model M] PROMPT` (read-only sandbox by default: it answers and reviews, it does not edit files) |
 | `gemini` | `gemini [--model M] -p PROMPT` |
 | `agy` | `agy -p PROMPT [--model M]` (Antigravity) |
 | `kimi` | `kimi -p PROMPT [--model M]` |
 | `opencode` | `opencode run [-m M] PROMPT` |
-| `aider` | `aider --message PROMPT --yes-always --no-auto-commits --no-pretty [--model M]` |
-| `goose` | `goose run -t PROMPT` |
+| `aider` | `aider --message PROMPT --yes-always --no-auto-commits --no-pretty --no-gitignore --no-analytics --no-check-update --no-show-release-notes` with its chat and input history sent to `/dev/null`, `[--model M]`. Outside a git repository aider creates one, and it leaves a `.aider.tags.cache.v4` file |
+| `goose` | `goose run --no-session -q [--provider P --model M] -t PROMPT`; `--model openai/gpt-5` gives both, a bare model uses `GOOSE_PROVIDER` |
 | `opencode-deepseek`, `aider-deepseek` | the two above with `deepseek/<model>` (`OPENMAESTRI_DEEPSEEK_MODEL`, default `deepseek-flash`) |
 
-Status of each driver, checked against the real program (2026-11-02):
+Status of each driver, checked against the real program (2026-11-02, the last four on a clean Ubuntu 24.04 machine):
 
 | Driver | Status |
 | --- | --- |
 | `claude`, `kimi`, `agy` | run end to end: the answer comes back, the exit code and time are reported |
 | `gemini` | flags match `gemini --help`; the run needs a Gemini account that is still supported (Google ended the CLI for individual accounts and points to Antigravity, so use `agy`) |
-| `codex`, `opencode`, `aider`, `goose` | flags written from each tool's documentation and exercised with stand-in programs, not yet with the real ones |
+| `codex`, `opencode`, `goose`, `aider` | checked with the real programs (codex 0.166, opencode 1.19, goose 1.57, aider 0.86): the flags are accepted, the tool reaches its provider and a refused call comes back as a failure. A full answer needs a real API key, which was not used |
+
+What the real programs taught the drivers: `codex` refuses to start outside a git repository without `--skip-git-repo-check`; `goose` aborts without a model; `aider` exits 0 when the provider refuses the call (openmaestri now reports that as a failure) and writes history files into the folder (now sent to `/dev/null`); `opencode` prints colour codes even with `NO_COLOR` (removed from reports).
 
 Run `openmaestri doctor` to see which programs are installed on your machine. If a flag of yours differs, override the driver as shown below.
 

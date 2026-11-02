@@ -7,7 +7,12 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 ### Added
 - `scripts/aws-spot-check.sh`: a Spot test box on AWS kept for a while, reached through SSM (no inbound port, no SSH key), with `up`, `run`, `stop`, `start`, `status` and a tag-checked `down`
 
+### Fixed
+- Drivers checked against the real `codex`, `opencode`, `goose` and `aider`: `codex` runs outside a git repository, `goose` takes `--provider`/`--model` and prints only the answer, `aider` no longer writes history files or edits `.gitignore`, and a call that aider reports as an error (it exits 0) is now a failure
+- Colour codes are removed from what a tool prints
+
 ### Changed
+- `scripts/aws-spot-check.sh` can also open SSH to the box (port 22 from your own IP only) with `ssh-setup`, `ssh-allow` and `ssh`
 - `npm test` gives each test 4 minutes, so a hang fails with the test's name instead of blocking CI for an hour
 
 ### Tests
