@@ -54,7 +54,8 @@ function inlineAt(text, i) {
     if (!b || !isVaultPath(b.url)) return null;
     const img = el('img', 'md-img');
     img.alt = b.label.slice(0, 100);
-    img.src = b.url;
+    const [, , workspace, attachment] = b.url.split('/');
+    img.src = `/attachment/${encodeURIComponent(workspace)}/${encodeURIComponent(attachment)}`;
     img.loading = 'lazy';
     return { end: b.end, node: img };
   }
