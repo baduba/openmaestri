@@ -14,6 +14,9 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 - Chat: copy a thread, download it as Markdown (credentials masked), `chat summarize --with DRIVER`
 - docs/everyday.md; parity table brought up to date
 
+### Fixed
+- In a note stack, text typed right after switching tabs, before the server answered, was saved into the previous note
+
 ### Security
 - Pictures are recognised by their first bytes and only raster formats are accepted; the Markdown view admits only pictures from the workspace vault; `ps stop` can only signal a descendant of the terminal's shell; the Markdown export is behind the token like everything else
 

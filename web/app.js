@@ -876,7 +876,13 @@ function buildStack(view, body, dot, getNode, baseUpdate) {
       const tab = el('span', `tab${id === n.front ? ' on' : ''}`);
       const label = el('button', 'tab-label', note.name);
       label.title = 'Click to open, double-click to rename';
-      label.onclick = () => { flush(); send({ t: 'stack.front', workspaceId: wsId(), id: n.id, noteId: id }); };
+      label.onclick = () => {
+        flush();
+        // switch here at once: what is typed before the server confirms belongs to the note now shown, not to the previous one
+        shown = id;
+        ta.value = state.ws.notes.get(id) ?? '';
+        send({ t: 'stack.front', workspaceId: wsId(), id: n.id, noteId: id });
+      };
       label.ondblclick = () => { const name = prompt('Rename note', note.name); if (name && name.trim()) send({ t: 'node.patch', workspaceId: wsId(), id, patch: { name: name.trim() } }); };
       const out = el('button', 'tabx', '↗');
       out.title = 'Take this note out of the stack';
