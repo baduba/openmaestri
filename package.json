@@ -9,7 +9,7 @@
   },
   "scripts": {
     "start": "node src/server.js",
-    "test": "OPENMAESTRI_NO_WELCOME=1 node --test test/*.test.js",
+    "test": "OPENMAESTRI_NO_WELCOME=1 node --test --test-timeout=240000 test/*.test.js",
     "check": "node --check src/server.js && node --check bin/openmaestri.js",
     "lint": "eslint src bin web test desktop",
     "audit": "npm audit --omit=dev --audit-level=low"
