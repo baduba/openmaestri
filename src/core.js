@@ -3,6 +3,7 @@
 import crypto from 'node:crypto';
 import { Secrets } from './secrets.js';
 import { Audit, sha256 } from './audit.js';
+import { Accounts, AccountError } from './accounts.js';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -23,7 +24,7 @@ import { materialize as materializeMentions, parse as parseMentions, fileIndex, 
 import { Portals, PortalError, checkUrl } from './portals.js';
 import { History } from './history.js';
 import { tidy as tidyLayout } from './layout.js';
-import { capturePartitura, instantiatePartitura } from './transfer.js';
+import { capturePartitura, instantiatePartitura, exportPartitura, importPartitura } from './transfer.js';
 import { createFloor, removeFloor, landFloor, floorStateOf, findFloor, groundOf, floorById, repoTop, git, withLock, FloorError } from './floors.js';
 import { Scheduler, parseSchedule, describeSchedule, nextRun } from './routines.js';
 
@@ -48,7 +49,9 @@ export class Core extends EventEmitter {
     this.audit = new Audit(path.join(dataRoot, 'audit.log'));
     this.resolveSecret = resolveSecret;
     this.headless = new Set();
-    this.terminals = new Terminals({ socketPath, cliDir, cliBin, envFile: path.join(dataRoot, 'env'), resolveSecret });
+    this.accounts = new Accounts(path.join(dataRoot, 'accounts.json'));
+    const accountEnv = (name) => { try { return this.accounts.env(name, resolveSecret); } catch (e) { console.warn(`[accounts] ${e.message}`); return {}; } };
+    this.terminals = new Terminals({ socketPath, cliDir, cliBin, envFile: path.join(dataRoot, 'env'), resolveSecret, accountEnv });
     this.socketPath = socketPath;
     this.startedAt = Date.now();
     this.notifyLog = new Map();
@@ -121,6 +124,7 @@ export class Core extends EventEmitter {
       active: this.store.settings.activeWorkspaceId,
       workspaces: [...this.store.workspaces.values()].map((w) => ({ id: w.id, name: w.name, dir: w.dir, nodes: w.nodes.length })),
       presets: this.store.settings.presets,
+      accounts: (() => { try { return this.accounts.list().map((a) => a.name); } catch { return []; } })(),
       portalsAvailable: this.portals.available,
       partituras: (this.store.settings.partituras ?? []).map((p) => ({ id: p.id, name: p.name, description: p.description, icon: p.icon, color: p.color, scope: p.scope, nodes: p.nodes.length })),
     };
@@ -242,7 +246,7 @@ export class Core extends EventEmitter {
     try {
       return await h.call(this, ws, me, a);
     } catch (e) {
-      if (e instanceof ChatError || e instanceof PromptError || e instanceof UsageError || e instanceof RoleError || e instanceof TerminalError || e instanceof FilesError || e instanceof HeadlessError || e instanceof ForgeError) fail(e.message);
+      if (e instanceof ChatError || e instanceof PromptError || e instanceof UsageError || e instanceof RoleError || e instanceof TerminalError || e instanceof FilesError || e instanceof HeadlessError || e instanceof ForgeError || e instanceof AccountError) fail(e.message);
       throw e;
     }
   }
@@ -307,7 +311,7 @@ const HANDLERS = {
   },
 
   /** A one-shot run of any agent CLI in its non-interactive mode: no terminal, the answer comes back as text. */
-  async 'agent.run'(ws, me, { driver, prompt, model, floor, timeoutMs }) {
+  async 'agent.run'(ws, me, { driver, prompt, model, floor, timeoutMs, account }) {
     this.requireMaestro(me);
     const drivers = { ...DRIVERS, ...customDrivers(this.store.settings.drivers) };
     if (!driver) fail(`usage: agent <driver> "prompt". Drivers: ${Object.keys(drivers).join(', ')}`);
@@ -316,8 +320,8 @@ const HANDLERS = {
     if (floor && !rec) fail(`no floor named "${floor}" (see: floor list)`);
     const cwd = [rec?.dir, me.cwd, ws.dir].find((d) => d && fs.existsSync(d)) ?? process.env.HOME;
     const expanded = materializeMentions(String(prompt ?? ''), this.prompterCtx(ws, me)).text;
-    this.audit.record('agent.run', { driver, by: me.name, folder: path.basename(cwd), model: model ?? '', promptChars: expanded.length, promptSha256: sha256(expanded) }, 'terminal');
-    const r = await this.execAgent({ driver, drivers, prompt: expanded, cwd, model, timeoutMs, ws });
+    this.audit.record('agent.run', { driver, account: account ?? '', by: me.name, folder: path.basename(cwd), model: model ?? '', promptChars: expanded.length, promptSha256: sha256(expanded) }, 'terminal');
+    const r = await this.execAgent({ driver, drivers, prompt: expanded, cwd, model, timeoutMs, ws, account });
     const secs = (r.ms / 1000).toFixed(1);
     if (r.timedOut) fail(`${driver} did not finish in time and was stopped (${secs}s)${r.text ? `. Partial output:\n${r.text}` : ''}`);
     if (r.cancelled) fail(`${driver} was stopped`);
@@ -488,8 +492,10 @@ const HANDLERS = {
   },
 
   // ----- orchestration (maestro only) -----
-  recruit(ws, me, { name, preset, role, dir, command, color, icon, replace, floor, model, noCheck }) {
+  recruit(ws, me, { name, preset, role, dir, command, color, icon, replace, floor, model, noCheck, account }) {
     this.requireMaestro(me);
+    const accountName = account ?? this.store.settings.presets.find((p) => p.name.toLowerCase() === String(preset ?? '').toLowerCase())?.account ?? null;
+    if (accountName) this.accounts.env(accountName); // fails with a clear message when it does not exist
     const presetObj = preset ? this.store.settings.presets.find((p) => p.name.toLowerCase() === String(preset).toLowerCase()) : null;
     if (preset && !presetObj) fail(`no preset named "${preset}" (see: preset list)`);
     let cmd = command ?? presetObj?.command ?? '';
@@ -522,7 +528,7 @@ const HANDLERS = {
     }
     const anchor = { ...me, floorId: target.id };
     const pos = this.placeBeside(ws, anchor, { w: 640, h: 400 });
-    const node = this.store.createNode(ws, 'terminal', { name, command: cmd, cwd, color, icon, role: role || null, preset: presetObj?.name ?? null, maestro: !!presetObj?.maestro, floorId: target.id, ...pos });
+    const node = this.store.createNode(ws, 'terminal', { name, command: cmd, cwd, color, icon, role: role || null, preset: presetObj?.name ?? null, account: accountName, maestro: !!presetObj?.maestro, floorId: target.id, ...pos });
     if (model !== undefined) node.usageModel = String(model);
     this.store.connect(ws, me.id, node.id);
     this.startTerminal(ws, node);
@@ -656,6 +662,27 @@ const HANDLERS = {
     this.emit('workspace-list');
     return { text: `updated ${old.name}` };
   },
+  /** One layout as a file: a closed format, no ids, safe to send to someone. */
+  'partitura.export'(ws, me, { name }) {
+    this.requireMaestro(me);
+    const p = this.findPartitura(ws, name);
+    const file = exportPartitura(p);
+    this.audit.record('partitura.export', { name: p.name, items: p.nodes.length, by: me.name }, 'terminal');
+    return { text: JSON.stringify(file, null, 2), data: file };
+  },
+  /** Add a layout from a file. Anything it asks to run stays held back until you trust it. */
+  'partitura.import'(ws, me, { file, name }) {
+    this.requireMaestro(me);
+    const part = importPartitura(file, { name });
+    const list = this.store.settings.partituras ??= [];
+    if (list.some((p) => p.name.toLowerCase() === part.name.toLowerCase() && (p.scope === null || p.scope === ws.id))) fail(`a partitura named "${part.name}" already exists; import it with --name "Another name"`);
+    part.scope = ws.id;
+    list.push(part);
+    this.store.saveSettings();
+    this.audit.record('partitura.import', { name: part.name, items: part.nodes.length, commandsHeldBack: part.nodes.filter((n) => n.kind === 'terminal' && n.command).length, by: me.name }, 'terminal');
+    this.emit('workspace-list');
+    return { text: `imported ${part.name}: ${part.nodes.length} items. Commands in it will not run until you trust them. Insert it with: partitura insert "${part.name}"` };
+  },
   'partitura.insert'(ws, me, { name, floor }) {
     this.requireMaestro(me);
     const part = this.findPartitura(ws, name);
@@ -683,20 +710,25 @@ const HANDLERS = {
     const p = this.findPreset(name);
     return { text: JSON.stringify(p, null, 2) };
   },
-  'preset.create'(ws, me, { name, command = '', maestro = false }) {
+  'preset.create'(ws, me, { name, command = '', maestro = false, account }) {
     this.requireMaestro(me);
     if (!name) fail('usage: preset create "Name" [--command C] [--maestro on|off]');
     if (this.store.settings.presets.some((p) => p.name.toLowerCase() === name.toLowerCase())) fail(`preset "${name}" already exists`);
-    this.store.settings.presets.push({ name, command, maestro: !!maestro });
+    if (account) this.accounts.env(account);
+    this.store.settings.presets.push({ name, command, maestro: !!maestro, ...(account ? { account } : {}) });
     this.store.saveSettings();
     return { text: `created preset ${name}` };
   },
-  'preset.set'(ws, me, { name, newName, command, maestro }) {
+  'preset.set'(ws, me, { name, newName, command, maestro, account }) {
     this.requireMaestro(me);
     const p = this.findPreset(name);
     if (newName) p.name = newName;
     if (command != null) p.command = command;
     if (maestro != null) p.maestro = !!maestro;
+    if (account !== undefined) {
+      if (account) this.accounts.env(account);
+      if (account) p.account = account; else delete p.account;
+    }
     this.store.saveSettings();
     return { text: `updated preset ${p.name}` };
   },
@@ -1413,10 +1445,11 @@ Core.prototype.roleChange = function (ws, me, { role, agent, apply, trust }, rem
 
 /** The folder a Files node browses: its floor's folder, or the workspace folder. */
 /** Run one headless agent; tracked so shutdown and the concurrency limit see it. Never throws for a failed run. */
-Core.prototype.execAgent = async function ({ driver, drivers, prompt, cwd, model, timeoutMs, ac = new AbortController(), ws }) {
+Core.prototype.execAgent = async function ({ driver, drivers, prompt, cwd, model, timeoutMs, ac = new AbortController(), ws, account }) {
   this.headless.add(ac);
   try {
     const env = workerEnv(process.env, path.join(this.dataRoot, 'env'), this.resolveSecret, drivers[driver]);
+    if (account) Object.assign(env, this.accounts.env(account, this.resolveSecret)); // the account was chosen on purpose, so its keys pass whatever the driver lists
     return await runHeadless({ driver, drivers, prompt, cwd, env, model, timeoutMs, signal: ac.signal, resolveBin: (b) => this.safeBin(ws, b) });
   } finally { this.headless.delete(ac); }
 };
@@ -1442,7 +1475,8 @@ Core.prototype.preflightAgents = function (ws, agents, drivers) {
   return problems;
 };
 
-Core.prototype.runTask = async function (ws, me, { task, agents: rawAgents, floors, dryRun, model, timeoutMs }) {
+Core.prototype.runTask = async function (ws, me, { task, agents: rawAgents, floors, dryRun, model, timeoutMs, account }) {
+  if (account) this.accounts.env(account); // a missing account stops the run before it starts
   const text = String(task ?? '').trim();
   const agents = parseAgents(rawAgents);
   if (!text || !agents.length) fail('usage: run "task" --agents claude,codex [--floors] [--dry-run] [--model M] [--timeout 10m]');
@@ -1457,7 +1491,7 @@ Core.prototype.runTask = async function (ws, me, { task, agents: rawAgents, floo
   const prompt = materializeMentions(text, this.prompterCtx(ws, me)).text;
   const tag = crypto.randomBytes(2).toString('hex');
   const base = me.cwd && fs.existsSync(me.cwd) ? me.cwd : ws.dir;
-  this.audit.record('run', { agents, by: me.name, floors: !!floors, model: model ?? '', taskChars: prompt.length, taskSha256: sha256(prompt) }, 'terminal');
+  this.audit.record('run', { agents, account: account ?? '', by: me.name, floors: !!floors, model: model ?? '', taskChars: prompt.length, taskSha256: sha256(prompt) }, 'terminal');
   // take the slots now, before any await: two runs started together cannot both pass the limit
   const slots = agents.map(() => new AbortController());
   for (const ac of slots) this.headless.add(ac);
@@ -1472,7 +1506,7 @@ Core.prototype.runTask = async function (ws, me, { task, agents: rawAgents, floo
         cwd = made.data.dir;
       } catch (e) { return { driver, ok: false, problem: `the floor could not be created: ${e.message}` }; }
     }
-    const r = await this.execAgent({ driver, drivers, prompt, cwd, model, timeoutMs, ws, ac: slots[i] });
+    const r = await this.execAgent({ driver, drivers, prompt, cwd, model, timeoutMs, ws, ac: slots[i], account });
     // what the agent left behind can be put back with `floor rollback`
     if (floor) floor.snapshot = (await withLock(ws.id, () => takeSnapshot(ws.floors.find((f) => f.dir === cwd), `after ${driver}`)).catch(() => null))?.id;
     return { driver, floor, ...r };

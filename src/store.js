@@ -232,6 +232,7 @@ export class Store {
       node.maestro = !!props.maestro;
       node.role = text(props.role, 128);
       node.preset = text(props.preset, 128);
+      node.account = text(props.account, 40);
     } else if (kind === 'portal') {
       node.url = text(props.url, 2048) ?? 'about:blank';
     } else if (kind === 'stack') {
@@ -270,7 +271,7 @@ export class Store {
       x: num, y: num, w: num, h: num,
       color: (v) => v === null || str(v, 32), icon: (v) => v === null || str(v, 64),
       url: (v) => str(v, 2048), command: (v) => str(v, 4096), cwd: (v) => str(v, 4096),
-      maestro: (v) => typeof v === 'boolean', role: (v) => v === null || str(v, 128),
+      maestro: (v) => typeof v === 'boolean', role: (v) => v === null || str(v, 128), account: (v) => v === null || str(v, 40),
     };
     for (const [k, ok] of Object.entries(rules)) {
       if (!Object.hasOwn(patch, k)) continue;

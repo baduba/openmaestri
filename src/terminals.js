@@ -173,6 +173,7 @@ export class Terminals extends EventEmitter {
       if (k.startsWith('OPENMAESTRI_') || k.startsWith('ELECTRON_')) delete env[k];
     }
     Object.assign(env, readUserEnv(this.env.envFile, this.env.resolveSecret));
+    if (node.account) Object.assign(env, this.env.accountEnv?.(node.account) ?? {});
     Object.assign(env, {
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',

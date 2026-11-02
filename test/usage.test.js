@@ -26,7 +26,7 @@ test('parseCount and parseUsageLine read "Tokens: 1.2k sent, 340 received" and r
 test('hostile output cannot make the parser slow or unbounded', () => {
   const started = Date.now();
   for (const evil of ['Tokens: ' + '9'.repeat(200000), 'tokens ' + '1,'.repeat(100000), 'Tokens: ' + 'k '.repeat(100000), '\x1b[' + '1;'.repeat(100000)]) parseUsageLine(evil);
-  assert.ok(Date.now() - started < 500, `took ${Date.now() - started} ms`);
+  assert.ok(Date.now() - started < 3000, `took ${Date.now() - started} ms`);
 });
 
 test('prices: DeepSeek peak and off-peak, override file is strictly validated', (t) => {

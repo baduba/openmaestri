@@ -631,12 +631,18 @@ $('#add-term').onclick = () => {
   $('input[name=cwd]', dlgTerm).value = '';
   $('input[name=cwd]', dlgTerm).placeholder = state.ws?.dir || '';
   $('input[name=maestro]', dlgTerm).checked = false;
+  const accounts = state.summary.accounts ?? [];
+  const accSel = $('select[name=account]', dlgTerm);
+  accSel.replaceChildren(el('option', null, '(none)'), ...accounts.map((a) => { const o = el('option', null, a); o.value = a; return o; }));
+  accSel.firstChild.value = '';
+  $('#term-account').hidden = !accounts.length;
   dlgTerm.showModal();
 };
 $('#form-term').onsubmit = (e) => {
   const f = new FormData(e.target);
   const props = { name: f.get('name') || undefined, maestro: f.get('maestro') === 'on' };
   if (f.get('cwd')) props.cwd = f.get('cwd');
+  if (f.get('account')) props.account = f.get('account');
   const preset = f.get('preset');
   send({ t: 'node.create', workspaceId: wsId(), kind: 'terminal', preset, props: nudge(props, 640, 400) });
   const p = state.summary.presets.find((x) => x.name === preset);
@@ -909,6 +915,7 @@ function buildPaletteItems() {
   add('New terminal', 'canvas', () => $('#add-term').click());
   add('New note', 'canvas', () => $('#add-note').click());
   add('New portal', 'canvas', () => $('#add-portal').click());
+  add('Duplicate this workspace', 'workspace', () => state.ws && send({ t: 'workspace.create', name: `${state.ws.name} copy`, dir: state.ws.dir, from: state.ws.id }));
   add('New stack', 'canvas', () => $('#add-stack').click());
   add('New band (group agents)', 'canvas', () => $('#add-band').click());
   add('Undo', 'edit', () => $('#undo').click());

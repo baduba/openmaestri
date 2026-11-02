@@ -15,6 +15,8 @@ An agent sees only what is connected to it. A **Maestro** terminal sees the whol
 | `list` | Reachable agents, notes, portals with status |
 | `ask "Agent" "prompt" [--timeout 120s]` | Type the prompt (bracketed paste for multi-line), wait until output is quiet, print the new screen text |
 | `ask --batch '{"A":"…","B":"…"}'` | Parallel asks, JSON array `[{agent,state,output}]`; `state` is `idle`, `timeout` or `exited` |
+| `accounts set NAME VAR=value ... \| list \| rm NAME [VAR ...]` | (your own shell) Named environments for agents. See [accounts](accounts.html) |
+| `partitura export "Name"` / `partitura import FILE [--name N]` | A layout as a file, and back (imported commands are held back) |
 | `audit [--verify] [--tail N]` | (your own shell) Show or verify the append-only audit log. See [audit](audit.html) |
 | `run "task" --agents a,b [--floors] [--dry-run] [--model M] [--timeout 10m]` | The same task to several one-shot agents in parallel, one report (also kept as a note). Maestro only. See [one-shot agents](oneshot.html) |
 | `agent <driver> "prompt" [--model M] [--floor NAME] [--timeout 10m]` | One-shot run of an agent CLI in its non-interactive mode (Maestro only); prints the answer. See [one-shot agents](oneshot.html) |
