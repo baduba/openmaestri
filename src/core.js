@@ -10,7 +10,7 @@ import path from 'node:path';
 import { Store, dataDir } from './store.js';
 import { GUIDE } from './prompts.js';
 import { Terminals } from './terminals.js';
-import { DRIVERS, customDrivers, workerEnv, runHeadless, HeadlessError, checkSandbox } from './headless.js';
+import { DRIVERS, customDrivers, workerEnv, runHeadless, HeadlessError, checkSandbox, quotaRefused } from './headless.js';
 import { discover as discoverRoles, plan as planRole, diffText, agentKind, RoleError, AGENT_FILES } from './roles.js';
 import { Files, FilesError } from './files.js';
 import { Persist } from './persist.js';
@@ -343,7 +343,7 @@ const HANDLERS = {
   },
 
   /** A one-shot run of any agent CLI in its non-interactive mode: no terminal, the answer comes back as text. */
-  async 'agent.run'(ws, me, { driver, prompt, model, floor, timeoutMs, account, sandbox, noNetwork }) {
+  async 'agent.run'(ws, me, { driver, prompt, model, floor, timeoutMs, account, sandbox, noNetwork, fallback }) {
     this.requireMaestro(me);
     const drivers = { ...DRIVERS, ...customDrivers(this.store.settings.drivers) };
     if (!driver) fail(`usage: agent <driver> "prompt". Drivers: ${Object.keys(drivers).join(', ')}`);
@@ -354,12 +354,42 @@ const HANDLERS = {
     const expanded = materializeMentions(String(prompt ?? ''), this.prompterCtx(ws, me)).text;
     this.audit.record('agent.run', { driver, account: account ?? '', by: me.name, folder: path.basename(cwd), model: model ?? '', promptChars: expanded.length, promptSha256: sha256(expanded) }, 'terminal');
     const box = this.sandboxFrom(sandbox, noNetwork);
-    const r = await this.execAgent({ driver, drivers, prompt: expanded, cwd, model, timeoutMs, ws, account, sandbox: box });
+    const r = await this.execAgent({ driver, drivers, prompt: expanded, cwd, model, timeoutMs, ws, account, sandbox: box, fallback });
     const secs = (r.ms / 1000).toFixed(1);
-    if (r.timedOut) fail(`${driver} did not finish in time and was stopped (${secs}s)${r.text ? `. Partial output:\n${r.text}` : ''}`);
-    if (r.cancelled) fail(`${driver} was stopped`);
-    if (!r.ok) fail(`${driver} ${r.reportedError ? 'reported an error' : `exited with ${r.exitCode ?? r.signal ?? 'an error'}`} after ${secs}s${r.stderr ? `:\n${r.stderr}` : ''}${r.text ? `\nOutput:\n${r.text}` : ''}`);
-    return { text: `${r.text || '(no output)'}${r.truncated ? '\n[output cut at 400 KB]' : ''}\n[${driver}, ${secs}s, ${path.basename(cwd)}]` };
+    const who = r.driver ?? driver;
+    if (r.timedOut) fail(`${who} did not finish in time and was stopped (${secs}s)${r.text ? `. Partial output:\n${r.text}` : ''}`);
+    if (r.cancelled) fail(`${who} was stopped`);
+    if (!r.ok) fail(`${who} ${r.reportedError ? 'reported an error' : `exited with ${r.exitCode ?? r.signal ?? 'an error'}`} after ${secs}s${r.stderr ? `:\n${r.stderr}` : ''}${r.text ? `\nOutput:\n${r.text}` : ''}${r.tried.length ? `\nAlso tried: ${r.tried.map((t) => `${t.driver} (${t.why})`).join(', ')}` : ''}`);
+    const skipped = r.tried.length ? `; skipped ${r.tried.map((t) => `${t.driver} (${t.why})`).join(', ')}` : '';
+    return { text: `${r.text || '(no output)'}${r.truncated ? '\n[output cut at 400 KB]' : ''}\n[${r.driver}, ${secs}s, ${path.basename(cwd)}${skipped}]` };
+  },
+
+  /** Who answers when a driver's account is out of quota: `fallback set opencode kimi,agy`. */
+  'fallback.list'(ws, me) {
+    this.requireMaestro(me);
+    const saved = this.store.settings.fallbacks ?? {};
+    const rows = Object.entries(saved).map(([d, list]) => `${d} -> ${list.join(', ')}`);
+    return { text: rows.length ? rows.join('\n') : 'no fallbacks set. Example: openmaestri fallback set opencode kimi,agy', data: saved };
+  },
+  'fallback.set'(ws, me, { driver, list }) {
+    this.requireMaestro(me);
+    const drivers = { ...DRIVERS, ...customDrivers(this.store.settings.drivers) };
+    const names = [...new Set(String(list ?? '').split(/[,\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean))];
+    if (!driver || !names.length) fail('usage: fallback set DRIVER other1,other2');
+    for (const n of [driver, ...names]) if (!Object.hasOwn(drivers, n)) fail(`no driver named "${n}". Drivers: ${Object.keys(drivers).join(', ')}`);
+    if (names.includes(driver)) fail('a driver cannot be its own fallback');
+    this.store.settings.fallbacks = { ...(this.store.settings.fallbacks ?? {}), [driver]: names.slice(0, 5) };
+    this.store.saveSettings();
+    return { text: `${driver} -> ${names.slice(0, 5).join(', ')}` };
+  },
+  'fallback.clear'(ws, me, { driver }) {
+    this.requireMaestro(me);
+    const saved = { ...(this.store.settings.fallbacks ?? {}) };
+    if (!driver || !Object.hasOwn(saved, driver)) fail(`no fallback set for "${driver ?? ''}"`);
+    delete saved[driver];
+    this.store.settings.fallbacks = saved;
+    this.store.saveSettings();
+    return { text: `cleared the fallback of ${driver}` };
   },
 
   /** One task for several one-shot agents in parallel; the report is also left as a note on the canvas. */
@@ -1565,7 +1595,48 @@ Core.prototype.sandboxFrom = function (image, noNetwork) {
   return checkSandbox({ image: String(image), network: noNetwork ? 'none' : 'bridge' });
 };
 
-Core.prototype.execAgent = async function ({ driver, drivers, prompt, cwd, model, timeoutMs, ac = new AbortController(), ws, account, sandbox = null }) {
+const QUOTA_HOLD_MS = 30 * 60 * 1000;
+const DRIVER_NAME = /^[a-z][a-z0-9-]{0,30}$/;
+
+/** Who to try, in order: the driver asked for, then its fallbacks (given now, or set with `fallback set`). */
+Core.prototype.fallbackChain = function (driver, fallback) {
+  const saved = this.store.settings.fallbacks;
+  const extra = fallback ?? (saved && Object.hasOwn(saved, driver) ? saved[driver] : []);
+  return [driver, ...new Set((Array.isArray(extra) ? extra : []).filter((d) => typeof d === 'string' && DRIVER_NAME.test(d) && d !== driver))];
+};
+
+/**
+ * Run one headless agent. When the account is out of quota or credit, the next driver in the chain answers instead,
+ * and the one that refused is not tried again for 30 minutes. The result says who answered and who was skipped.
+ */
+Core.prototype.execAgent = async function ({ driver, drivers, fallback, ...rest }) {
+  const chain = this.fallbackChain(driver, fallback);
+  const tried = [];
+  this.quotaHold ??= new Map();
+  let last;
+  for (const [i, name] of chain.entries()) {
+    const more = i < chain.length - 1;
+    if (more && (this.quotaHold.get(name) ?? 0) > Date.now()) { tried.push({ driver: name, why: 'out of quota a moment ago, skipped' }); continue; }
+    if (i > 0 && !drivers[name]) { tried.push({ driver: name, why: 'no such driver' }); continue; }
+    let r;
+    try {
+      r = await this.execOne({ ...rest, driver: name, drivers, model: i === 0 ? rest.model : undefined, account: i === 0 ? rest.account : undefined });
+    } catch (e) {
+      if (i === 0 || !(e instanceof HeadlessError)) throw e;
+      tried.push({ driver: name, why: e.message });
+      continue;
+    }
+    r.driver = name;
+    last = r;
+    if (!quotaRefused(r)) { this.quotaHold.delete(name); return { ...r, tried }; }
+    this.quotaHold.set(name, Date.now() + QUOTA_HOLD_MS);
+    tried.push({ driver: name, why: (r.stderr || r.text).split('\n')[0].slice(0, 160) });
+  }
+  if (!last) fail(`no driver in the chain could run: ${tried.map((t) => `${t.driver} (${t.why})`).join('; ')}`);
+  return { ...last, tried };
+};
+
+Core.prototype.execOne = async function ({ driver, drivers, prompt, cwd, model, timeoutMs, ac = new AbortController(), ws, account, sandbox = null }) {
   this.headless.add(ac);
   try {
     const env = workerEnv(process.env, path.join(this.dataRoot, 'env'), this.resolveSecret, drivers[driver]);
@@ -1645,7 +1716,7 @@ Core.prototype.runTask = async function (ws, me, { task, agents: rawAgents, floo
     }
     const rec = floor ? ws.floors.find((f) => f.dir === cwd) : null;
     const before = rec ? (await withLock(ws.id, () => takeSnapshot(rec, `before ${driver}`)).catch(() => null))?.id : null;
-    const r = await this.execAgent({ driver, drivers, prompt, cwd, model, timeoutMs, ws, ac: slots[i], account, sandbox: box });
+    const r = await this.execAgent({ driver, drivers, prompt, cwd, model, timeoutMs, ws, ac: slots[i], account, sandbox: box, fallback: [] });
     // what the agent left behind can be put back with `floor rollback`
     if (floor) floor.snapshot = (await withLock(ws.id, () => takeSnapshot(rec, `after ${driver}`)).catch(() => null))?.id;
     const hook = rec?.hooks?.postAgent && r.ok ? await this.runPostAgentHook(ws, rec, before, box) : null;

@@ -17,6 +17,7 @@ Usage:
   openmaestri notify "message"                       Send the user a notification
   openmaestri run "task" --agents a,b [--floors] [--dry-run] [--sandbox IMAGE [--no-network]]   Same task to several one-shot agents in parallel; report kept as a note
   openmaestri chat summarize [thread] --with DRIVER   Ask an agent you choose to write a summary of a chat thread (shown by recall --summary)
+  openmaestri fallback [list] | fallback set DRIVER other1,other2 | fallback clear DRIVER   Who answers when a driver's account is out of quota
   openmaestri ps [--all] | ps stop "Terminal" PID [--force]   Processes, memory and CPU of your terminals; stop one process
   openmaestri agent claude|codex|gemini|agy|kimi|opencode|aider|goose "prompt"   One-shot run of an agent CLI, prints its answer (no terminal)
   openmaestri ask "Agent" "prompt" [--timeout 120s]  Send a prompt to a connected agent, wait until it settles, print what it produced
@@ -139,8 +140,8 @@ export function build({ pos, flags }) {
       return { cmd: 'ps', args: { all: !!flags.all } };
     }
     case 'agent': {
-      need(c1 && rest.length, 'agent <driver> "prompt" [--model M] [--floor NAME] [--timeout 10m]');
-      return { cmd: 'agent.run', args: { driver: c1, prompt: rest.join(' '), model: flags.model === undefined ? undefined : String(flags.model), floor: flags.floor === undefined ? undefined : String(flags.floor), timeoutMs: duration(flags.timeout), account: flags.account === undefined ? undefined : String(flags.account), sandbox: optStr(flags.sandbox), noNetwork: !!flags['no-network'] } };
+      need(c1 && rest.length, 'agent <driver> "prompt" [--model M] [--floor NAME] [--timeout 10m] [--fallback d1,d2]');
+      return { cmd: 'agent.run', args: { driver: c1, prompt: rest.join(' '), model: flags.model === undefined ? undefined : String(flags.model), floor: flags.floor === undefined ? undefined : String(flags.floor), timeoutMs: duration(flags.timeout), account: flags.account === undefined ? undefined : String(flags.account), sandbox: optStr(flags.sandbox), noNetwork: !!flags['no-network'], fallback: flags.fallback === undefined ? undefined : String(flags.fallback).split(/[,\s]+/).filter(Boolean) } };
     }
     case 'check': need(c1, 'check "Agent" [--lines N]'); return { cmd: 'check', args: { name: c1, lines: flags.lines ? Number(flags.lines) : undefined } };
     case 'note': {
@@ -173,6 +174,11 @@ export function build({ pos, flags }) {
           return { cmd: 'portal.act', args: { op: c1, name: a, rest: [b, ...more].filter((x) => x !== undefined) } };
       }
     }
+    case 'fallback':
+      if (!c1 || c1 === 'list') return { cmd: 'fallback.list', args: {} };
+      if (c1 === 'set') { need(rest[0] && rest[1], 'fallback set DRIVER other1,other2'); return { cmd: 'fallback.set', args: { driver: rest[0], list: rest.slice(1).join(',') } }; }
+      if (c1 === 'clear') { need(rest[0], 'fallback clear DRIVER'); return { cmd: 'fallback.clear', args: { driver: rest[0] } }; }
+      throw new Error('usage: fallback [list] | fallback set DRIVER other1,other2 | fallback clear DRIVER');
     case 'arrange': return { cmd: 'arrange', args: { name: c1, newName: flags.name, color: flags.color, icon: flags.icon, kind: ['agent', 'note', 'band', 'fichario'].find((k) => flags[k]) } };
     case 'band': {
       const [a, b] = rest;

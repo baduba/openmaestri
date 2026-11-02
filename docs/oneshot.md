@@ -64,6 +64,19 @@ These flags are what each tool documents today. When a tool changes them, or you
 
 `{prompt}` is required and is always a single argument; no shell is involved, so a prompt cannot run commands. A driver that does not show up in `openmaestri agent` is missing `{prompt}` or has a name outside lowercase letters, digits and `-`.
 
+## When an account runs out of quota
+
+Free tiers and prepaid credit end. When a one-shot run fails because the account is out of quota, credit or rate allowance (the message says "usage limit", "quota", "429", "credit balance" and the like), openmaestri can hand the same prompt to the next driver:
+
+```bash
+openmaestri fallback set opencode kimi,agy      # saved: opencode, then kimi, then agy
+openmaestri agent opencode "..."                # uses the saved chain
+openmaestri agent opencode "..." --fallback agy # or a chain for this call only
+openmaestri fallback list | fallback clear opencode
+```
+
+The answer ends with a line such as `[kimi, 12.4s, project, skipped opencode (Free usage limit reached)]`, so you always see who answered. A driver that refused is not tried again for 30 minutes. Only the quota case triggers this: a task that fails for another reason fails, it is not passed on. The model and the account of the first driver are not carried over, since they belong to it. `run --agents` never swaps one agent for another: every agent in that list is there on purpose.
+
 ## In a container
 
 `--sandbox IMAGE` runs the agent inside a Docker container instead of directly on your machine:

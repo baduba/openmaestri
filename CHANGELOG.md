@@ -5,6 +5,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 ## [Unreleased]
 
 ### Added
+- `fallback set/list/clear` and `agent --fallback`: when a one-shot agent's account is out of quota or credit, the next driver answers and the answer says who. The refusing driver is skipped for 30 minutes
 - Orchestration challenge (`test/challenge/`, docs/functional-test.md): a Maestro coordinates an Auditor and a Dev through several round trips, and the result is checked against an answer key. Scripted agents run it in `npm test`; real agents run it with `node test/challenge/run.mjs`
 
 ### Fixed
