@@ -57,6 +57,9 @@ Portals are real browsers you and your agents share: `snapshot`, `click`, `fill`
 | `recruit "Name" [--preset P] [--role R] [--dir PATH] [--command C]` | Start a teammate wired to you |
 | `recruit "New" --preset P --replace "Old" [--handoff ask \| --no-handoff]` | Swap what runs in a teammate, keeping connections. The old agent first leaves a handoff note (screen, git state, notes it saw; with `ask` also its own account of goal, done, next, gotchas) and the new one is told to read it |
 | `handoff "Agent" [--ask]` | Leave that handoff note without replacing anyone |
+| `remember "text" [--kind decision\|lesson\|fact]` | Leave project memory for agents that come later (any agent) |
+| `facts [list] [--kind K]`, `facts search WORD` | Read project memory (any agent) |
+| `facts rm ID`, `facts export "Agent" [--apply]` | Forget one entry; write the decisions into that agent's `AGENTS.md` or `CLAUDE.md` between markers, dry run first (Maestro) |
 | `dismiss "Name"` | Stop and remove a teammate |
 | `connect "A" "B" [--agent\|--band\|--note\|--fichario\|--portal]` · `disconnect "A" "B"` | Wire or unwire. The flag says what kind of thing `B` is when names collide |
 | `band create "Name" ["Agent" ...] [--without-me]` | Group agents. Members see each other, a cable to the band reaches every member, and a member reaches what its band reaches. An agent is in at most one band |

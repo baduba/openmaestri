@@ -5,6 +5,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 ## [Unreleased]
 
 ### Added
+- Project memory: `remember`, `facts` (list, search, rm, export). Agents leave decisions and lessons; new and replacement teammates and the Maestro are told the newest ones; floor landings and runs add an automatic line; `facts export` writes the decisions into `AGENTS.md` or `CLAUDE.md`. See docs/project-memory.md
 - `handoff "Agent" [--ask]` and `recruit --replace`: the agent that leaves writes a note (what was on its screen with credentials masked, the git state, the notes it could see, and with `--ask` its own goal, done, next and gotchas); the one that takes over is told to read it first. `--no-handoff` skips it
 - `fallback set/list/clear` and `agent --fallback`: when a one-shot agent's account is out of quota or credit, the next driver answers and the answer says who. The refusing driver is skipped for 30 minutes
 - Orchestration challenge (`test/challenge/`, docs/functional-test.md): a Maestro coordinates an Auditor and a Dev through several round trips, and the result is checked against an answer key. Scripted agents run it in `npm test`; real agents run it with `node test/challenge/run.mjs`

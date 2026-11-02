@@ -10,6 +10,7 @@ import path from 'node:path';
 import { Store, dataDir } from './store.js';
 import { GUIDE } from './prompts.js';
 import { Terminals } from './terminals.js';
+import { Facts, FactsError, factsText, factsBrief, factsBlock } from './facts.js';
 import { handoffText, takeoverLine, SELF_REPORT_PROMPT } from './handoff.js';
 import { DRIVERS, customDrivers, workerEnv, runHeadless, HeadlessError, checkSandbox, quotaRefused } from './headless.js';
 import { discover as discoverRoles, plan as planRole, diffText, agentKind, RoleError, AGENT_FILES } from './roles.js';
@@ -53,6 +54,7 @@ export class Core extends EventEmitter {
     let secrets = null;
     const resolveSecret = (ref) => { try { secrets ??= new Secrets({ root: dataRoot }); return secrets.resolve(ref); } catch { return undefined; } };
     this.audit = new Audit(path.join(dataRoot, 'audit.log'));
+    this.facts = new Facts({ dir: (id) => this.store.wsDir(id) });
     this.resolveSecret = resolveSecret;
     this.headless = new Set();
     this.accounts = new Accounts(path.join(dataRoot, 'accounts.json'));
@@ -273,7 +275,7 @@ export class Core extends EventEmitter {
     try {
       return await h.call(this, ws, me, a);
     } catch (e) {
-      if (e instanceof ChatError || e instanceof PromptError || e instanceof UsageError || e instanceof RoleError || e instanceof TerminalError || e instanceof FilesError || e instanceof HeadlessError || e instanceof ForgeError || e instanceof AccountError || e instanceof HookError || e instanceof ProcError) fail(e.message);
+      if (e instanceof ChatError || e instanceof PromptError || e instanceof UsageError || e instanceof RoleError || e instanceof TerminalError || e instanceof FilesError || e instanceof HeadlessError || e instanceof FactsError || e instanceof ForgeError || e instanceof AccountError || e instanceof HookError || e instanceof ProcError) fail(e.message);
       throw e;
     }
   }
@@ -588,7 +590,7 @@ const HANDLERS = {
       this.terminals.dispose(old.id);
       this.store.patchNode(ws, old.id, { command: cmd, ...(name ? { name } : {}) });
       this.startTerminal(ws, old);
-      if (note && cmd) setTimeout(() => { try { this.terminals.deliver(old.id, takeoverLine(note, oldName)); } catch { /* the terminal was closed meanwhile */ } }, 3000).unref?.();
+      if (note && cmd) setTimeout(() => { try { this.terminals.deliver(old.id, [takeoverLine(note, oldName), this.factsBrief(ws)].filter(Boolean).join('\n\n')); } catch { /* the terminal was closed meanwhile */ } }, 3000).unref?.();
       this.touch(ws);
       return { text: note ? `${old.name} (handoff note: ${note})` : old.name, data: { name: old.name, handoff: note } };
     }
@@ -607,9 +609,30 @@ const HANDLERS = {
     if (model !== undefined) node.usageModel = String(model);
     this.store.connect(ws, me.id, node.id);
     this.startTerminal(ws, node);
-    if (rolePrompt) setTimeout(() => { try { this.terminals.deliver(node.id, rolePrompt); } catch {} }, 3000);
+    const intro = [rolePrompt, cmd ? this.factsBrief(ws) : ''].filter(Boolean).join('\n\n');
+    if (intro) setTimeout(() => { try { this.terminals.deliver(node.id, intro); } catch {} }, 3000);
     this.touch(ws);
     return { text: node.name, data: { name: node.name } };
+  },
+
+  /** `remember "text" [--kind decision|lesson|fact]`: any agent can leave a fact for the ones that come later. */
+  remember(ws, me, { text, kind }) {
+    const row = this.facts.add(ws.id, { kind: kind ?? 'fact', text, by: me.name });
+    return { text: row.repeated ? `already remembered (${row.id})` : `remembered ${row.id}: ${row.text}`, data: row };
+  },
+  /** `facts [list] [--kind K] | search WORD | rm ID | export --agent NAME [--apply]` */
+  facts(ws, me, { action = 'list', kind, word, id, agent, apply }) {
+    if (action === 'list' || action === 'search') {
+      const rows = this.facts.find(ws.id, { kind, word: action === 'search' ? word : undefined });
+      return { text: factsText(rows), data: rows };
+    }
+    this.requireMaestro(me);
+    if (action === 'rm') {
+      const gone = this.facts.remove(ws.id, id);
+      return { text: `forgot ${gone.id}: ${gone.text}` };
+    }
+    if (action === 'export') return this.exportFacts(ws, me, { agent, apply });
+    return fail('usage: facts [list] [--kind K] | facts search WORD | facts rm ID | facts export "Name" [--apply]');
   },
 
   /** `handoff "Agent" [--ask]`: leave a note with the state of an agent, for whoever works next. The agent stays. */
@@ -1433,6 +1456,7 @@ Core.prototype.doFloorLand = async function (ws, { name, into, deleteBranch, kee
     const out = await withLock(ws.id, () => landFloor(ws, f, { into }));
     let tail = '';
     if (!keepFloor) tail = await this.dropFloor(ws, f, { keepBranch: !deleteBranch });
+    this.noteFact(ws, 'fact', `Floor "${f.name}" was landed into ${out.into}: ${String(out.summary).split('\n')[0]}`);
     this.touch(ws);
     return { text: `landed ${f.name} into ${out.into}: ${out.summary}${tail}` };
   } catch (e) { return e instanceof FloorError ? fail(e.message) : Promise.reject(e); }
@@ -1739,6 +1763,7 @@ Core.prototype.runTask = async function (ws, me, { task, agents: rawAgents, floo
   const pos = this.placeBeside(ws, me, { w: 420, h: 320 });
   const note = this.store.createNode(ws, 'note', { name: `Run ${tag}`, text: report, floorId: me.floorId, ...pos });
   this.store.connect(ws, me.id, note.id);
+  this.noteFact(ws, 'fact', `Run "${text.slice(0, 80)}" with ${agents.join(', ')}: ${results.filter((r) => r.ok).length} of ${results.length} finished (note "${note.name}")`);
   this.touch(ws);
   if (!results.some((r) => r.ok)) fail(`${report}\n\n(also saved in the note "${note.name}")`);
   return { text: `${report}\n\n(also saved in the note "${note.name}")` };
@@ -1825,4 +1850,28 @@ Core.prototype.writeHandoff = async function (ws, me, node, { ask = false } = {}
   this.store.connect(ws, node.id, note.id);
   this.audit.record('handoff', { agent: node.name, ask, note: note.name }, 'terminal');
   return note.name;
+};
+
+/** Memory the next agent should start with, as one block of text (empty when there is none). */
+Core.prototype.factsBrief = function (ws) { return factsBrief(this.facts.list(ws.id)); };
+
+/** A line of project memory written by the app itself (a landing, a run). Never throws: memory must not break the work. */
+Core.prototype.noteFact = function (ws, kind, text) {
+  try { this.facts.add(ws.id, { kind, text, by: 'openmaestri', auto: true }); } catch { /* full disk or a bad line: skip it */ }
+};
+
+/** Write the facts into the instruction file of one agent (AGENTS.md, CLAUDE.md...), between markers. Dry run unless `apply`. */
+Core.prototype.exportFacts = function (ws, me, { agent, apply }) {
+  if (!agent) fail('usage: facts export "Name" [--apply]');
+  const node = this.resolve(ws, me, agent, ['terminal']);
+  const kind = agentKind(node);
+  if (!kind) fail(`cannot tell which agent runs in "${node.name}". Supported: ${Object.keys(AGENT_FILES).join(', ')}`);
+  let cwd;
+  try { cwd = fs.realpathSync(node.cwd); } catch { return fail(`the folder of ${node.name} is missing`); }
+  if (!this.chatRoots(ws.id).some((r) => cwd === r || cwd.startsWith(r + path.sep))) fail('that agent works outside the workspace; facts are only written inside it');
+  const block = { id: 'project-memory', name: 'Project memory', heading: 'Project memory', prompt: factsBlock(this.facts.list(ws.id)) };
+  const r = planRole({ cwd, kind, role: block, apply: !!apply });
+  if (!r.changed) return { text: `already up to date in ${r.file}` };
+  if (!apply) return { text: `Dry run: this would update ${r.file}\n\n${diffText(r.file, r.before, r.after)}\n\nRun again with --apply to write it${r.existed ? ' (a backup is made first)' : ''}.` };
+  return { text: `updated ${r.file}${r.backup ? `\nbackup: ${r.backup}` : ''}\nRestart ${node.name} so it reads the file again.` };
 };

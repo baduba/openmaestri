@@ -79,7 +79,7 @@ export function discover({ userRoles = [], dataRoles, wsRoles, repoDir }) {
 
 const open = (id) => `<!-- openmaestri:role:${id} -->`;
 const close = (id) => `<!-- /openmaestri:role:${id} -->`;
-export const blockFor = (role) => `${open(role.id)}\n## Role: ${role.name}\n\n${role.prompt.trim()}\n${close(role.id)}`;
+export const blockFor = (role) => `${open(role.id)}\n## ${role.heading ?? `Role: ${role.name}`}\n\n${role.prompt.trim()}\n${close(role.id)}`;
 
 /** Text of `file` with this role's block added or replaced (idempotent), or removed. */
 export function withBlock(existing, role, { remove = false } = {}) {
