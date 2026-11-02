@@ -1381,20 +1381,21 @@ Core.prototype.chatMaestro = function (ws) {
   return maestros.find((n) => (n.floorId ?? null) === null) ?? maestros[0] ?? null;
 };
 /** Human message: stored in the thread, then typed into the Maestro's terminal. */
-Core.prototype.chatSend = function (ws, { thread, text }) {
+Core.prototype.chatSend = function (ws, { thread, text, attachments = [] }) {
   const maestro = this.chatMaestro(ws);
   if (!maestro) throw new ChatError('there is no Maestro yet. Create a terminal with Maestro ticked (for example "Maestro (OpenCode + DeepSeek)")');
   const tid = threadId(thread) ?? this.chat.active(ws.id);
   const clean = cleanText(text, 8000).trim();
-  if (!clean) throw new ChatError('write something first');
+  if (!clean && !attachments.length) throw new ChatError('write something first');
   const expanded = materializeMentions(clean, this.prompterCtx(ws));
   this.startTerminal(ws, maestro);
   // If the agent has exited, this terminal is now a plain shell and would run the message as commands
   if (!this.terminals.agentRunning(maestro.id)) throw new ChatError(`${maestro.name} is not running an agent right now (its terminal is a plain shell, which would execute your message). Restart it, or use a preset such as "Maestro (OpenCode + DeepSeek)"`);
-  const msg = this.chat.append(ws.id, tid, { role: 'human', sender: 'You', text: clean });
+  const msg = this.chat.append(ws.id, tid, { role: 'human', sender: 'You', text: clean, attachments });
   this.ackAttention(ws);
   const title = this.chat.list(ws.id).find((t) => t.id === tid)?.title ?? tid;
-  const line = `[openmaestri chat, ${title}] ${cleanText(expanded.text, 140000)}\n(Answer the human with: openmaestri say "your answer". For long work, send short updates with: openmaestri say --progress "...")`;
+  const files = attachments.map((a) => ` [attached: ${a.name}, ${a.size} bytes. Get its path with: openmaestri recall attachment ${a.id}]`).join('');
+  const line = `[openmaestri chat, ${title}] ${cleanText(expanded.text, 140000)}${files}\n(Answer the human with: openmaestri say "your answer". For long work, send short updates with: openmaestri say --progress "...")`;
   this.terminals.deliver(maestro.id, line);
   msg.mentions = expanded.mentions;
   return msg;

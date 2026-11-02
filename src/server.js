@@ -400,6 +400,17 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
         if (bad.length) send(ws, { t: 'toast', from: 'prompter', message: `Not included: ${bad.map((x) => `@${x.kind}:${x.ref} (${x.reason})`).join('; ')}` });
         break;
       }
+      case 'chat.upload': {
+        const w = wsOf();
+        const b64 = typeof m.data === 'string' ? m.data : '';
+        if (b64.length > 15 * 1024 * 1024) throw new CommandError('that file is over the 10 MB limit');
+        const att = core.chat.attachBytes(w.id, m.name, Buffer.from(b64, 'base64'));
+        const sent = core.chatSend(w, { thread: m.threadId, text: typeof m.text === 'string' ? m.text : '', attachments: [att] });
+        core.audit.record('chat.upload', { name: att.name, bytes: att.size }, 'ui');
+        const bad = sent.mentions.filter((x) => !x.ok);
+        if (bad.length) send(ws, { t: 'toast', from: 'prompter', message: `Not included: ${bad.map((x) => `@${x.kind}:${x.ref} (${x.reason})`).join('; ')}` });
+        break;
+      }
       case 'prompts.list': { const w = wsOf(); send(ws, { t: 'prompts.list', items: core.prompts.list(w.id) }); break; }
       case 'prompts.get': { const w = wsOf(); const p = core.prompts.get(w.id, m.name, m.scope); send(ws, { t: 'prompts.item', name: p.name, scope: p.scope, text: p.text }); break; }
       case 'prompts.save': {

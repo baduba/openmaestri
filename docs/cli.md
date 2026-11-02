@@ -17,6 +17,8 @@ An agent sees only what is connected to it. A **Maestro** terminal sees the whol
 | `ask --batch '{"A":"…","B":"…"}'` | Parallel asks, JSON array `[{agent,state,output}]`; `state` is `idle`, `timeout` or `exited` |
 | `accounts set NAME VAR=value ... \| list \| rm NAME [VAR ...]` | (your own shell) Named environments for agents. See [accounts](accounts.html) |
 | `partitura export "Name"` / `partitura import FILE [--name N]` | A layout as a file, and back (imported commands are held back) |
+| `routine history "Name"` | The last 20 runs of a routine: when, scheduled or manual, ok or failed |
+| `floor hooks "Floor" [--post-agent CMD] [--pre-land CMD] [--rollback-on-fail on\|off] [--clear-hooks]` | Checks after each agent and before landing. See [floors](floors.html) |
 | `audit [--verify] [--tail N]` | (your own shell) Show or verify the append-only audit log. See [audit](audit.html) |
 | `run "task" --agents a,b [--floors] [--dry-run] [--model M] [--timeout 10m]` | The same task to several one-shot agents in parallel, one report (also kept as a note). Maestro only. See [one-shot agents](oneshot.html) |
 | `agent <driver> "prompt" [--model M] [--floor NAME] [--timeout 10m]` | One-shot run of an agent CLI in its non-interactive mode (Maestro only); prints the answer. See [one-shot agents](oneshot.html) |

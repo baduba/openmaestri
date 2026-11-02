@@ -19,13 +19,12 @@ What is done, what is next, and what is deliberately left out. The order follows
 | 0.15 | Floor snapshots and rollback |
 | 0.16 | First-run welcome screen |
 | 0.17 | Accounts, single-partitura files, duplicate workspace |
+| 0.18 | Floor hooks, routine history, files dropped on the chat |
 
-## Next (in this order)
+## Next
 
-1. **Floor hooks**: commands that run after an agent and before landing, rolling back on failure.
-2. **Routine history**: what each routine ran, when, and with what result.
-3. **Drag and drop in the chat**: drop a file on the message box to attach it.
-4. **Persistent terminals**: terminals that survive a restart of openmaestri (needs `tmux`; not testable on every machine).
+1. **Persistent terminals**: terminals that survive a restart of openmaestri (needs `tmux`; it cannot be tested on every machine).
+2. Whatever the planning agents flag after the next review, and bugs people report.
 
 ## Left out on purpose
 
