@@ -98,19 +98,35 @@ export class Scheduler {
     return r;
   }
 
-  async runNow(ws, r) {
-    let text = r.command;
-    if (r.preRun) {
-      // Intentional: --pre-run is a user-authored shell command (same privileges as the terminals, bounded by timeout and output size).
-      const out = await new Promise((res) =>
-        // eslint-disable-next-line security/detect-child-process
-        exec(r.preRun, { cwd: ws.dir, timeout: 60000, maxBuffer: 1 << 20 }, (_e, stdout) => res(String(stdout || '').trim())),
-      );
-      text = text.includes('{{output}}') ? text.replaceAll('{{output}}', out) : text;
+  /** Keep the last 20 outcomes of a routine: when, how it started, whether it worked. */
+  record(r, entry) {
+    r.history ??= [];
+    r.history.push({ at: new Date().toISOString(), ...entry });
+    if (r.history.length > 20) r.history.splice(0, r.history.length - 20);
+  }
+
+  async runNow(ws, r, trigger = 'manual') {
+    const started = Date.now();
+    let preRun;
+    try {
+      let text = r.command;
+      if (r.preRun) {
+        // Intentional: --pre-run is a user-authored shell command (same privileges as the terminals, bounded by timeout and output size).
+        const { out, failed } = await new Promise((res) =>
+          // eslint-disable-next-line security/detect-child-process
+          exec(r.preRun, { cwd: ws.dir, timeout: 60000, maxBuffer: 1 << 20 }, (e, stdout) => res({ out: String(stdout || '').trim(), failed: !!e })),
+        );
+        preRun = failed ? 'failed' : 'ok';
+        text = text.includes('{{output}}') ? text.replaceAll('{{output}}', out) : text;
+      }
+      this.deps.fire(ws, r, text);
+      r.fireCount += 1;
+      r.lastFiredAt = new Date().toISOString();
+      this.record(r, { trigger, ok: true, ms: Date.now() - started, ...(preRun ? { preRun } : {}) });
+    } catch (e) {
+      this.record(r, { trigger, ok: false, ms: Date.now() - started, error: String(e?.message ?? e).slice(0, 200), ...(preRun ? { preRun } : {}) });
+      throw e;
     }
-    this.deps.fire(ws, r, text);
-    r.fireCount += 1;
-    r.lastFiredAt = new Date().toISOString();
   }
 
   async tick() {
@@ -119,7 +135,7 @@ export class Scheduler {
       let dirty = false;
       for (const r of ws.routines) {
         if (!r.enabled || r.nextRunAt == null || r.nextRunAt > now) continue;
-        try { await this.runNow(ws, r); } catch (e) { console.error("[routine] failed:", r.name, String(e)); }
+        try { await this.runNow(ws, r, 'schedule'); } catch (e) { console.error("[routine] failed:", r.name, String(e)); }
         const done = (r.count != null && r.fireCount >= r.count) || (r.until && Date.parse(r.until) <= now);
         r.nextRunAt = done ? null : nextRun(r.schedule, now);
         if (r.nextRunAt == null) r.enabled = false;

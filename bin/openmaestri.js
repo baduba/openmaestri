@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 
-const BOOL = new Set(['no-check', 'summary', 'archive', 'apply', 'trust', 'global', 'overwrite', 'progress', 'all', 'existing-branch', 'copy', 'no-git', 'copy-ground', 'delete-branch', 'keep-floor', 'keep-branch', 'keep-folder', 'open', 'version', 'json', 'raw-flag', 'batch', 'force', 'none', 'clear', 'without-me', 'no-notify', 'disabled', 'reminder', 'agent', 'floors', 'dry-run', 'verify', 'note', 'band', 'fichario', 'portal', 'help']);
+const BOOL = new Set(['no-check', 'summary', 'archive', 'apply', 'trust', 'global', 'overwrite', 'progress', 'all', 'existing-branch', 'copy', 'no-git', 'copy-ground', 'delete-branch', 'keep-floor', 'no-hooks', 'clear-hooks', 'keep-branch', 'keep-folder', 'open', 'version', 'json', 'raw-flag', 'batch', 'force', 'none', 'clear', 'without-me', 'no-notify', 'disabled', 'reminder', 'agent', 'floors', 'dry-run', 'verify', 'note', 'band', 'fichario', 'portal', 'help']);
 
 const HELP = `openmaestri - a spatial workspace for AI agents (open implementation)
 
@@ -42,10 +42,11 @@ Usage:
   openmaestri preset list|show|create|set|delete ...
   openmaestri role list|show|create|write|edit|assign|delete ...
   openmaestri role discover | install "Role" --agent "Name" [--apply] [--trust] | uninstall "Role" --agent "Name" [--apply]   Dry run unless --apply
-  openmaestri routine list|show|create|edit|enable|disable|run|delete ...
+  openmaestri routine list|show|create|edit|enable|disable|run|delete|history ...
       schedules: --every 30m | --daily 09:00 | --weekly mon,fri@09:00 | --once "2026-12-01 15:00"
       options:   --terminal "Name" | --count N | --until DATE | --pre-run "cmd" ({{output}} in the command) | --no-notify | --disabled
   openmaestri workspace list|create|rename ...
+  openmaestri floor hooks "Floor" [--post-agent CMD] [--pre-land CMD] [--rollback-on-fail on|off]   Checks after each agent and before landing
   openmaestri floor snapshot|snapshots|rollback ["Floor"] ...  Remember the files of a floor, list the memories, put them back (rollback is itself undoable)
   openmaestri floor prs [--provider github|gitlab] [--json]   Open pull/merge requests with their checks (needs gh or glab, signed in)
   openmaestri floor create "Name" [--from PATH] [--branch B] [--existing-branch] [--copy] [--no-git] [--copy-ground] [--partitura P] | --dir PATH | --pull-request N|URL
@@ -230,11 +231,11 @@ export function build({ pos, flags }) {
       const sched = { every: flags.every, daily: flags.daily, weekly: flags.weekly, once: flags.once };
       switch (c1) {
         case 'list': return { cmd: 'routine.list', args: {} };
-        case 'show': case 'enable': case 'disable': case 'run': case 'delete': need(name, `routine ${c1} "Name"`); return { cmd: `routine.${c1}`, args: { name } };
+        case 'show': case 'enable': case 'disable': case 'run': case 'delete': case 'history': need(name, `routine ${c1} "Name"`); return { cmd: `routine.${c1}`, args: { name } };
         case 'create': need(name && flags.command, 'routine create "Name" --command "..." <schedule>');
           return { cmd: 'routine.create', args: { name, command: flags.command, terminal: flags.terminal, ...sched, count: flags.count, until: flags.until, preRun: flags['pre-run'], noNotify: !!flags['no-notify'], disabled: !!flags.disabled, reminder: !!flags.reminder } };
         case 'edit': need(name, 'routine edit "Name" [flags]'); return { cmd: 'routine.edit', args: { name, newName: flags.name, command: flags.command, terminal: flags.terminal, ...sched } };
-        default: throw new Error('usage: routine list|show|create|edit|enable|disable|run|delete');
+        default: throw new Error('usage: routine list|show|create|edit|enable|disable|run|delete|history');
       }
     }
     case 'workspace': {
@@ -249,6 +250,7 @@ export function build({ pos, flags }) {
     case 'floor': {
       const [name, p2] = rest;
       switch (c1) {
+        case 'hooks': need(name, 'floor hooks "Floor" [--post-agent CMD] [--pre-land CMD] [--rollback-on-fail on|off] [--clear-hooks]'); return { cmd: 'floor.hooks', args: { name, postAgent: flags['post-agent'] === undefined ? undefined : String(flags['post-agent']), preLand: flags['pre-land'] === undefined ? undefined : String(flags['pre-land']), rollbackOnFail: onOff(flags['rollback-on-fail']), clear: !!flags['clear-hooks'] } };
         case 'snapshot': return { cmd: 'floor.snapshot', args: { name, label: flags.label === undefined ? undefined : String(flags.label) } };
         case 'snapshots': return { cmd: 'floor.snapshots', args: { name } };
         case 'rollback': need(name, 'floor rollback "Floor" [SNAPSHOT_ID]'); return { cmd: 'floor.rollback', args: { name, id: p2 } };
@@ -256,7 +258,7 @@ export function build({ pos, flags }) {
         case 'create': need(name || flags['pull-request'], 'floor create "Name" [--from PATH] [--branch B] [--existing-branch] [--copy] [--no-git] [--copy-ground] [--partitura P] | --dir PATH | --pull-request N|URL');
           return { cmd: 'floor.create', args: { name, from: flags.from, branch: flags.branch, existingBranch: !!flags['existing-branch'], copy: !!flags.copy, noGit: !!flags['no-git'], copyGround: !!flags['copy-ground'], partitura: flags.partitura, dir: flags.dir, pullRequest: flags['pull-request'], provider: flags.provider } };
         case 'list': return { cmd: 'floor.list', args: {} };
-        case 'land': need(name, 'floor land "Name" [--into BRANCH] [--delete-branch] [--keep-floor]'); return { cmd: 'floor.land', args: { name, into: flags.into, deleteBranch: !!flags['delete-branch'], keepFloor: !!flags['keep-floor'] } };
+        case 'land': need(name, 'floor land "Name" [--into BRANCH] [--delete-branch] [--keep-floor]'); return { cmd: 'floor.land', args: { name, into: flags.into, deleteBranch: !!flags['delete-branch'], keepFloor: !!flags['keep-floor'], noHooks: !!flags['no-hooks'] } };
         case 'delete': need(name, 'floor delete "Name" [--keep-branch] [--keep-folder] [--force]'); return { cmd: 'floor.delete', args: { name, keepBranch: !!flags['keep-branch'], keepFolder: !!flags['keep-folder'], force: !!flags.force } };
         case 'set-dir': need(name && p2, 'floor set-dir "Name" PATH'); return { cmd: 'floor.set-dir', args: { name, path: p2 } };
         case 'unload': need(name, 'floor unload "Name"'); return { cmd: 'floor.unload', args: { name } };

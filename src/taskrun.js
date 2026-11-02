@@ -37,6 +37,7 @@ export function reportText({ task, results, floors }) {
     if (r.problem) out.push(r.problem);
     else if (r.text) out.push('', clip(r.text), r.truncated ? '[output was cut at 400 KB]' : '');
     if (!r.ok && !r.problem && r.stderr) out.push('', `stderr: ${r.stderr}`);
+    if (r.hook) out.push('', r.hook.text);
     out.push('');
   }
   if (floors && results.some((r) => r.floor)) out.push('Review each floor, then land the ones you want: `openmaestri floor land NAME`. Remove the rest: `openmaestri floor delete NAME`.');
