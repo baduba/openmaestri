@@ -4,6 +4,18 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-02
+
+### Added
+- `openmaestri audit [--verify] [--tail N]`: an append-only, hash-chained log of secrets stored or removed, agent runs, imports and exports; `--verify` detects edited, removed, reordered and cut-off lines (docs/audit.md)
+
+### Security
+- Workspace files are checked against a closed format: unknown fields, wrong types, unknown kinds, over-deep nesting and other versions are refused as a whole, with the reasons listed; a refused file creates nothing and is recorded
+- The audit log never stores a prompt or a key, only names, sizes and a SHA-256
+
+### Fixed
+- Files nodes are left out of exported workspace files (they were not part of the format)
+
 ## [0.12.1] - 2026-11-01
 
 ### Security

@@ -2,6 +2,7 @@
 // every command that either the CLI (inside a terminal) or the UI can issue.
 import crypto from 'node:crypto';
 import { Secrets } from './secrets.js';
+import { Audit, sha256 } from './audit.js';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -42,6 +43,7 @@ export class Core extends EventEmitter {
     // the secret store is opened lazily: a broken keyring must not stop the daemon, only the references that need it
     let secrets = null;
     const resolveSecret = (ref) => { try { secrets ??= new Secrets({ root: dataRoot }); return secrets.resolve(ref); } catch { return undefined; } };
+    this.audit = new Audit(path.join(dataRoot, 'audit.log'));
     this.resolveSecret = resolveSecret;
     this.headless = new Set();
     this.terminals = new Terminals({ socketPath, cliDir, cliBin, envFile: path.join(dataRoot, 'env'), resolveSecret });
@@ -312,6 +314,7 @@ const HANDLERS = {
     if (floor && !rec) fail(`no floor named "${floor}" (see: floor list)`);
     const cwd = [rec?.dir, me.cwd, ws.dir].find((d) => d && fs.existsSync(d)) ?? process.env.HOME;
     const expanded = materializeMentions(String(prompt ?? ''), this.prompterCtx(ws, me)).text;
+    this.audit.record('agent.run', { driver, by: me.name, folder: path.basename(cwd), model: model ?? '', promptChars: expanded.length, promptSha256: sha256(expanded) }, 'terminal');
     const r = await this.execAgent({ driver, drivers, prompt: expanded, cwd, model, timeoutMs, ws });
     const secs = (r.ms / 1000).toFixed(1);
     if (r.timedOut) fail(`${driver} did not finish in time and was stopped (${secs}s)${r.text ? `. Partial output:\n${r.text}` : ''}`);
@@ -1397,6 +1400,7 @@ Core.prototype.runTask = async function (ws, me, { task, agents: rawAgents, floo
   const prompt = materializeMentions(text, this.prompterCtx(ws, me)).text;
   const tag = crypto.randomBytes(2).toString('hex');
   const base = me.cwd && fs.existsSync(me.cwd) ? me.cwd : ws.dir;
+  this.audit.record('run', { agents, by: me.name, floors: !!floors, model: model ?? '', taskChars: prompt.length, taskSha256: sha256(prompt) }, 'terminal');
   // take the slots now, before any await: two runs started together cannot both pass the limit
   const slots = agents.map(() => new AbortController());
   for (const ac of slots) this.headless.add(ac);
