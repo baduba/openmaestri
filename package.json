@@ -15,7 +15,7 @@
     "audit": "npm audit --omit=dev --audit-level=low"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",

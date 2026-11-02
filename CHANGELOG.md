@@ -13,6 +13,9 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 - Workspace files are checked against a closed format: unknown fields, wrong types, unknown kinds, over-deep nesting and other versions are refused as a whole, with the reasons listed; a refused file creates nothing and is recorded
 - The audit log never stores a prompt or a key, only names, sizes and a SHA-256
 
+### Changed
+- Node.js 22 is the minimum (Node 20 reached end of life in April 2026); CI tests 22 and 24
+
 ### Fixed
 - Files nodes are left out of exported workspace files (they were not part of the format)
 

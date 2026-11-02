@@ -10,7 +10,7 @@
 
 [![CI](https://github.com/baduba/openmaestri/actions/workflows/ci.yml/badge.svg)](https://github.com/baduba/openmaestri/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-f4c430?style=flat-square)](LICENSE)
-[![Node.js 20+](https://img.shields.io/badge/Node.js-20%2B-339933?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org)
+[![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-339933?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-4cc38a?style=flat-square)](CONTRIBUTING.md)
 
 [Quick start](#quick-start) · [How it works](#how-it-works) · [DeepSeek and open models](#deepseek-and-open-models) · [CLI](#the-openmaestri-cli) · [FAQ](#faq) · [Docs](https://baduba.github.io/openmaestri/) · [Report a bug](docs/reporting-bugs.md)
@@ -37,7 +37,7 @@ Running three agents in three terminals means you are the message bus: copy this
 ### Debian / Ubuntu (`.deb`)
 
 ```bash
-# Node.js 20+ is required (https://nodejs.org or NodeSource)
+# Node.js 22+ is required (https://nodejs.org or NodeSource)
 sudo apt install ./openmaestri_0.8.0_amd64.deb
 openmaestri serve --open
 ```

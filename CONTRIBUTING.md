@@ -38,7 +38,7 @@ OPENMAESTRI_DATA_DIR=/tmp/om-dev OPENMAESTRI_PORT=0 npm start
 ## Code style
 
 - Plain modern JavaScript (ESM), no build step, no TypeScript yet. Match the surrounding code: small functions, comments that say *why*.
-- Server and CLI must run on Node 20+.
+- Server and CLI must run on Node 22+.
 - The UI uses vanilla modules. Use `textContent`, never `innerHTML`, for anything that can contain user or agent text.
 - Anything that touches the network surface (HTTP, WebSocket, socket, iframes) needs a test and a note in the PR about the security impact.
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build dist/openmaestri_<version>_<arch>.deb from the working tree.
 #   scripts/build-deb.sh            -> dist/openmaestri_<ver>_amd64.deb
-# Needs: node >= 20, npm, a C++ toolchain (node-pty compiles on install), dpkg-deb.
+# Needs: node >= 22, npm, a C++ toolchain (node-pty compiles on install), dpkg-deb.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -43,7 +43,7 @@ Version: ${VERSION}
 Section: devel
 Priority: optional
 Architecture: ${ARCH}
-Depends: nodejs (>= 20)
+Depends: nodejs (>= 22)
 Recommends: git, xdg-utils, chromium | chromium-browser | google-chrome-stable
 Installed-Size: ${SIZE_KB}
 Maintainer: openmaestri contributors <https://github.com/baduba/openmaestri/issues>

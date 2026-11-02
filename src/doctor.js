@@ -26,7 +26,7 @@ export async function runDoctor({ env = process.env, root = dataDir(), socketPat
   const add = (name, level, detail, fix) => out.push({ name, level, detail, ...(fix ? { fix } : {}) });
 
   const major = Number(process.versions.node.split('.')[0]);
-  add('Node.js', major >= 20 ? 'ok' : 'fail', `v${process.versions.node}`, major >= 20 ? undefined : 'install Node.js 20 or newer (https://nodejs.org)');
+  add('Node.js', major >= 22 ? 'ok' : 'fail', `v${process.versions.node}`, major >= 22 ? undefined : 'install Node.js 22 or newer (https://nodejs.org)');
 
   const git = sh('git', ['--version']);
   add('git', git ? 'ok' : 'warn', git ?? 'not found', git ? undefined : 'install git; floors need it (apt install git)');
