@@ -33,7 +33,7 @@ export function reportText({ task, results, floors }) {
   const out = [`# Run: ${task.length > 80 ? `${task.slice(0, 80)}...` : task}`, '', `${okCount} of ${results.length} agents finished${floors ? ', each on its own floor' : ''}.`, ''];
   for (const r of results) {
     out.push(`## ${r.driver}: ${statusOf(r)}${r.ms ? ` (${secs(r.ms)}s)` : ''}`);
-    if (r.floor) out.push(`Floor: ${r.floor.name}${r.floor.branch ? `, branch ${r.floor.branch}` : ''}, ${r.floor.dir}`);
+    if (r.floor) out.push(`Floor: ${r.floor.name}${r.floor.branch ? `, branch ${r.floor.branch}` : ''}, ${r.floor.dir}${r.floor.snapshot ? `. Snapshot ${r.floor.snapshot}` : ''}`);
     if (r.problem) out.push(r.problem);
     else if (r.text) out.push('', clip(r.text), r.truncated ? '[output was cut at 400 KB]' : '');
     if (!r.ok && !r.problem && r.stderr) out.push('', `stderr: ${r.stderr}`);

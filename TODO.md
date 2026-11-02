@@ -42,7 +42,7 @@ Legenda: [x] feito · [ ] pendente
 ## G. Depois da fase 4 (planejadores kimi + agy)
 - [x] Endurecimento: SSRF nos portais, hooks do git, teto de terminais, vazamento no export
 - [x] `openmaestri doctor`, `recruit --model`, checagem do agente instalado
-- [x] Árvore de arquivos e editor no canvas (v0.9.0) · [x] lista de PRs e floors a partir de PR (gh/glab, v0.14.0) · [ ] hooks e snapshots de floor
+- [x] Árvore de arquivos e editor no canvas (v0.9.0) · [x] lista de PRs e floors a partir de PR (gh/glab, v0.14.0) · [x] snapshots e rollback de floor (v0.15.0) · [ ] hooks de floor
 - [x] Chaves nomeadas com chaveiro (secret://, v0.10.0) · [ ] alternar várias contas por agente · [ ] Electron (por último) · [ ] arrastar e soltar arquivos
 
 ## F. Fase 1 de paridade (feito em feature/canvas-parity)

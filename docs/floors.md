@@ -71,3 +71,21 @@ Then `openmaestri floor create --pull-request 12` (a number, `#12`, or the page 
 - It uses **your** `gh` or `glab`, already signed in; openmaestri never sees or keeps a token. If the program is missing, the message tells you where to get it.
 - It is read-only: nothing is pushed, commented or merged. Titles, branch names and authors are written by other people, so control characters and direction-changing characters are removed before they are shown.
 - A `gh` or `glab` that resolves inside the workspace is refused, like the agent CLIs.
+
+## Snapshots and rollback
+
+A snapshot remembers every file of a floor at one moment: edited files, new files and deletions. Ignored files (what `.gitignore` lists) are not part of it. It is stored inside the repository as a hidden git object under `refs/openmaestri/snapshots/`, so nothing appears in `git status`, `git log` or your branches.
+
+```bash
+openmaestri floor snapshot "Work" --label "tests pass"
+openmaestri floor snapshots "Work"          # newest first
+openmaestri floor rollback "Work"           # back to the latest one
+openmaestri floor rollback "Work" 20261102093015123-a1b2
+```
+
+- **A rollback can be undone.** Before putting the files back it takes a snapshot of how they are now, and prints the command that returns to it.
+- **Automatic ones.** `openmaestri run --floors` takes a snapshot of each agent's floor when the agent finishes (the report prints its id), and `floor land` takes one just before landing.
+- **What it restores:** files. It does not move the branch: commits made after the snapshot stay (the rollback tells you when that happened), and the staging area is not restored.
+- It refuses while an agent in that floor is printing output, because files would change under it.
+- Only the last 20 snapshots of a floor are kept, and deleting the floor removes them. A snapshot of a floor with very large files takes room in `.git`.
+- It needs the floor folder to be the top of a git repository or worktree. The ground floor works too.

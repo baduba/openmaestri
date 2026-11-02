@@ -4,6 +4,15 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-02
+
+### Added
+- `openmaestri floor snapshot|snapshots|rollback`: remember the files of a floor (edits, new files, deletions) as hidden git objects, list them, put them back; a rollback takes a snapshot of the present first, so it can be undone (docs/floors.md)
+- Automatic snapshots: after each agent of `run --floors` (the id is in the report) and before `floor land`
+
+### Security
+- Snapshots never touch the branch, the index or `git status`; rollback deletes only files git knows or would add, inside the floor folder, and refuses while an agent is writing there
+
 ## [0.14.0] - 2026-11-02
 
 ### Added
