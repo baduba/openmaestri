@@ -4,6 +4,12 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+- `scripts/aws-spot-check.sh`: a Spot test box on AWS kept for a while, reached through SSM (no inbound port, no SSH key), with `up`, `run`, `stop`, `start`, `status` and a tag-checked `down`
+
+### Changed
+- `npm test` gives each test 4 minutes, so a hang fails with the test's name instead of blocking CI for an hour
+
 ### Tests
 - The container sandbox is proven to have no Docker socket, no capabilities, no privilege gain, one mount only, and no sight of the openmaestri data folder
 

@@ -50,3 +50,8 @@ Legenda: [x] feito · [ ] pendente
 - [x] Fase 2: floors com git worktree, landing, hooks, snapshots; revisão de PRs (v0.18.0)
 - [x] Fase 3: automação de portal (CDP)
 - [x] Fase 4: [x] chat com threads (say/recall) · [x] memória resumida · [x] prompter (popup, preview, índice cancelável, arrastar e soltar) · [x] prompts salvos · [x] uso dos agentes (relatado/parseado, sem estimativa) · [x] descoberta/instalação de roles · [x] memória longa (local, sem modelo) · [x] arrastar e soltar
+
+## H. Infraestrutura de teste (backlog)
+- [ ] Máquina Spot de teste na AWS mantida de pé por um tempo (criada em 2026-11-02, **revisar até 2026-11-16**): decidir se ela passou a ser usada ou se é destruída com `scripts/aws-spot-check.sh down`. Enquanto existir, fica parada (`stop`) quando ninguém usa, para custar só o disco. Detalhes e estado: `scripts/aws-spot-check.sh status`.
+- [ ] Validar na máquina os drivers `opencode`, `codex`, `aider` e `goose` com os programas reais (o instalador externo é bloqueado no computador local, mas a máquina descartável é o lugar certo para isso)
+- [ ] Se a máquina for usada de verdade, rodar o CI de integração nela (testes com Docker, tmux e Electron/Xvfb) em vez de depender da carga da máquina local
