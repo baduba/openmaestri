@@ -1,5 +1,6 @@
 // Core: owns the store, the terminal runtime and the scheduler, and implements
 // every command that either the CLI (inside a terminal) or the UI can issue.
+import crypto from 'node:crypto';
 import { Secrets } from './secrets.js';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
@@ -10,8 +11,9 @@ import { Terminals } from './terminals.js';
 import { DRIVERS, customDrivers, workerEnv, runHeadless, HeadlessError } from './headless.js';
 import { discover as discoverRoles, plan as planRole, diffText, agentKind, RoleError, AGENT_FILES } from './roles.js';
 import { Files, FilesError } from './files.js';
+import { MAX_AGENTS, parseAgents, planText, reportText } from './taskrun.js';
 import { Usage, UsageError } from './usage.js';
-import { readUserEnv, TerminalError, commandAvailable } from './terminals.js';
+import { readUserEnv, TerminalError, commandAvailable, commandPath } from './terminals.js';
 import { PromptLib, PromptError } from './promptlib.js';
 import { Chat, ChatError, THREAD_IDS, threadId, cleanText } from './chat.js';
 import { materialize as materializeMentions, parse as parseMentions, fileIndex, rank } from './prompter.js';
@@ -250,7 +252,7 @@ const textOf = (rows) => rows.join('\n');
 const kindLabel = { terminal: 'agent', note: 'note', portal: 'portal', stack: 'stack', band: 'band' };
 const KIND_FLAGS = { agent: 'terminal', note: 'note', portal: 'portal', fichario: 'stack', stack: 'stack', band: 'band' };
 
-const MAX_HEADLESS = 6;
+const MAX_HEADLESS = MAX_AGENTS;
 
 const HANDLERS = {
   guide() {
@@ -310,17 +312,18 @@ const HANDLERS = {
     if (floor && !rec) fail(`no floor named "${floor}" (see: floor list)`);
     const cwd = [rec?.dir, me.cwd, ws.dir].find((d) => d && fs.existsSync(d)) ?? process.env.HOME;
     const expanded = materializeMentions(String(prompt ?? ''), this.prompterCtx(ws, me)).text;
-    const ac = new AbortController();
-    this.headless.add(ac);
-    try {
-      const env = workerEnv(process.env, path.join(this.dataRoot, 'env'), this.resolveSecret);
-      const r = await runHeadless({ driver, drivers, prompt: expanded, cwd, env, model, timeoutMs, signal: ac.signal });
-      const secs = (r.ms / 1000).toFixed(1);
-      if (r.timedOut) fail(`${driver} did not finish in time and was stopped (${secs}s)${r.text ? `. Partial output:\n${r.text}` : ''}`);
-      if (r.cancelled) fail(`${driver} was stopped`);
-      if (!r.ok) fail(`${driver} exited with ${r.exitCode ?? r.signal ?? 'an error'} after ${secs}s${r.stderr ? `:\n${r.stderr}` : ''}${r.text ? `\nOutput:\n${r.text}` : ''}`);
-      return { text: `${r.text || '(no output)'}${r.truncated ? '\n[output cut at 400 KB]' : ''}\n[${driver}, ${secs}s, ${path.basename(cwd)}]` };
-    } finally { this.headless.delete(ac); }
+    const r = await this.execAgent({ driver, drivers, prompt: expanded, cwd, model, timeoutMs });
+    const secs = (r.ms / 1000).toFixed(1);
+    if (r.timedOut) fail(`${driver} did not finish in time and was stopped (${secs}s)${r.text ? `. Partial output:\n${r.text}` : ''}`);
+    if (r.cancelled) fail(`${driver} was stopped`);
+    if (!r.ok) fail(`${driver} exited with ${r.exitCode ?? r.signal ?? 'an error'} after ${secs}s${r.stderr ? `:\n${r.stderr}` : ''}${r.text ? `\nOutput:\n${r.text}` : ''}`);
+    return { text: `${r.text || '(no output)'}${r.truncated ? '\n[output cut at 400 KB]' : ''}\n[${driver}, ${secs}s, ${path.basename(cwd)}]` };
+  },
+
+  /** One task for several one-shot agents in parallel; the report is also left as a note on the canvas. */
+  async run(ws, me, args) {
+    this.requireMaestro(me);
+    return this.runTask(ws, me, args);
   },
 
   async 'ask.batch'(ws, me, { items, timeoutMs }) {
@@ -1349,6 +1352,63 @@ Core.prototype.roleChange = function (ws, me, { role, agent, apply, trust }, rem
 };
 
 /** The folder a Files node browses: its floor's folder, or the workspace folder. */
+/** Run one headless agent; tracked so shutdown and the concurrency limit see it. Never throws for a failed run. */
+Core.prototype.execAgent = async function ({ driver, drivers, prompt, cwd, model, timeoutMs }) {
+  const ac = new AbortController();
+  this.headless.add(ac);
+  try {
+    const env = workerEnv(process.env, path.join(this.dataRoot, 'env'), this.resolveSecret);
+    return await runHeadless({ driver, drivers, prompt, cwd, env, model, timeoutMs, signal: ac.signal });
+  } finally { this.headless.delete(ac); }
+};
+
+/** Problems that would stop a run before it starts: unknown driver, program not installed. */
+Core.prototype.preflightAgents = function (agents, drivers) {
+  const problems = [];
+  for (const a of agents) {
+    if (!drivers[a]) problems.push(`no driver named "${a}"`);
+    else if (!commandPath(drivers[a].bin)) problems.push(`"${drivers[a].bin}" (driver ${a}) was not found in your shell`);
+  }
+  return problems;
+};
+
+Core.prototype.runTask = async function (ws, me, { task, agents: rawAgents, floors, dryRun, model, timeoutMs }) {
+  const text = String(task ?? '').trim();
+  const agents = parseAgents(rawAgents);
+  if (!text || !agents.length) fail('usage: run "task" --agents claude,codex [--floors] [--dry-run] [--model M] [--timeout 10m]');
+  if (agents.length > MAX_AGENTS) fail(`at most ${MAX_AGENTS} agents per run`);
+  const drivers = { ...DRIVERS, ...customDrivers(this.store.settings.drivers) };
+  const problems = this.preflightAgents(agents, drivers);
+  if (problems.length) fail(`cannot start the run:\n- ${problems.join('\n- ')}`);
+  if (floors && !(await repoTop(ws.dir))) fail('--floors needs the workspace folder to be a git repository; without one, agents would share the same folder');
+  const plan = planText({ task: text, agents, floors: !!floors, model });
+  if (dryRun) return { text: `${plan}\n\nDry run: nothing was started.` };
+  if (this.headless.size + agents.length > MAX_HEADLESS) fail(`${this.headless.size} one-shot agents are already running; this run needs ${agents.length} of the ${MAX_HEADLESS} allowed`);
+  const prompt = materializeMentions(text, this.prompterCtx(ws, me)).text;
+  const tag = crypto.randomBytes(2).toString('hex');
+  const base = me.cwd && fs.existsSync(me.cwd) ? me.cwd : ws.dir;
+  const results = await Promise.all(agents.map(async (driver) => {
+    let floor = null;
+    let cwd = base;
+    if (floors) {
+      try {
+        const made = await this.doFloorCreate(ws, { name: `run ${driver} ${tag}` });
+        floor = { name: `run ${driver} ${tag}`, dir: made.data.dir, branch: made.data.branch };
+        cwd = made.data.dir;
+      } catch (e) { return { driver, ok: false, problem: `the floor could not be created: ${e.message}` }; }
+    }
+    const r = await this.execAgent({ driver, drivers, prompt, cwd, model, timeoutMs });
+    return { driver, floor, ...r };
+  }));
+  const report = reportText({ task: text, results, floors: !!floors });
+  const pos = this.placeBeside(ws, me, { w: 420, h: 320 });
+  const note = this.store.createNode(ws, 'note', { name: `Run ${tag}`, text: report, floorId: me.floorId, ...pos });
+  this.store.connect(ws, me.id, note.id);
+  this.touch(ws);
+  if (!results.some((r) => r.ok)) fail(`${report}\n\n(also saved in the note "${note.name}")`);
+  return { text: `${report}\n\n(also saved in the note "${note.name}")` };
+};
+
 Core.prototype.filesRoot = function (ws, node) {
   if (node.kind !== 'files') throw new FilesError('that is not a file browser');
   return node.floorId ? (ws.floors.find((f) => f.id === node.floorId)?.dir ?? ws.dir) : ws.dir;

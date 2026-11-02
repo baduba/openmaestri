@@ -14,6 +14,19 @@ openmaestri agent agy "Review this plan" --model gemini-3.8-flash --timeout 5m
 
 Only a Maestro can run it. The agent works in the Maestro's folder, or in a floor with `--floor`. `@agent:`, `@note:` and `@file:` mentions in the prompt are expanded the same way as in the chat.
 
+## One task, several agents
+
+```bash
+openmaestri run "Find the bug in the login flow" --agents claude,opencode-deepseek,agy --dry-run
+openmaestri run "Find the bug in the login flow" --agents claude,opencode-deepseek,agy --floors
+```
+
+Every agent gets the same task and they run in parallel (2 to 6 of them). The answer of each one is quoted as it came, with its status and time, in one report. The report is printed and also left as a note next to the Maestro. Nothing summarises it with a model, so it never invents or loses a result; a failing agent is marked and the others still count (the command only fails when all of them fail).
+
+- `--dry-run` shows what would run (agents, folders, floors) and starts nothing. It still checks that every driver exists and its program is installed.
+- `--floors` gives each agent its own floor: a separate git worktree and branch, so they cannot overwrite each other. It needs the workspace folder to be a git repository. Floors are kept for you to review; land the one you want with `openmaestri floor land NAME`, and remove the others with `openmaestri floor delete NAME`. Without `--floors` all agents share one folder, which is fine for questions and reviews and risky for edits.
+- `--model M` applies to every driver that takes a model, `--timeout 10m` to each agent.
+
 ## Drivers
 
 Any agent works; DeepSeek is only the pair of cheapest presets.

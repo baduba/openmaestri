@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 
-const BOOL = new Set(['no-check', 'summary', 'archive', 'apply', 'trust', 'global', 'overwrite', 'progress', 'all', 'existing-branch', 'copy', 'no-git', 'copy-ground', 'delete-branch', 'keep-floor', 'keep-branch', 'keep-folder', 'open', 'version', 'json', 'raw-flag', 'batch', 'force', 'none', 'clear', 'without-me', 'no-notify', 'disabled', 'reminder', 'agent', 'note', 'band', 'fichario', 'portal', 'help']);
+const BOOL = new Set(['no-check', 'summary', 'archive', 'apply', 'trust', 'global', 'overwrite', 'progress', 'all', 'existing-branch', 'copy', 'no-git', 'copy-ground', 'delete-branch', 'keep-floor', 'keep-branch', 'keep-folder', 'open', 'version', 'json', 'raw-flag', 'batch', 'force', 'none', 'clear', 'without-me', 'no-notify', 'disabled', 'reminder', 'agent', 'floors', 'dry-run', 'note', 'band', 'fichario', 'portal', 'help']);
 
 const HELP = `openmaestri - a spatial workspace for AI agents (open implementation)
 
@@ -14,6 +14,7 @@ Usage:
   openmaestri [serve] [--open]                       Start the app (outside a terminal): daemon + web UI. --open launches the browser
   openmaestri list                                   List connected agents, notes and portals
   openmaestri notify "message"                       Send the user a notification
+  openmaestri run "task" --agents a,b [--floors] [--dry-run]   Same task to several one-shot agents in parallel; report kept as a note
   openmaestri agent claude|codex|gemini|agy|kimi|opencode|aider|goose "prompt"   One-shot run of an agent CLI, prints its answer (no terminal)
   openmaestri ask "Agent" "prompt" [--timeout 120s]  Send a prompt to a connected agent, wait until it settles, print what it produced
   openmaestri ask --batch '{"A":"prompt","B":"prompt"}'  Ask several agents in parallel; prints a JSON array
@@ -112,6 +113,10 @@ export function build({ pos, flags }) {
       if (flags.raw !== undefined) return { cmd: 'ask', args: { name: c1, raw: String(flags.raw === true ? rest.join(' ') : flags.raw), timeoutMs } };
       need(rest.length, 'ask "Agent" "prompt"');
       return { cmd: 'ask', args: { name: c1, prompt: rest.join(' '), timeoutMs } };
+    }
+    case 'run': {
+      need(c1 && flags.agents, 'run "task" --agents claude,codex [--floors] [--dry-run] [--model M] [--timeout 10m]');
+      return { cmd: 'run', args: { task: [c1, ...rest].join(' '), agents: String(flags.agents), floors: !!flags.floors, dryRun: !!flags['dry-run'], model: flags.model === undefined ? undefined : String(flags.model), timeoutMs: duration(flags.timeout) } };
     }
     case 'agent': {
       need(c1 && rest.length, 'agent <driver> "prompt" [--model M] [--floor NAME] [--timeout 10m]');
