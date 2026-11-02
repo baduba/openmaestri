@@ -6,6 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { main } from '../src/server.js';
 import { runHook } from '../src/hooks.js';
+
+const dockerPath = spawnSync('sh', ['-c', 'command -v docker'], { encoding: 'utf8' }).stdout.trim();
 import { explainDocker } from '../src/headless.js';
 import { runDoctor, formatDoctor } from '../src/doctor.js';
 import { Persist } from '../src/persist.js';
@@ -28,15 +30,16 @@ test('a hook can run in a container: same folder rule, no host files, no network
   const dir = mk(t);
   fs.writeFileSync(path.join(dir, 'in.txt'), 'project file');
   const hostFile = path.join(os.homedir(), '.openmaestri-hook-marker');
-  const r = await runHook(`pwd; cat in.txt; test -e ${hostFile} && echo LEAK || echo isolated; id -u`, { cwd: dir, sandbox: 'alpine:3' });
+  const r = await runHook(`pwd; cat in.txt; test -e ${hostFile} && echo LEAK || echo isolated; id -u`, { cwd: dir, sandbox: 'alpine:3', docker: dockerPath });
   assert.equal(r.ok, true, r.output);
   assert.match(r.output, /^\/work$/m);
   assert.match(r.output, /project file/);
   assert.match(r.output, /isolated/);
   assert.ok(r.output.split('\n').includes(String(process.getuid())));
-  const offline = await runHook('cat /proc/net/dev | tail -n +3 | cut -d: -f1 | tr -d " "', { cwd: dir, sandbox: { image: 'alpine:3', network: 'none' } });
+  const offline = await runHook('cat /proc/net/dev | tail -n +3 | cut -d: -f1 | tr -d " "', { cwd: dir, sandbox: { image: 'alpine:3', network: 'none' }, docker: dockerPath });
   assert.equal(offline.output.trim(), 'lo');
-  await assert.rejects(async () => runHook('true', { cwd: dir, sandbox: '--privileged' }), /sandbox needs an image name/);
+  await assert.rejects(async () => runHook('true', { cwd: dir, sandbox: '--privileged', docker: dockerPath }), /sandbox needs an image name/);
+  await assert.rejects(async () => runHook('true', { cwd: dir, sandbox: 'alpine:3' }), /needs the path of the docker program/);
 });
 
 test('floor hooks: a sandbox can be set for them, shown, and cleared; a run in a container checks in a container', { skip: docker ? false : 'docker with alpine:3 is not available', timeout: 120000 }, async (t) => {

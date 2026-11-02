@@ -22,7 +22,7 @@ export function checkCommand(cmd) {
 const timeoutMs = () => Math.min(Math.max(Number(process.env.OPENMAESTRI_HOOK_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS, 1000), 30 * 60 * 1000);
 
 /** @returns {Promise<{ok: boolean, exitCode: number|null, timedOut: boolean, output: string, ms: number}>} */
-export function runHook(command, { cwd, base = process.env, sandbox = null, docker = 'docker' }) {
+export function runHook(command, { cwd, base = process.env, sandbox = null, docker = null }) {
   const env = {};
   for (const [k, v] of Object.entries(base)) if (KEEP.test(k) && typeof v === 'string') env[k] = v;
   Object.assign(env, { TERM: 'dumb', NO_COLOR: '1', CI: '1', OPENMAESTRI_HOOK: '1' });
@@ -36,6 +36,7 @@ export function runHook(command, { cwd, base = process.env, sandbox = null, dock
     let argv = ['-c', cmd];
     let containerName = null;
     if (sandbox) {
+      if (!docker) throw new HookError('a sandboxed hook needs the path of the docker program');
       containerName = `om-hook-${crypto.randomBytes(6).toString('hex')}`;
       file = docker;
       argv = dockerArgs(checkSandbox(sandbox), { name: containerName, cwd, bin: 'sh', args: ['-c', cmd], envNames: Object.keys(env) });
