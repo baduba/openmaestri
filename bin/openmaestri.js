@@ -179,10 +179,18 @@ export function build({ pos, flags }) {
         case 'export': need(a, 'partitura export "Name" > layout.json'); return { cmd: 'partitura.export', args: { name: a } };
         case 'import': {
           need(a, 'partitura import layout.json [--name "New name"]');
-          const st = fs.statSync(a);
-          if (!st.isFile() || st.size > (5 << 20)) throw new Error('partitura import needs a JSON file of at most 5 MB');
+          // one descriptor for the size check and the read, so the file cannot change in between
           let file;
-          try { file = JSON.parse(fs.readFileSync(a, 'utf8')); } catch { throw new Error(`${a} is not valid JSON`); }
+          let fd;
+          try {
+            fd = fs.openSync(a, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0));
+            const st = fs.fstatSync(fd);
+            if (!st.isFile() || st.size > (5 << 20)) throw new Error('partitura import needs a JSON file of at most 5 MB');
+            file = JSON.parse(fs.readFileSync(fd, 'utf8'));
+          } catch (e) {
+            if (/at most 5 MB/.test(e.message)) throw e;
+            throw new Error(`${a} cannot be read as JSON`);
+          } finally { if (fd !== undefined) fs.closeSync(fd); }
           return { cmd: 'partitura.import', args: { file, name: flags.name } };
         }
         default: throw new Error('usage: partitura list|insert|create|update|delete|export|import');
