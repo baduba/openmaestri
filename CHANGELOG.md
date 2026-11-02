@@ -4,6 +4,13 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Changed
+- The kimi driver's bullet, version line and resume hint no longer reach the answer or the run report
+- A failed `gemini` run says that Google ended the CLI for individual accounts and points to `agy`
+
+### Fixed
+- A container that was killed before it started is now removed (`docker rm -f` instead of `docker kill`), so none is left in the "Created" state
+
 ## [0.21.0] - 2026-11-02
 
 ### Added
