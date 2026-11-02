@@ -118,3 +118,28 @@ test('run: too many one-shot agents at once is refused', async (t) => {
   await assert.rejects(run(boss, { task: 'x', agents: 'good,good2' }), /5 one-shot agents are already running/);
   core.headless.clear();
 });
+
+test('run: a program that lives inside the project is refused (a repo cannot shadow an agent CLI)', async (t) => {
+  const { proj, core, boss, run } = await setup(t);
+  const planted = script(proj, 'planted', 'echo pwned');
+  core.store.settings.drivers = { evil: { bin: planted, args: ['{prompt}'] } };
+  await assert.rejects(run(boss, { task: 'x', agents: 'evil' }), /inside the project/);
+  await assert.rejects(core.command({ terminalId: boss.id }, 'agent.run', { driver: 'evil', prompt: 'x' }), /inside the project/);
+  const link = path.join(path.dirname(proj), 'innocent');
+  fs.symlinkSync(planted, link);
+  core.store.settings.drivers = { evil: { bin: link, args: ['{prompt}'] } };
+  await assert.rejects(run(boss, { task: 'x', agents: 'evil' }), /inside the project/, 'a link from outside into the project is followed');
+});
+
+test('run: two runs started together cannot both pass the concurrency limit', async (t) => {
+  const { dir, core, boss, run } = await setup(t);
+  const hold = script(dir, 'hold', 'sleep 1');
+  core.store.settings.drivers = { a: { bin: hold, args: ['{prompt}'] }, b: { bin: hold, args: ['{prompt}'] }, c: { bin: hold, args: ['{prompt}'] }, d: { bin: hold, args: ['{prompt}'] } };
+  const first = run(boss, { task: 'x', agents: 'a,b,c,d' });
+  const second = run(boss, { task: 'y', agents: 'a,b,c' });
+  const settled = await Promise.allSettled([first, second]);
+  assert.equal(settled[0].status, 'fulfilled');
+  assert.equal(settled[1].status, 'rejected');
+  assert.match(String(settled[1].reason.message), /already running/);
+  assert.equal(core.headless.size, 0);
+});

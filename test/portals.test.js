@@ -147,7 +147,13 @@ test('an agent can read and drive a real page through a portal', { skip, timeout
 
   // scrolling reaches the bottom
   await act('scroll', 'down', '5000');
-  assert.ok(Number((await act('evaluate', 'Math.round(scrollY)')).text) > 1000);
+  // the wheel event is applied by the browser's compositor a moment later
+  let scrolled = 0;
+  for (const end = Date.now() + 5000; Date.now() < end && scrolled <= 1000;) {
+    scrolled = Number((await act('evaluate', 'Math.round(scrollY)')).text);
+    if (scrolled <= 1000) await new Promise((r) => setTimeout(r, 100));
+  }
+  assert.ok(scrolled > 1000, `scrollY is ${scrolled}`);
 
   // screenshots are real PNGs inside the data dir
   const shot = (await act('screenshot')).text;

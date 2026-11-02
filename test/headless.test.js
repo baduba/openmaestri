@@ -39,6 +39,26 @@ test('the worker environment is an allow-list plus the env file, never OPENMAEST
   assert.deepEqual(env, { PATH: '/usr/bin', HOME: '/home/x', LC_ALL: 'C', HTTPS_PROXY: 'http://p', ANTHROPIC_API_KEY: 'sk-ant-1', PLAIN_KEY: 'abc', TERM: 'dumb', NO_COLOR: '1', CI: '1' });
 });
 
+test('keys are per driver: Claude gets no DeepSeek key, a custom driver can list its own', (t) => {
+  const dir = mkdir(t);
+  const envFile = path.join(dir, 'env');
+  fs.writeFileSync(envFile, 'ANTHROPIC_API_KEY=a\nDEEPSEEK_API_KEY=d\nOPENAI_API_KEY=o\nOPENMAESTRI_DEEPSEEK_MODEL=deepseek-flash\nMY_TOKEN=m\n', { mode: 0o600 });
+  const base = { PATH: '/usr/bin', DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/x', SSH_AUTH_SOCK: '/s', DISPLAY: ':0' };
+  const claude = workerEnv(base, envFile, undefined, DRIVERS.claude);
+  assert.equal(claude.ANTHROPIC_API_KEY, 'a');
+  assert.equal(claude.DEEPSEEK_API_KEY, undefined);
+  assert.equal(claude.OPENAI_API_KEY, undefined);
+  assert.equal(claude.MY_TOKEN, undefined);
+  assert.equal(claude.OPENMAESTRI_DEEPSEEK_MODEL, 'deepseek-flash', 'settings that are not secrets still pass');
+  assert.equal(workerEnv(base, envFile, undefined, DRIVERS['aider-deepseek']).DEEPSEEK_API_KEY, 'd');
+  assert.equal(workerEnv(base, envFile, undefined, DRIVERS['aider-deepseek']).ANTHROPIC_API_KEY, undefined);
+  for (const k of ['DBUS_SESSION_BUS_ADDRESS', 'SSH_AUTH_SOCK', 'DISPLAY']) assert.equal(claude[k], undefined, `${k} is not passed on`);
+  const custom = customDrivers({ mine: { bin: 'x', keys: ['MY_TOKEN'], args: ['{prompt}'] }, open: { bin: 'x', args: ['{prompt}'] }, bad: { bin: 'x', keys: ['lower case'], args: ['{prompt}'] } });
+  assert.deepEqual(Object.keys(workerEnv(base, envFile, undefined, custom.mine)).filter((k) => /KEY|TOKEN/.test(k)), ['MY_TOKEN']);
+  assert.equal(workerEnv(base, envFile, undefined, custom.open).DEEPSEEK_API_KEY, 'd', 'without "keys" a custom driver gets all of them');
+  assert.equal(custom.bad.keys, undefined, 'a malformed keys list is ignored');
+});
+
 test('runHeadless: answer, exit code, stderr, stdin closed, own cwd and env', async (t) => {
   const dir = mkdir(t);
   const tool = script(dir, 'tool', 'echo "args:$*"; echo "cwd:$PWD"; echo "key:${SOME_KEY:-none}"; echo "gh:${GITHUB_TOKEN:-none}"; read -r line && echo "stdin:$line" || echo "stdin:closed"');
