@@ -97,6 +97,20 @@ ENV
 
 Then pick **OpenCode (DeepSeek)**, **Aider (DeepSeek)** or **Maestro (OpenCode + DeepSeek)** in the New terminal dialog. OpenCode also needs `opencode auth login` once (or `/connect` inside it). Details and model ids: [docs/deepseek.md](docs/deepseek.md).
 
+## One-shot agents and what is tested
+
+Besides terminals, a Maestro can hand a job to an agent CLI in its non-interactive mode and read the answer back (`openmaestri agent claude "..."`), or give one task to several agents at once and get one report (`openmaestri run "..." --agents claude,kimi,agy --floors`). Each agent works in its own git worktree if you ask, and can run inside a Docker container with `--sandbox IMAGE`. See [One-shot agents](docs/oneshot.md).
+
+The drivers were checked against the real programs, not only against stand-ins:
+
+| Agent | Checked |
+| --- | --- |
+| Claude Code, Kimi, Antigravity (`agy`) | a full answer came back end to end |
+| Codex, OpenCode, Goose, Aider | run for real on a clean machine: flags accepted, the tool reaches its provider, a refused call is reported as a failure. A full answer needs your own API key, which was not used |
+| Gemini CLI | flags match, but Google ended it for individual accounts; use `agy` |
+
+Anything else works through a custom driver in `~/.openmaestri/settings.json`.
+
 ## The `openmaestri` CLI
 
 Available inside every terminal started by openmaestri.
@@ -118,7 +132,7 @@ Full reference: [docs/cli.md](docs/cli.md).
 
 ## Status
 
-openmaestri is **early (0.x)**. What works today: canvas, terminals, notes, portals (URL panes), connections, workspaces, routines, presets/roles, the full agent CLI, `.deb` packaging, and 16 automated end-to-end tests that run real PTYs and a real browser. See the [roadmap](TODO.md) for what is next: git-worktree floors, saved layouts (partituras), portal page automation, an Electron shell.
+openmaestri is **early (0.x)** but complete in its main parts: the canvas, terminals (optionally kept alive in tmux), notes, files, portals with page automation, connections, workspaces, routines, presets and roles, git-worktree floors with snapshots, hooks and landing, saved layouts (partituras), chat threads, one-shot agents, named secrets and accounts, an optional desktop window, `.deb` packaging, and more than 200 automated tests that run real PTYs, real containers and a real browser. Left out on purpose: Android, WSL, remote tunnels, and posting reviews to GitHub or GitLab. See the [roadmap](docs/roadmap.md) and [parity with the original](docs/parity.md).
 
 ## Security
 
