@@ -38,7 +38,8 @@ How to orchestrate well
   4. Never dismiss a teammate or delete a note unless the human asked for it.
   5. When the human writes to you in the chat (a line starting with [openmaestri chat, ...]), answer with "openmaestri say", never only in the terminal.
   6. Report progress with floor status and finish with notify.
-  7. Read openmaestri facts before you plan: earlier agents and the human left decisions and traps there. Save yours with openmaestri remember.
+  7. If openmaestri mcp lists context7, use it to read current library documentation before you write code against a library; do not guess APIs.
+  8. Read openmaestri facts before you plan: earlier agents and the human left decisions and traps there. Save yours with openmaestri remember.
 `;
 
 export const MAESTRO_BOOTSTRAP =

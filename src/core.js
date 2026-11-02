@@ -10,6 +10,7 @@ import path from 'node:path';
 import { Store, dataDir } from './store.js';
 import { GUIDE } from './prompts.js';
 import { Terminals } from './terminals.js';
+import { Mcp, McpError, buildServer, mcpText, planInstall } from './mcp.js';
 import { Facts, FactsError, factsText, factsBrief, factsBlock } from './facts.js';
 import { handoffText, takeoverLine, SELF_REPORT_PROMPT } from './handoff.js';
 import { DRIVERS, customDrivers, workerEnv, runHeadless, HeadlessError, checkSandbox, quotaRefused } from './headless.js';
@@ -55,6 +56,7 @@ export class Core extends EventEmitter {
     const resolveSecret = (ref) => { try { secrets ??= new Secrets({ root: dataRoot }); return secrets.resolve(ref); } catch { return undefined; } };
     this.audit = new Audit(path.join(dataRoot, 'audit.log'));
     this.facts = new Facts({ dir: (id) => this.store.wsDir(id) });
+    this.mcp = new Mcp({ dir: (id) => this.store.wsDir(id) });
     this.resolveSecret = resolveSecret;
     this.headless = new Set();
     this.accounts = new Accounts(path.join(dataRoot, 'accounts.json'));
@@ -275,7 +277,7 @@ export class Core extends EventEmitter {
     try {
       return await h.call(this, ws, me, a);
     } catch (e) {
-      if (e instanceof ChatError || e instanceof PromptError || e instanceof UsageError || e instanceof RoleError || e instanceof TerminalError || e instanceof FilesError || e instanceof HeadlessError || e instanceof FactsError || e instanceof ForgeError || e instanceof AccountError || e instanceof HookError || e instanceof ProcError) fail(e.message);
+      if (e instanceof ChatError || e instanceof PromptError || e instanceof UsageError || e instanceof RoleError || e instanceof TerminalError || e instanceof FilesError || e instanceof HeadlessError || e instanceof FactsError || e instanceof McpError || e instanceof ForgeError || e instanceof AccountError || e instanceof HookError || e instanceof ProcError) fail(e.message);
       throw e;
     }
   }
@@ -615,6 +617,30 @@ const HANDLERS = {
     return { text: node.name, data: { name: node.name } };
   },
 
+  /** `mcp [list] | add NAME ... | rm NAME | install "Agent" [--apply] [--remove]`: the MCP servers of this workspace. */
+  mcp(ws, me, { action = 'list', name, command, url, env, header, key, agent, apply, remove }) {
+    if (action === 'list') return { text: mcpText(this.mcp.list(ws.id)), data: this.mcp.list(ws.id) };
+    this.requireMaestro(me);
+    if (action === 'add') {
+      this.mcp.set(ws.id, name, buildServer({ name, command, url, env, header, key }));
+      this.audit.record('mcp.add', { name }, 'terminal');
+      return { text: `added ${name}. Put it in an agent's project config with: openmaestri mcp install "Agent"` };
+    }
+    if (action === 'rm') { this.mcp.remove(ws.id, name); return { text: `removed ${name} (files already written are not touched; use mcp install --remove first)` }; }
+    if (action !== 'install') return fail('usage: mcp [list] | add | rm | install');
+    const all = this.mcp.list(ws.id);
+    if (!Object.keys(all).length) fail('there are no MCP servers yet. Add one: openmaestri mcp add context7');
+    const node = this.resolve(ws, me, agent, ['terminal']);
+    const kind = agentKind(node);
+    let cwd;
+    try { cwd = fs.realpathSync(node.cwd); } catch { return fail(`the folder of ${node.name} is missing`); }
+    if (!this.chatRoots(ws.id).some((r) => cwd === r || cwd.startsWith(r + path.sep))) fail('that agent works outside the workspace; MCP config is only written inside it');
+    const r = planInstall({ cwd, kind: kind ?? 'unknown', servers: all, remove: !!remove, apply: !!apply });
+    if (!r.changed) return { text: `${remove ? 'nothing to remove from' : 'already up to date in'} ${r.file}` };
+    if (!apply) return { text: `Dry run: this would update ${r.file}\n\n${diffText(r.file, r.before, r.after)}\n\nThese servers start commands or reach the network when ${node.name} starts, so read the diff. Run again with --apply to write it${r.existed ? ' (a backup is made first)' : ''}.` };
+    this.audit.record('mcp.install', { agent: node.name, file: path.basename(r.file), remove: !!remove }, 'terminal');
+    return { text: `${remove ? 'removed from' : 'written to'} ${r.file}${r.backup ? `\nbackup: ${r.backup}` : ''}\n${r.note}` };
+  },
   /** `remember "text" [--kind decision|lesson|fact]`: any agent can leave a fact for the ones that come later. */
   remember(ws, me, { text, kind }) {
     const row = this.facts.add(ws.id, { kind: kind ?? 'fact', text, by: me.name });

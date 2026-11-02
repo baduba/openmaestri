@@ -39,6 +39,7 @@ Usage:
   openmaestri recruit "Name" [--preset P] [--role R] [--dir PATH] [--command C] [--color C]
   openmaestri recruit "Name" --preset "OpenCode (DeepSeek)" --model deepseek-v4-pro [--no-check]   (checks the agent is installed)
   openmaestri recruit "New" --preset P --replace "Old" [--handoff ask | --no-handoff]   (the old agent leaves a handoff note; with ask it also writes its own)
+  openmaestri mcp [list] | add NAME [--command "npx -y pkg" | --url URL] | rm NAME | install "Agent" [--apply]   MCP servers of the workspace (try: mcp add context7) written into an agent's project config
   openmaestri remember "text" [--kind decision|lesson|fact]   Leave project memory for the agents that come later
   openmaestri facts [list] [--kind K] | search WORD | rm ID | export "Agent" [--apply]   Read it, search it, forget one (Maestro), write it into an agent's AGENTS.md or CLAUDE.md
   openmaestri handoff "Agent" [--ask]               Leave a note with the state of an agent for whoever works next
@@ -76,7 +77,7 @@ Usage:
   openmaestri debug
 Global flags: --json (machine-readable output)`;
 
-const REPEAT = new Set(['attach']);
+const REPEAT = new Set(['attach', 'env', 'header']);
 function setFlag(flags, key, value) {
   if (REPEAT.has(key)) flags[key] = [...(Array.isArray(flags[key]) ? flags[key] : []), value];
   else flags[key] = value;
@@ -223,6 +224,13 @@ export function build({ pos, flags }) {
       }
     }
     case 'recruit': return { cmd: 'recruit', args: { name: c1, preset: flags.preset, role: flags.role, dir: flags.dir, command: flags.command, color: flags.color, icon: flags.icon, replace: flags.replace, account: flags.account, floor: flags.floor, model: flags.model, noCheck: !!flags['no-check'], noHandoff: !!flags['no-handoff'], handoff: flags.handoff === undefined ? undefined : String(flags.handoff) } };
+    case 'mcp': {
+      const action = !c1 ? 'list' : c1;
+      if (!['list', 'add', 'rm', 'install'].includes(action)) throw new Error('usage: mcp [list] | mcp add NAME [--command "npx -y pkg" | --url URL] [--env K=V] [--header K=V] [--key VAR] | mcp rm NAME | mcp install "Agent" [--apply] [--remove]');
+      if (action !== 'list') need(rest[0], `mcp ${action} ${action === 'install' ? '"Agent" [--apply] [--remove]' : 'NAME'}`);
+      const many = (v) => (v === undefined ? undefined : Array.isArray(v) ? v.map(String) : [String(v)]);
+      return { cmd: 'mcp', args: { action, name: action === 'add' || action === 'rm' ? rest[0] : undefined, agent: action === 'install' ? rest[0] : undefined, command: optStr(flags.command), url: optStr(flags.url), env: many(flags.env), header: many(flags.header), key: optStr(flags.key), apply: !!flags.apply, remove: !!flags.remove } };
+    }
     case 'remember': need(c1, 'remember "text" [--kind decision|lesson|fact]'); return { cmd: 'remember', args: { text: [c1, ...rest].join(' '), kind: flags.kind === undefined ? undefined : String(flags.kind) } };
     case 'facts': {
       const action = !c1 || ['list', 'search', 'rm', 'export'].includes(c1) ? c1 ?? 'list' : null;
