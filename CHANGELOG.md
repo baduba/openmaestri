@@ -4,6 +4,12 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+- Orchestration challenge (`test/challenge/`, docs/functional-test.md): a Maestro coordinates an Auditor and a Dev through several round trips, and the result is checked against an answer key. Scripted agents run it in `npm test`; real agents run it with `node test/challenge/run.mjs`
+
+### Fixed
+- opencode no longer sits silent until the timeout when the model refuses the call (free quota used up, bad key): the run stops at once and says why
+
 ## [0.21.3] - 2026-11-02
 
 ### Fixed
