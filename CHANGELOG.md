@@ -4,6 +4,9 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Tests
+- The container sandbox is proven to have no Docker socket, no capabilities, no privilege gain, one mount only, and no sight of the openmaestri data folder
+
 ## [0.21.1] - 2026-11-02
 
 ### Changed

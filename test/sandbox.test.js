@@ -91,3 +91,28 @@ test('agent --sandbox through the core: preflight skips the host program, docker
   assert.match(offline.text, /1 of 1 agents finished/);
   await assert.rejects(cmd('agent.run', { driver: 'boxed', prompt: 'x', sandbox: '--privileged' }), /sandbox needs an image name/);
 });
+
+test('dockerArgs: exactly one mount, and nothing that reaches the host or the docker daemon', () => {
+  const a = dockerArgs('alpine:3', { name: 'om-x', cwd: '/proj', bin: 'sh', args: ['-c', 'true'], envNames: ['A_KEY'] });
+  assert.equal(a.filter((x) => x === '-v' || x === '--mount' || x === '--volumes-from').length, 1, 'only the project folder is mounted');
+  const flags = a.slice(0, a.indexOf('alpine:3')).join(' ');
+  assert.ok(!/docker\.sock|--privileged|--pid[ =]|--ipc|--uts|--device|--cap-add|--network host|--userns/.test(flags), flags);
+});
+
+test('in a container: no docker socket, no capabilities, no privilege gain, and the openmaestri data is out of sight', { skip, timeout: 120000 }, async (t) => {
+  const dir = mk(t);
+  const data = path.join(os.homedir(), '.openmaestri');
+  const drivers = { sh: { bin: 'sh', keys: undefined, args: (p) => ['-c', p] } };
+  const resolveBin = (b) => spawnSync('sh', ['-c', `command -v ${b}`], { encoding: 'utf8' }).stdout.trim() || null;
+  const env = { PATH: process.env.PATH, HOME: os.homedir(), ONLY_THIS: 'x' };
+  const r = await runHeadless({
+    driver: 'sh', drivers, cwd: dir, env, sandbox: { image: 'alpine:3' }, resolveBin, timeoutMs: 30000,
+    prompt: `test -S /var/run/docker.sock && echo SOCKET || echo no-socket; test -e ${data} && echo DATA || echo no-data; grep -E '^(CapEff|NoNewPrivs)' /proc/self/status; env | grep -c -E '^(OPENMAESTRI_|SSH_AUTH_SOCK|DBUS_)' || true`,
+  });
+  assert.equal(r.ok, true, r.stderr);
+  assert.match(r.text, /^no-socket$/m);
+  assert.match(r.text, /^no-data$/m);
+  assert.match(r.text, /^CapEff:\s+0+$/m, 'no capabilities');
+  assert.match(r.text, /^NoNewPrivs:\s+1$/m);
+  assert.match(r.text, /^0$/m, 'no daemon variables reach the container');
+});
