@@ -62,6 +62,41 @@ export function capturePartitura(store, ws, nodeIds, { name, description = '', i
   };
 }
 
+// ----------------------------------------------- a single layout as a file
+export const PARTITURA_FORMAT = 'openmaestri-partitura';
+const PART_TOP = new Set(['format', 'version', 'name', 'description', 'icon', 'color', 'nodes', 'connections']);
+
+/** The shareable form of a saved layout: no ids, no workspace link. */
+export function exportPartitura(p) {
+  return { format: PARTITURA_FORMAT, version: 1, name: p.name, description: p.description ?? '', icon: p.icon ?? null, color: p.color ?? null, nodes: p.nodes.map(({ untrustedCommand: _held, ...n }) => n), connections: p.connections };
+}
+
+/**
+ * A layout from a file we do not trust: closed format, every node checked like a workspace file's,
+ * and terminals marked so that their commands are held back (untrusted) when it is inserted.
+ */
+export function importPartitura(file, { name } = {}) {
+  const errors = [];
+  const bad = (m) => { if (errors.length < MAX_ERRORS) errors.push(m); };
+  if (!isObj(file) || file.format !== PARTITURA_FORMAT) throw new Error('not an openmaestri partitura file');
+  if (file.version !== 1) throw new Error(`unsupported partitura version: ${String(file.version).slice(0, 20)}`);
+  if (depthOf(file) > MAX_DEPTH) throw new Error('the file is nested too deeply');
+  for (const k of Object.keys(file)) if (!PART_TOP.has(k)) bad(`unknown top-level field: ${k.slice(0, 40)}`);
+  for (const k of ['name', 'description', 'icon', 'color']) if (file[k] !== undefined && file[k] !== null && typeof file[k] !== 'string') bad(`${k} must be a text`);
+  if (!Array.isArray(file.nodes) || !file.nodes.length) bad('nodes must be a non-empty list');
+  else if (file.nodes.length > 200) bad('a partitura has at most 200 items');
+  else {
+    file.nodes.forEach((n, i) => { if (errors.length < MAX_ERRORS) checkNode(n, i, bad); });
+    if (file.nodes.some((n) => typeof n?.text === 'string' && n.text.length > LIMITS.noteBytes)) bad('a note is too large');
+  }
+  if (file.connections !== undefined) checkConnections(file.connections, bad);
+  if (errors.length) throw new Error(`this file cannot be imported:\n- ${errors.join('\n- ')}`);
+  const title = str(name ?? file.name, 80)?.trim();
+  if (!title) throw new Error('the partitura needs a name');
+  const nodes = file.nodes.map((n) => ({ ...n, ...(n.kind === 'terminal' ? { untrustedCommand: true } : {}) }));
+  return { id: uid(), name: title, description: str(file.description, 400) ?? '', icon: str(file.icon, 64), color: str(file.color, 32), scope: null, options: { commands: true, noteText: true }, nodes, connections: file.connections ?? [], savedAt: new Date().toISOString(), imported: true };
+}
+
 /** Instantiate a layout into `ws` at a free spot. Returns {created: node[], idMap}. */
 export function instantiatePartitura(store, ws, part, { origin, floorId = null, baseDir = ws.dir } = {}) {
   const here = ws.nodes.filter((n) => (n.floorId ?? null) === floorId);
@@ -73,6 +108,7 @@ export function instantiatePartitura(store, ws, part, { origin, floorId = null, 
     const dir = it.cwdRel ? path.join(baseDir, it.cwdRel) : baseDir;
     const props = { floorId, name: it.name, x: at.x + it.x, y: at.y + it.y, w: it.w, h: it.h, color: it.color, icon: it.icon, command: it.command, maestro: it.maestro, role: it.role, preset: it.preset, cwd: dir, url: it.url, text: it.text };
     const node = store.createNode(ws, it.kind === 'band' ? 'band' : it.kind, props);
+    if (node.kind === 'terminal' && node.command && it.untrustedCommand) node.untrusted = true; // came from a file: held back until trusted
     idMap.set(it.key, node.id);
     created.push(node);
     return node;

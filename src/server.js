@@ -231,8 +231,9 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
         const props = { ...m.props };
         if (m.preset) {
           const p = s.settings.presets.find((x) => x.name === m.preset);
-          if (p) { props.command = p.command; props.maestro = !!(props.maestro || p.maestro); props.preset = p.name; props.name ||= p.name; }
+          if (p) { props.command = p.command; props.maestro = !!(props.maestro || p.maestro); props.preset = p.name; props.name ||= p.name; props.account ||= p.account; }
         }
+        if (props.account && !core.accounts.has(String(props.account))) throw new CommandError(`no account named "${String(props.account).slice(0, 40)}"`);
         if (props.cwd) props.cwd = path.resolve(w.dir, props.cwd);
         const node = s.createNode(w, m.kind, props);
         if (node.kind === 'terminal' && node.command) {

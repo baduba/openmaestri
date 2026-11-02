@@ -4,6 +4,17 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-02
+
+### Added
+- Accounts: `openmaestri accounts set|list|rm`, named environments (keys as `secret://`) used with `--account` on `recruit`, `agent`, `run`, per preset (`preset set --account`) and in the New terminal window (docs/accounts.md)
+- `partitura export` / `partitura import FILE`: one layout as a closed-format file; imported terminal commands are held back until trusted
+- "Duplicate this workspace" in the command palette
+- docs/roadmap.md
+
+### Security
+- Account variables named like keys must be `secret://` references; names that change how programs start (PATH, LD_*, NODE_OPTIONS, GIT_*, SSH_*, OPENMAESTRI_*...) are refused; `accounts` refuses to run inside an agent terminal; changes are audited with names only
+
 ## [0.16.0] - 2026-11-02
 
 ### Added

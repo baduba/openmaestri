@@ -58,6 +58,7 @@ Usage:
   openmaestri prompt list | read "name" | use "name" | save "name" "text" [--global] [--overwrite] | delete "name" | undo   Saved prompts (save/delete: Maestro)
   openmaestri prompt parse|materialize "text with @agent:Name @note:Name @file:path"   Expand mentions (files up to 32 KB, workspace only)
   openmaestri usage ["Agent"] [--days N] [--json] | usage report --in N --out N [--model M] [--cost USD] | usage reset ["Agent"]   Tokens, cost, turns
+  openmaestri accounts set|list|rm                  Named environments for agents (work / personal keys); run in your own shell
   openmaestri audit [--verify] [--tail N]           Show or check the append-only record of keys, agent runs, imports and exports
   openmaestri secrets set|list|status|rm            Keep API keys outside the env file (secret://name); run in your own shell
   openmaestri doctor                                 Check what is installed and how to fix what is missing (works anywhere)
@@ -119,11 +120,11 @@ export function build({ pos, flags }) {
     }
     case 'run': {
       need(c1 && flags.agents, 'run "task" --agents claude,codex [--floors] [--dry-run] [--model M] [--timeout 10m]');
-      return { cmd: 'run', args: { task: [c1, ...rest].join(' '), agents: String(flags.agents), floors: !!flags.floors, dryRun: !!flags['dry-run'], model: flags.model === undefined ? undefined : String(flags.model), timeoutMs: duration(flags.timeout) } };
+      return { cmd: 'run', args: { task: [c1, ...rest].join(' '), agents: String(flags.agents), floors: !!flags.floors, dryRun: !!flags['dry-run'], model: flags.model === undefined ? undefined : String(flags.model), timeoutMs: duration(flags.timeout), account: flags.account === undefined ? undefined : String(flags.account) } };
     }
     case 'agent': {
       need(c1 && rest.length, 'agent <driver> "prompt" [--model M] [--floor NAME] [--timeout 10m]');
-      return { cmd: 'agent.run', args: { driver: c1, prompt: rest.join(' '), model: flags.model === undefined ? undefined : String(flags.model), floor: flags.floor === undefined ? undefined : String(flags.floor), timeoutMs: duration(flags.timeout) } };
+      return { cmd: 'agent.run', args: { driver: c1, prompt: rest.join(' '), model: flags.model === undefined ? undefined : String(flags.model), floor: flags.floor === undefined ? undefined : String(flags.floor), timeoutMs: duration(flags.timeout), account: flags.account === undefined ? undefined : String(flags.account) } };
     }
     case 'check': need(c1, 'check "Agent" [--lines N]'); return { cmd: 'check', args: { name: c1, lines: flags.lines ? Number(flags.lines) : undefined } };
     case 'note': {
@@ -175,7 +176,24 @@ export function build({ pos, flags }) {
         case 'create': need(a, 'partitura create "Name" ["Agent" ...] [--commands on|off] [--note-text on|off] [--description D] [--scope current|global]'); return { cmd: 'partitura.create', args: { name: a, ...common } };
         case 'update': need(a, 'partitura update "Name" ["Agent" ...] [--name N] [flags]'); return { cmd: 'partitura.update', args: { name: a, newName: flags.name, ...common } };
         case 'delete': need(a, 'partitura delete "Name"'); return { cmd: 'partitura.delete', args: { name: a } };
-        default: throw new Error('usage: partitura list|insert|create|update|delete');
+        case 'export': need(a, 'partitura export "Name" > layout.json'); return { cmd: 'partitura.export', args: { name: a } };
+        case 'import': {
+          need(a, 'partitura import layout.json [--name "New name"]');
+          // one descriptor for the size check and the read, so the file cannot change in between
+          let file;
+          let fd;
+          try {
+            fd = fs.openSync(a, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0));
+            const st = fs.fstatSync(fd);
+            if (!st.isFile() || st.size > (5 << 20)) throw new Error('partitura import needs a JSON file of at most 5 MB');
+            file = JSON.parse(fs.readFileSync(fd, 'utf8'));
+          } catch (e) {
+            if (/at most 5 MB/.test(e.message)) throw e;
+            throw new Error(`${a} cannot be read as JSON`, { cause: e });
+          } finally { if (fd !== undefined) fs.closeSync(fd); }
+          return { cmd: 'partitura.import', args: { file, name: flags.name } };
+        }
+        default: throw new Error('usage: partitura list|insert|create|update|delete|export|import');
       }
     }
     case 'recruit': return { cmd: 'recruit', args: { name: c1, preset: flags.preset, role: flags.role, dir: flags.dir, command: flags.command, color: flags.color, icon: flags.icon, replace: flags.replace, account: flags.account, floor: flags.floor, model: flags.model, noCheck: !!flags['no-check'] } };
@@ -187,8 +205,8 @@ export function build({ pos, flags }) {
       switch (c1) {
         case 'list': return { cmd: 'preset.list', args: {} };
         case 'show': case 'delete': need(name, `preset ${c1} "Name"`); return { cmd: `preset.${c1}`, args: { name } };
-        case 'create': need(name, 'preset create "Name" [--command C] [--maestro on|off]'); return { cmd: 'preset.create', args: { name, command: flags.command, maestro: onOff(flags.maestro) } };
-        case 'set': need(name, 'preset set "Name" [--name N] [--command C] [--maestro on|off]'); return { cmd: 'preset.set', args: { name, newName: flags.name, command: flags.command, maestro: onOff(flags.maestro) } };
+        case 'create': need(name, 'preset create "Name" [--command C] [--maestro on|off]'); return { cmd: 'preset.create', args: { name, command: flags.command, maestro: onOff(flags.maestro), account: flags.account } };
+        case 'set': need(name, 'preset set "Name" [--name N] [--command C] [--maestro on|off]'); return { cmd: 'preset.set', args: { name, newName: flags.name, command: flags.command, maestro: onOff(flags.maestro), account: flags.account } };
         default: throw new Error('usage: preset list|show|create|set|delete');
       }
     }
@@ -380,6 +398,48 @@ async function readSecretValue() {
   });
 }
 
+/** `openmaestri accounts set|list|rm`: named environments for agents. For people, outside agent terminals. */
+async function accountsCommand(parsed, insideTerminal) {
+  if (insideTerminal) { console.error('openmaestri accounts: run it in your own shell, not inside an agent terminal.'); return 2; }
+  const { Accounts, AccountError } = await import('../src/accounts.js');
+  const { Audit } = await import('../src/audit.js');
+  const { dataDir } = await import('../src/store.js');
+  const root = dataDir();
+  const accounts = new Accounts(path.join(root, 'accounts.json'));
+  const audit = new Audit(path.join(root, 'audit.log'));
+  const [, sub, name, ...rest] = parsed.pos;
+  try {
+    if (sub === 'list') {
+      for (const a of accounts.list()) console.log(`${a.name}  ${a.vars.join(' ')}`);
+      return 0;
+    }
+    if (sub === 'set' && name && rest.length) {
+      const pairs = {};
+      for (const kv of rest) {
+        const eq = kv.indexOf('=');
+        if (eq < 1) throw new AccountError(`"${kv.slice(0, 30)}" is not VAR=value`);
+        pairs[kv.slice(0, eq)] = kv.slice(eq + 1);
+      }
+      accounts.set(name, pairs);
+      audit.record('account.set', { name, vars: Object.keys(pairs) }, 'cli');
+      console.log(`account ${name} now has ${Object.keys(accounts.read()[name].env).length} variables. Use it with: recruit "Name" --preset P --account ${name}`);
+      return 0;
+    }
+    if (sub === 'rm' && name) {
+      const done = accounts.unset(name, rest) && (rest.length || accounts.remove(name));
+      audit.record('account.remove', { name, vars: rest }, 'cli');
+      console.log(done ? `removed ${rest.length ? rest.join(' ') + ' from ' : ''}${name}` : `no account named ${name}`);
+      return 0;
+    }
+  } catch (e) {
+    if (!(e instanceof AccountError)) throw e;
+    console.error(`openmaestri accounts: ${e.message}`);
+    return 1;
+  }
+  console.error('usage: openmaestri accounts set NAME VAR=value ...   (keys as VAR=secret://name)\n       openmaestri accounts list | rm NAME [VAR ...]');
+  return 2;
+}
+
 /** `openmaestri audit [--verify] [--tail N]`: for people, outside agent terminals. */
 async function auditCommand(parsed, insideTerminal) {
   if (insideTerminal) { console.error('openmaestri audit: run it in your own shell, not inside an agent terminal.'); return 2; }
@@ -408,6 +468,7 @@ async function run(argv) {
   const insideTerminal = !!process.env.OPENMAESTRI_SOCKET;
   if (parsed.pos[0] === 'secrets') return secretsCommand(parsed, insideTerminal);
   if (parsed.pos[0] === 'audit') return auditCommand(parsed, insideTerminal);
+  if (parsed.pos[0] === 'accounts') return accountsCommand(parsed, insideTerminal);
   if (!insideTerminal && (parsed.pos.length === 0 || parsed.pos[0] === 'serve') && !parsed.flags.help) return serve(parsed.flags);
   if (!parsed.pos.length || parsed.pos[0] === 'help' || parsed.flags.help) { console.log(HELP); return 0; }
   if (parsed.pos[0] === 'version' || parsed.flags.version) { console.log(JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version); return 0; }
