@@ -4,6 +4,15 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-02
+
+### Added
+- `openmaestri floor prs [--provider github|gitlab] [--json]`: open pull requests (gh) or merge requests (glab) with check status; read-only, uses your own signed-in CLI
+- `floor create --pull-request` also takes GitLab merge requests (`--provider gitlab`, `merge_requests/N` URLs, `#N`)
+
+### Security
+- Text from other people (titles, branches, authors) is stripped of control and direction-changing characters before it is shown; only https links are kept
+
 ## [0.13.0] - 2026-11-02
 
 ### Added

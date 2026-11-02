@@ -12,6 +12,7 @@ import { Terminals } from './terminals.js';
 import { DRIVERS, customDrivers, workerEnv, runHeadless, HeadlessError } from './headless.js';
 import { discover as discoverRoles, plan as planRole, diffText, agentKind, RoleError, AGENT_FILES } from './roles.js';
 import { Files, FilesError } from './files.js';
+import { ForgeError, detectProvider, normalizeProvider, providerInfo, listChanges, formatChanges } from './forge.js';
 import { MAX_AGENTS, parseAgents, planText, reportText } from './taskrun.js';
 import { Usage, UsageError } from './usage.js';
 import { readUserEnv, TerminalError, commandAvailable, commandPath } from './terminals.js';
@@ -240,7 +241,7 @@ export class Core extends EventEmitter {
     try {
       return await h.call(this, ws, me, a);
     } catch (e) {
-      if (e instanceof ChatError || e instanceof PromptError || e instanceof UsageError || e instanceof RoleError || e instanceof TerminalError || e instanceof FilesError || e instanceof HeadlessError) fail(e.message);
+      if (e instanceof ChatError || e instanceof PromptError || e instanceof UsageError || e instanceof RoleError || e instanceof TerminalError || e instanceof FilesError || e instanceof HeadlessError || e instanceof ForgeError) fail(e.message);
       throw e;
     }
   }
@@ -871,6 +872,16 @@ const HANDLERS = {
     this.requireMaestro(me);
     return this.doFloorCreate(ws, args);
   },
+  /** Open pull requests (GitHub, via gh) or merge requests (GitLab, via glab) with their checks. Read-only. */
+  async 'floor.prs'(ws, me, { provider, json }) {
+    this.requireMaestro(me);
+    const top = await repoTop(ws.dir);
+    if (!top) fail('the workspace folder is not a git repository');
+    const kind = await this.forgeOf(top, provider);
+    const rows = await listChanges(top, { provider: kind, resolveBin: (b) => this.safeBin(ws, b) });
+    this.audit.record('floor.prs', { provider: kind, count: rows.length, by: me.name }, 'terminal');
+    return { text: json ? JSON.stringify(rows, null, 2) : `${formatChanges(rows, kind)}\n\nOpen one as a floor: openmaestri floor create --pull-request N`, data: rows };
+  },
   async 'floor.list'(ws, me) {
     this.requireMaestro(me);
     const rows = [`${me.floorId == null ? '*' : ' '} Ground   ${ws.dir}${ws.floorStatus ? `   [${ws.floorStatus.state}] ${ws.floorStatus.text}` : ''}`];
@@ -1163,17 +1174,35 @@ Core.prototype.dropFloor = async function (ws, floor, opts) {
   return warnings.length ? `\nnote: ${warnings.join('; ')}` : '';
 };
 
-Core.prototype.doFloorCreate = async function (ws, { name, from, branch, existingBranch, copy, noGit, copyGround, partitura, dir, pullRequest }) {
+/** "123", "#123" or ".../pull/123" (".../merge_requests/123" for GitLab) to the number, or null. */
+function pullNumber(raw, part) {
+  const text = String(raw).trim().replace(/\/+$/, '');
+  const tail = text.slice(text.lastIndexOf('/') + 1).replace(/^#/, '');
+  const before = text.includes('/') ? text.slice(0, text.lastIndexOf('/')) : '';
+  if (before && !before.endsWith(`/${part}`)) return null;
+  return /^\d{1,7}$/.test(tail) ? [text, tail] : null;
+}
+
+/** github or gitlab: the --provider given, else read from the origin URL. */
+Core.prototype.forgeOf = async function (top, given) {
+  if (given) return normalizeProvider(given);
+  let url = '';
+  try { url = await git(top, ['remote', 'get-url', 'origin']); } catch { fail('this repository has no "origin" remote'); }
+  return detectProvider(url) ?? fail('cannot tell if origin is GitHub or GitLab; add --provider github|gitlab');
+};
+Core.prototype.doFloorCreate = async function (ws, { name, from, branch, existingBranch, copy, noGit, copyGround, partitura, dir, pullRequest, provider: provider0 }) {
   const spec = { name, from, branch, existingBranch, copy, noGit, dir };
   try {
     if (pullRequest !== undefined) {
-      const m = /(?:\/pull\/)?(\d{1,7})\/?$/.exec(String(pullRequest));
-      if (!m) fail('--pull-request takes a number or a pull request URL');
       const top = await repoTop(ws.dir);
       if (!top) fail('pull request floors need a git repository');
+      const provider = await this.forgeOf(top, provider0);
+      const info = providerInfo(provider);
+      const m = pullNumber(pullRequest, info.urlPart);
+      if (!m) fail(`--pull-request takes a number or a ${info.word} URL`);
       const ref = `refs/openmaestri/pr-${m[1]}`;
-      await withLock(ws.id, () => git(top, ['fetch', '--no-tags', 'origin', `+pull/${m[1]}/head:${ref}`], { timeout: 120000 }));
-      Object.assign(spec, { name: name || `PR ${m[1]}`, branch: `pr-${m[1]}`, startPoint: ref });
+      await withLock(ws.id, () => git(top, ['fetch', '--no-tags', 'origin', `+${info.refspec(m[1])}:${ref}`], { timeout: 120000 }));
+      Object.assign(spec, { name: name || `${provider === 'gitlab' ? 'MR' : 'PR'} ${m[1]}`, branch: `pr-${m[1]}`, startPoint: ref });
     }
     const created = await withLock(ws.id, () => createFloor(ws, spec, [...this.store.workspaces.values()]));
     this.seedFloor(ws, null, created, { copyGround, partitura });

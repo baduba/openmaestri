@@ -46,6 +46,7 @@ Usage:
       schedules: --every 30m | --daily 09:00 | --weekly mon,fri@09:00 | --once "2026-12-01 15:00"
       options:   --terminal "Name" | --count N | --until DATE | --pre-run "cmd" ({{output}} in the command) | --no-notify | --disabled
   openmaestri workspace list|create|rename ...
+  openmaestri floor prs [--provider github|gitlab] [--json]   Open pull/merge requests with their checks (needs gh or glab, signed in)
   openmaestri floor create "Name" [--from PATH] [--branch B] [--existing-branch] [--copy] [--no-git] [--copy-ground] [--partitura P] | --dir PATH | --pull-request N|URL
   openmaestri floor list | land "Name" [--into B] [--delete-branch] [--keep-floor] | delete "Name" [--keep-branch] [--keep-folder] [--force] | set-dir "Name" PATH | unload "Name"
   openmaestri floor status ["Text" --state working|blocked|review|done --progress 2/5 | --clear] [--floor F]
@@ -229,8 +230,9 @@ export function build({ pos, flags }) {
     case 'floor': {
       const [name, p2] = rest;
       switch (c1) {
+        case 'prs': return { cmd: 'floor.prs', args: { provider: flags.provider, json: !!flags.json } };
         case 'create': need(name || flags['pull-request'], 'floor create "Name" [--from PATH] [--branch B] [--existing-branch] [--copy] [--no-git] [--copy-ground] [--partitura P] | --dir PATH | --pull-request N|URL');
-          return { cmd: 'floor.create', args: { name, from: flags.from, branch: flags.branch, existingBranch: !!flags['existing-branch'], copy: !!flags.copy, noGit: !!flags['no-git'], copyGround: !!flags['copy-ground'], partitura: flags.partitura, dir: flags.dir, pullRequest: flags['pull-request'] } };
+          return { cmd: 'floor.create', args: { name, from: flags.from, branch: flags.branch, existingBranch: !!flags['existing-branch'], copy: !!flags.copy, noGit: !!flags['no-git'], copyGround: !!flags['copy-ground'], partitura: flags.partitura, dir: flags.dir, pullRequest: flags['pull-request'], provider: flags.provider } };
         case 'list': return { cmd: 'floor.list', args: {} };
         case 'land': need(name, 'floor land "Name" [--into BRANCH] [--delete-branch] [--keep-floor]'); return { cmd: 'floor.land', args: { name, into: flags.into, deleteBranch: !!flags['delete-branch'], keepFloor: !!flags['keep-floor'] } };
         case 'delete': need(name, 'floor delete "Name" [--keep-branch] [--keep-folder] [--force]'); return { cmd: 'floor.delete', args: { name, keepBranch: !!flags['keep-branch'], keepFolder: !!flags['keep-folder'], force: !!flags.force } };
