@@ -18,7 +18,12 @@ const LOCK_STALE_MS = 10000;
 /** JSON with sorted keys, so the same event always hashes the same way. */
 export function canonical(v) {
   if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
-  if (v && typeof v === 'object') return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(',')}}`;
+  if (v && typeof v === 'object') {
+    // byte order, not locale order: the hash must not depend on the machine that computes it
+    const keys = Object.keys(v).sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)));
+    const pairs = keys.map((k) => JSON.stringify(k) + ':' + canonical(v[k]));
+    return '{' + pairs.join(',') + '}';
+  }
   return JSON.stringify(v) ?? 'null';
 }
 
@@ -45,16 +50,23 @@ export class Audit {
     this.lockDir = `${file}.lock`;
   }
 
+  /** Take the lock directory; false when someone else holds it. A lock older than a few seconds belongs to a dead process and is cleared. */
+  tryLock() {
+    try { fs.mkdirSync(this.lockDir, { mode: 0o700 }); return true; } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+    }
+    try {
+      if (Date.now() - fs.statSync(this.lockDir).mtimeMs > LOCK_STALE_MS) fs.rmdirSync(this.lockDir);
+    } catch { /* released meanwhile */ }
+    return false;
+  }
+
   withLock(fn) {
     fs.mkdirSync(path.dirname(this.file), { recursive: true, mode: 0o700 });
     const end = Date.now() + LOCK_WAIT_MS;
-    for (;;) {
-      try { fs.mkdirSync(this.lockDir, { mode: 0o700 }); break; } catch (e) {
-        if (e.code !== 'EEXIST') throw e;
-        try { if (Date.now() - fs.statSync(this.lockDir).mtimeMs > LOCK_STALE_MS) fs.rmdirSync(this.lockDir); } catch { /* released meanwhile */ }
-        if (Date.now() > end) throw new Error('the audit log is busy', { cause: e });
-        sleepMs(15);
-      }
+    while (!this.tryLock()) {
+      if (Date.now() > end) throw new Error('the audit log is busy');
+      sleepMs(15);
     }
     try { return fn(); } finally { try { fs.rmdirSync(this.lockDir); } catch { /* already gone */ } }
   }
@@ -70,17 +82,18 @@ export class Audit {
     try { return this.append(event, detail, actor); } catch (e) { console.warn(`[audit] could not record ${event}: ${e.message}`); return null; }
   }
 
+  /** Where the next line attaches: after the last good line, or marked "unreadable" when the end of the file is damaged. */
+  nextLink(lines) {
+    if (!lines.length) return { prev: GENESIS, seq: 1 };
+    let last = null;
+    try { last = JSON.parse(lines.at(-1)); } catch { /* damaged */ }
+    if (last && typeof last.hash === 'string' && Number.isInteger(last.seq)) return { prev: last.hash, seq: last.seq + 1 };
+    return { prev: 'unreadable', seq: lines.length + 1 };
+  }
+
   append(event, detail = {}, actor = 'system') {
     return this.withLock(() => {
-      const lines = this.lines();
-      let prev = GENESIS;
-      let seq = 1;
-      if (lines.length) {
-        let last;
-        try { last = JSON.parse(lines.at(-1)); } catch { last = null; }
-        if (last && typeof last.hash === 'string' && Number.isInteger(last.seq)) { prev = last.hash; seq = last.seq + 1; }
-        else { prev = 'unreadable'; seq = lines.length + 1; }
-      }
+      const { prev, seq } = this.nextLink(this.lines());
       const entry = { seq, at: new Date().toISOString(), event: String(event).slice(0, 60), actor: String(actor).slice(0, 80), detail: cleanDetail(detail), prev };
       entry.hash = hashOf(entry);
       fs.appendFileSync(this.file, `${JSON.stringify(entry)}\n`, { mode: 0o600 });
@@ -104,7 +117,7 @@ export class Audit {
       let e;
       try { e = JSON.parse(lines[i]); } catch { return { ok: false, count: lines.length, head: null, problem: 'a line is not valid JSON', at: i + 1 }; }
       if (e.seq !== i + 1) return { ok: false, count: lines.length, head: null, problem: 'a line is missing, repeated or out of order', at: i + 1 };
-      if (e.prev !== prev && !(e.prev === 'unreadable')) return { ok: false, count: lines.length, head: null, problem: 'a line does not follow the one before it (removed or reordered)', at: i + 1 };
+      if (e.prev !== prev && e.prev !== 'unreadable') return { ok: false, count: lines.length, head: null, problem: 'a line does not follow the one before it (removed or reordered)', at: i + 1 };
       if (hashOf(e) !== e.hash) return { ok: false, count: lines.length, head: null, problem: 'a line was edited', at: i + 1 };
       prev = e.hash;
     }
