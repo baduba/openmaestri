@@ -8,6 +8,7 @@ connected to you (a Maestro sees the whole workspace).
 
 Everyday commands
   openmaestri list                         who and what you can reach
+  openmaestri run "task" --agents a,b      same task to several one-shot agents in parallel (--floors: one git floor each, --dry-run to preview); report saved as a note
   openmaestri agent <driver> "prompt"      one-shot run of claude, codex, gemini, agy, kimi, opencode, aider or goose (--model, --floor, --timeout); prints the answer
   openmaestri ask "Name" "prompt"          give another agent work; waits until it settles and prints its screen
   openmaestri ask --batch '{"A":"...","B":"..."}'   ask several agents in parallel

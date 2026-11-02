@@ -4,6 +4,11 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-01
+
+### Added
+- `openmaestri run "task" --agents a,b`: one task to up to 6 one-shot agents in parallel, with `--floors` (a git worktree and branch each), `--dry-run`, `--model`, `--timeout`; a deterministic report that quotes each answer, kept as a note next to the Maestro (docs/oneshot.md)
+
 ## [0.11.0] - 2026-11-01
 
 ### Added
