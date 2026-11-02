@@ -54,8 +54,12 @@ These flags are what each tool documents today. When a tool changes them, or you
 
 ## Safety
 
+- **Keys per driver.** A driver is given only the secret variables it needs: `claude` gets the Anthropic key, `aider-deepseek` the DeepSeek key, and neither sees the other. Settings that are not secrets (such as `OPENMAESTRI_DEEPSEEK_MODEL`) pass to all. A custom driver lists its own with `"keys": ["MY_TOKEN"]`; without that list it receives every key in the env file, since you wrote the driver.
+- **No planted programs.** The program is found through your own shell, and a program that resolves inside the workspace or a floor (also through a symbolic link) is refused, so a repository cannot shadow `claude` by putting a file of that name on `PATH`.
+- **No keyring, no agent socket.** The desktop keyring bus, `SSH_AUTH_SOCK` and the display are not passed on, so a one-shot agent cannot ask the keyring for your other secrets or use your SSH agent.
+
 - The program starts with a short allow-list of your environment (`PATH`, `HOME`, locale, proxies, certificates) plus the keys from `~/.openmaestri/env` (including `secret://` ones). It never receives `OPENMAESTRI_*`, so it cannot drive the canvas, and it does not see other tokens in the daemon's environment.
 - Standard input is closed: a tool that asks a question gets end-of-file instead of hanging.
 - A time limit (default 10 minutes, at most 60) stops the agent and every process it started. At most 6 run at once. Output is cut at 400 KB.
-- Agents can still edit files in their folder. Use a floor when you want that kept apart.
+- What this does not do: it is not a sandbox. An agent runs as you, so it can still read your home folder, use your git credentials stored in files, and start a background process that escapes the time limit (`setsid`, `nohup`). A floor separates the working files, not the shared `.git` folder. For code you do not trust, run openmaestri inside a container or a virtual machine.
 - Tokens and cost are not guessed for one-shot runs: the footer shows the driver, seconds and folder.

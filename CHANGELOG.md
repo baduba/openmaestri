@@ -4,6 +4,14 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-11-01
+
+### Security
+- One-shot agents receive only their own driver's secret variables (custom drivers: the `keys` list); DBUS, SSH_AUTH_SOCK and the display are no longer passed on
+- A program that resolves inside the workspace or a floor, also through a symbolic link, is refused
+- `run` takes its concurrency slots before creating floors, so two runs started together cannot exceed the limit
+- docs/oneshot.md now says plainly what one-shot agents are not isolated from
+
 ## [0.12.0] - 2026-11-01
 
 ### Fixed

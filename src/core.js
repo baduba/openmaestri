@@ -312,7 +312,7 @@ const HANDLERS = {
     if (floor && !rec) fail(`no floor named "${floor}" (see: floor list)`);
     const cwd = [rec?.dir, me.cwd, ws.dir].find((d) => d && fs.existsSync(d)) ?? process.env.HOME;
     const expanded = materializeMentions(String(prompt ?? ''), this.prompterCtx(ws, me)).text;
-    const r = await this.execAgent({ driver, drivers, prompt: expanded, cwd, model, timeoutMs });
+    const r = await this.execAgent({ driver, drivers, prompt: expanded, cwd, model, timeoutMs, ws });
     const secs = (r.ms / 1000).toFixed(1);
     if (r.timedOut) fail(`${driver} did not finish in time and was stopped (${secs}s)${r.text ? `. Partial output:\n${r.text}` : ''}`);
     if (r.cancelled) fail(`${driver} was stopped`);
@@ -1353,21 +1353,31 @@ Core.prototype.roleChange = function (ws, me, { role, agent, apply, trust }, rem
 
 /** The folder a Files node browses: its floor's folder, or the workspace folder. */
 /** Run one headless agent; tracked so shutdown and the concurrency limit see it. Never throws for a failed run. */
-Core.prototype.execAgent = async function ({ driver, drivers, prompt, cwd, model, timeoutMs }) {
-  const ac = new AbortController();
+Core.prototype.execAgent = async function ({ driver, drivers, prompt, cwd, model, timeoutMs, ac = new AbortController(), ws }) {
   this.headless.add(ac);
   try {
-    const env = workerEnv(process.env, path.join(this.dataRoot, 'env'), this.resolveSecret);
-    return await runHeadless({ driver, drivers, prompt, cwd, env, model, timeoutMs, signal: ac.signal });
+    const env = workerEnv(process.env, path.join(this.dataRoot, 'env'), this.resolveSecret, drivers[driver]);
+    return await runHeadless({ driver, drivers, prompt, cwd, env, model, timeoutMs, signal: ac.signal, resolveBin: (b) => this.safeBin(ws, b) });
   } finally { this.headless.delete(ac); }
 };
 
+/** A program found through the user's shell, unless it lives inside the project: a repository must not be able to shadow an agent CLI by putting a same-named file on PATH. */
+Core.prototype.safeBin = function (ws, bin) {
+  const found = commandPath(bin);
+  if (!found) return null;
+  let real;
+  try { real = fs.realpathSync(found); } catch { return null; }
+  const inside = [ws?.dir, ...(ws?.floors ?? []).map((f) => f.dir)].filter(Boolean).some((d) => { try { const r = fs.realpathSync(d); return real === r || real.startsWith(r + path.sep); } catch { return false; } });
+  if (inside) throw new HeadlessError(`"${bin}" resolves to ${real}, which is inside the project. Refusing to run a program that a repository could have planted; install it outside the project`);
+  return found;
+};
+
 /** Problems that would stop a run before it starts: unknown driver, program not installed. */
-Core.prototype.preflightAgents = function (agents, drivers) {
+Core.prototype.preflightAgents = function (ws, agents, drivers) {
   const problems = [];
   for (const a of agents) {
-    if (!drivers[a]) problems.push(`no driver named "${a}"`);
-    else if (!commandPath(drivers[a].bin)) problems.push(`"${drivers[a].bin}" (driver ${a}) was not found in your shell`);
+    if (!drivers[a]) { problems.push(`no driver named "${a}"`); continue; }
+    try { if (!this.safeBin(ws, drivers[a].bin)) problems.push(`"${drivers[a].bin}" (driver ${a}) was not found in your shell`); } catch (e) { problems.push(e.message); }
   }
   return problems;
 };
@@ -1378,7 +1388,7 @@ Core.prototype.runTask = async function (ws, me, { task, agents: rawAgents, floo
   if (!text || !agents.length) fail('usage: run "task" --agents claude,codex [--floors] [--dry-run] [--model M] [--timeout 10m]');
   if (agents.length > MAX_AGENTS) fail(`at most ${MAX_AGENTS} agents per run`);
   const drivers = { ...DRIVERS, ...customDrivers(this.store.settings.drivers) };
-  const problems = this.preflightAgents(agents, drivers);
+  const problems = this.preflightAgents(ws, agents, drivers);
   if (problems.length) fail(`cannot start the run:\n- ${problems.join('\n- ')}`);
   if (floors && !(await repoTop(ws.dir))) fail('--floors needs the workspace folder to be a git repository; without one, agents would share the same folder');
   const plan = planText({ task: text, agents, floors: !!floors, model });
@@ -1387,7 +1397,11 @@ Core.prototype.runTask = async function (ws, me, { task, agents: rawAgents, floo
   const prompt = materializeMentions(text, this.prompterCtx(ws, me)).text;
   const tag = crypto.randomBytes(2).toString('hex');
   const base = me.cwd && fs.existsSync(me.cwd) ? me.cwd : ws.dir;
-  const results = await Promise.all(agents.map(async (driver) => {
+  // take the slots now, before any await: two runs started together cannot both pass the limit
+  const slots = agents.map(() => new AbortController());
+  for (const ac of slots) this.headless.add(ac);
+  let results;
+  try { results = await Promise.all(agents.map(async (driver, i) => {
     let floor = null;
     let cwd = base;
     if (floors) {
@@ -1397,9 +1411,9 @@ Core.prototype.runTask = async function (ws, me, { task, agents: rawAgents, floo
         cwd = made.data.dir;
       } catch (e) { return { driver, ok: false, problem: `the floor could not be created: ${e.message}` }; }
     }
-    const r = await this.execAgent({ driver, drivers, prompt, cwd, model, timeoutMs });
+    const r = await this.execAgent({ driver, drivers, prompt, cwd, model, timeoutMs, ws, ac: slots[i] });
     return { driver, floor, ...r };
-  }));
+  })); } finally { for (const ac of slots) this.headless.delete(ac); }
   const report = reportText({ task: text, results, floors: !!floors });
   const pos = this.placeBeside(ws, me, { w: 420, h: 320 });
   const note = this.store.createNode(ws, 'note', { name: `Run ${tag}`, text: report, floorId: me.floorId, ...pos });
