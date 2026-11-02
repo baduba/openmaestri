@@ -20,7 +20,7 @@ export function evaluate(rows, { revenue, invalidPct }) {
     seen.add(r.order_id);
     if (r.units <= 0 || dup) s.invalid++; else s.revenue += r.units * r.unit_price;
   }
-  const flagged = REGIONS.filter((g) => stats[g].revenue > revenue || (stats[g].invalid / stats[g].rows) * 100 > invalidPct).sort();
+  const flagged = REGIONS.filter((g) => stats[g].revenue > revenue || (stats[g].invalid / stats[g].rows) * 100 > invalidPct).sort((a, b) => a.localeCompare(b));
   return { stats, flagged };
 }
 

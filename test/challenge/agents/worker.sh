@@ -46,7 +46,7 @@ for r in csv.DictReader(open('data/sales.csv')):
 print(' '.join(sorted(g for g, s in st.items() if s[2] > limit or s[1] * 100 / s[0] > pct)) + ' ')
 PY
 )
-        if [ "$given" = "$want" ]; then echo "RESULT: APPROVED"; else echo "RESULT: REJECTED the list does not match the rules, at least one flagged region is missing"; fi
+        if [[ "$given" == "$want" ]]; then echo "RESULT: APPROVED"; else echo "RESULT: REJECTED the list does not match the rules, at least one flagged region is missing"; fi
       else echo "RESULT: ok"; fi ;;
     Dev)
       d=$(printf '%s' "$line" | grep -o '/[^ ]*/work' | head -1)

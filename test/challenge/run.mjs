@@ -13,6 +13,7 @@ import { buildScenario, writeScenario, CHALLENGE } from './scenario.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const byName = (a, b) => a.localeCompare(b);
 const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 /**
@@ -62,11 +63,11 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
       if (Date.now() - lastActivity > stallMs) { outcome = 'stalled'; break; }
     }
 
-    const final = said().filter((m) => /VERDICT:/i.test(m.text)).pop()?.text ?? '';
+    const final = said().findLast((m) => /VERDICT:/i.test(m.text))?.text ?? '';
     const flaggedLine = /FLAGGED:\s*(.*)/i.exec(final)?.[1] ?? '';
-    const answered = flaggedLine.split(/[,\s]+/).map((x) => x.trim()).filter(Boolean).sort();
-    const ran = spawnSync('python3', ['flag.py'], { cwd: dir, encoding: 'utf8', timeout: 20000 });
-    const scriptOut = fs.existsSync(path.join(dir, 'flag.py')) && ran.status === 0 ? ran.stdout.split('\n').map((x) => x.trim()).filter(Boolean).sort() : null;
+    const answered = flaggedLine.split(/[,\s]+/).map((x) => x.trim()).filter(Boolean).sort(byName);
+    const ran = spawnSync('/usr/bin/python3', ['flag.py'], { cwd: dir, encoding: 'utf8', timeout: 20000 });
+    const scriptOut = fs.existsSync(path.join(dir, 'flag.py')) && ran.status === 0 ? ran.stdout.split('\n').map((x) => x.trim()).filter(Boolean).sort(byName) : null;
     const team = ws.nodes.filter((n) => n.kind === 'terminal' && !n.maestro);
     const toName = (n) => trace.filter((x) => x.to === n).length;
     const reads = (core.terminals.text(boss.id, { lastLines: 2000 }).match(/ORD-\d{4},/g) ?? []).length;
