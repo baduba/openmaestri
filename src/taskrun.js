@@ -24,6 +24,7 @@ function statusOf(r) {
   if (r.problem) return 'not run';
   if (r.timedOut) return 'timed out';
   if (r.cancelled) return 'stopped';
+  if (r.reportedError) return 'failed (the tool reported an error)';
   return r.ok ? 'ok' : `failed (exit ${r.exitCode ?? r.signal ?? '?'})`;
 }
 

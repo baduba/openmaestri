@@ -4,6 +4,9 @@
 #   aws-spot-check.sh up          create the box (role, security group, persistent Spot instance)
 #   aws-spot-check.sh ready       wait until the box answers through SSM
 #   aws-spot-check.sh run CMD     run CMD on the box as the user "omtest" (OM_AS_ROOT=1 for root) and print the output
+#   aws-spot-check.sh ssh-setup   make a key pair, install its public half on the box, open port 22 to YOUR IP only
+#   aws-spot-check.sh ssh-allow   re-open port 22 for your current IP (when your IP changed)
+#   aws-spot-check.sh ssh [CMD]   open a shell on the box over SSH, or run CMD there
 #   aws-spot-check.sh stop        stop the box (it keeps its disk, you pay only for the disk)
 #   aws-spot-check.sh start       start it again
 #   aws-spot-check.sh status      what is recorded, what exists, when it should be reviewed
@@ -21,7 +24,8 @@
 #   1. Everything created carries the tag Project=openmaestri-sandbox-test and a ReviewBy date.
 #   2. "down" only touches the IDs written to the state file, and for each one first checks the tag,
 #      the account, the region and the VPC. It never deletes by tag filter, wildcard or name.
-#   3. No inbound rule exists. The only IAM thing created is one role that can do what SSM needs.
+#   3. No inbound rule exists until you run ssh-setup; then the only one is port 22 from a single /32 (your IP).
+#      The only IAM thing created is one role that can do what SSM needs.
 set -euo pipefail
 
 REGION="${OM_REGION:-us-east-1}"
@@ -165,6 +169,50 @@ PY
   [ "$status" = Success ]
 }
 
+KEY="${OM_SSH_KEY:-$HOME/.ssh/aws-spot-box}"
+KNOWN="${OM_SSH_KNOWN:-$HOME/.ssh/aws-spot-box.known_hosts}"
+
+my_ip() { curl -fsS --max-time 10 https://checkip.amazonaws.com | tr -d '[:space:]'; }
+
+cmd_ssh_allow() {
+  load_state
+  check_tag sg "$OM_SG"
+  local ip cidr
+  ip=$(my_ip)
+  case "$ip" in *[!0-9.]*|"") die "could not read your public IP" ;; esac
+  cidr="$ip/32"
+  if [ "${OM_SSH_CIDR:-}" = "$cidr" ]; then echo "port 22 is already open to $cidr"; return 0; fi
+  if [ -n "${OM_SSH_CIDR:-}" ]; then
+    aws_ ec2 revoke-security-group-ingress --group-id "$OM_SG" --protocol tcp --port 22 --cidr "$OM_SSH_CIDR" >/dev/null 2>&1 || true
+  fi
+  aws_ ec2 authorize-security-group-ingress --group-id "$OM_SG" --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=$cidr,Description=ssh from the owner only}]" >/dev/null
+  save OM_SSH_CIDR "$cidr"
+  echo "port 22 open to $cidr only"
+}
+
+cmd_ssh_setup() {
+  load_state
+  if [ ! -f "$KEY" ]; then
+    mkdir -p "$(dirname "$KEY")"
+    ssh-keygen -q -t ed25519 -N "" -C "aws-spot-box" -f "$KEY"
+    echo "created key $KEY"
+  fi
+  local pub
+  pub=$(cat "$KEY.pub")
+  OM_AS_ROOT=1 cmd_run "install -d -m 700 -o omtest -g omtest /home/omtest/.ssh && grep -qxF '$pub' /home/omtest/.ssh/authorized_keys 2>/dev/null || echo '$pub' >> /home/omtest/.ssh/authorized_keys; chown omtest:omtest /home/omtest/.ssh/authorized_keys; chmod 600 /home/omtest/.ssh/authorized_keys; systemctl is-active ssh.socket ssh.service; true"
+  cmd_ssh_allow
+}
+
+box_ip() { aws_ ec2 describe-instances --instance-ids "$OM_INSTANCE" --query 'Reservations[0].Instances[0].PublicIpAddress' --output text; }
+
+cmd_ssh() {
+  load_state
+  local ip
+  ip=$(box_ip)
+  [ -n "$ip" ] && [ "$ip" != None ] || die "the box has no public IP (is it running? try: start)"
+  exec ssh -i "$KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$KNOWN" -o ServerAliveInterval=30 "omtest@$ip" "$@"
+}
+
 cmd_stop() { load_state; aws_ ec2 stop-instances --instance-ids "$OM_INSTANCE" --query 'StoppingInstances[0].CurrentState.Name' --output text; aws_ ec2 wait instance-stopped --instance-ids "$OM_INSTANCE"; echo stopped; }
 cmd_start() {
   load_state
@@ -238,6 +286,7 @@ cmd_status() {
     echo "state: $STATE"; cat "$STATE"
     load_state
     echo "instance: $(aws_ ec2 describe-instances --instance-ids "$OM_INSTANCE" --query 'Reservations[0].Instances[0].[State.Name,InstanceType]' --output text)"
+    echo "public ip: $(box_ip)"
     echo "ssm: $(aws_ ssm describe-instance-information --filters "Key=InstanceIds,Values=$OM_INSTANCE" --query 'InstanceInformationList[0].PingStatus' --output text 2>/dev/null)"
     [ "$(date +%F)" \< "$OM_REVIEW_BY" ] || echo "REVIEW DATE PASSED: decide whether to keep or destroy this box"
   else
@@ -251,10 +300,13 @@ case "${1:-}" in
   up) cmd_up ;;
   ready) cmd_ready ;;
   run) shift; cmd_run "$@" ;;
+  ssh-setup) cmd_ssh_setup ;;
+  ssh-allow) cmd_ssh_allow ;;
+  ssh) shift; cmd_ssh "$@" ;;
   stop) cmd_stop ;;
   start) cmd_start ;;
   down) cmd_down ;;
   status) cmd_status ;;
   userdata) user_data ;;
-  *) sed -n '2,11p' "$0"; exit 2 ;;
+  *) sed -n '2,14p' "$0"; exit 2 ;;
 esac

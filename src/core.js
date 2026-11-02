@@ -358,7 +358,7 @@ const HANDLERS = {
     const secs = (r.ms / 1000).toFixed(1);
     if (r.timedOut) fail(`${driver} did not finish in time and was stopped (${secs}s)${r.text ? `. Partial output:\n${r.text}` : ''}`);
     if (r.cancelled) fail(`${driver} was stopped`);
-    if (!r.ok) fail(`${driver} exited with ${r.exitCode ?? r.signal ?? 'an error'} after ${secs}s${r.stderr ? `:\n${r.stderr}` : ''}${r.text ? `\nOutput:\n${r.text}` : ''}`);
+    if (!r.ok) fail(`${driver} ${r.reportedError ? 'reported an error' : `exited with ${r.exitCode ?? r.signal ?? 'an error'}`} after ${secs}s${r.stderr ? `:\n${r.stderr}` : ''}${r.text ? `\nOutput:\n${r.text}` : ''}`);
     return { text: `${r.text || '(no output)'}${r.truncated ? '\n[output cut at 400 KB]' : ''}\n[${driver}, ${secs}s, ${path.basename(cwd)}]` };
   },
 

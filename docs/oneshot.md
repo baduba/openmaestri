@@ -34,7 +34,7 @@ Any agent works; DeepSeek is only the pair of cheapest presets.
 | Driver | Runs |
 | --- | --- |
 | `claude` | `claude -p PROMPT [--model M]` |
-| `codex` | `codex exec [--model M] PROMPT` |
+| `codex` | `codex exec --skip-git-repo-check [--model M] PROMPT` (read-only sandbox by default: it answers and reviews, it does not edit files) |
 | `gemini` | `gemini [--model M] -p PROMPT` |
 | `agy` | `agy -p PROMPT [--model M]` (Antigravity) |
 | `kimi` | `kimi -p PROMPT [--model M]` |

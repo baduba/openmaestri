@@ -32,17 +32,34 @@ export function geminiHint(stderr) {
   return stderr.includes('IneligibleTierError') ? 'Google no longer supports the Gemini CLI for individual accounts. Use the agy driver (Antigravity) instead.' : '';
 }
 
+/** goose wants a provider and a model: "openai/gpt-5" gives both, a bare "gpt-5" only the model (the provider then comes from GOOSE_PROVIDER). */
+export function gooseModel(model) {
+  if (!model) return [];
+  const i = model.indexOf('/');
+  return i > 0 ? ['--provider', model.slice(0, i), '--model', model.slice(i + 1)] : ['--model', model];
+}
+
+// aider in one shot: no .gitignore edit, no analytics or update check, and its chat and input history go nowhere instead of into your folder
+const AIDER_ONE_SHOT = ['--yes-always', '--no-auto-commits', '--no-pretty', '--no-gitignore', '--no-analytics', '--no-check-update', '--no-show-release-notes', '--chat-history-file', '/dev/null', '--input-history-file', '/dev/null'];
+
+/** aider exits 0 even when the provider refuses the call (bad key, no credit) and prints the error as its answer; say it failed. */
+export function aiderFailure(text) {
+  const lines = text.split('\n');
+  const at = lines.findIndex((l) => l.startsWith('litellm.') && l.includes('Error'));
+  return at < 0 ? '' : lines.slice(at).join(' ').replace(/\s+/g, ' ').trim().slice(0, 400);
+}
+
 export const DRIVERS = {
   claude: { bin: 'claude', keys: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL'], args: (p, o) => ['-p', p, ...withModel('--model', o.model)] },
-  codex: { bin: 'codex', keys: ['OPENAI_API_KEY', 'OPENAI_BASE_URL'], args: (p, o) => ['exec', ...withModel('--model', o.model), p] },
+  codex: { bin: 'codex', keys: ['OPENAI_API_KEY', 'OPENAI_BASE_URL'], args: (p, o) => ['exec', '--skip-git-repo-check', ...withModel('--model', o.model), p] },
   gemini: { bin: 'gemini', keys: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'], args: (p, o) => [...withModel('--model', o.model), '-p', p], hint: geminiHint },
   opencode: { bin: 'opencode', keys: PROVIDER_KEYS, args: (p, o) => ['run', ...withModel('-m', o.model), p] },
-  aider: { bin: 'aider', keys: PROVIDER_KEYS, args: (p, o) => ['--message', p, '--yes-always', '--no-auto-commits', '--no-pretty', ...withModel('--model', o.model)] },
+  aider: { bin: 'aider', keys: PROVIDER_KEYS, args: (p, o) => ['--message', p, ...AIDER_ONE_SHOT, ...withModel('--model', o.model)], failure: aiderFailure },
   agy: { bin: 'agy', keys: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'], args: (p, o) => ['-p', p, ...withModel('--model', o.model)] },
   kimi: { bin: 'kimi', keys: ['MOONSHOT_API_KEY', 'KIMI_API_KEY'], args: (p, o) => ['-p', p, ...withModel('--model', o.model)], tidy: tidyKimi },
-  goose: { bin: 'goose', keys: PROVIDER_KEYS, args: (p) => ['run', '-t', p] },
+  goose: { bin: 'goose', keys: PROVIDER_KEYS, args: (p, o) => ['run', '--no-session', '-q', ...gooseModel(o.model), '-t', p] },
   'opencode-deepseek': { bin: 'opencode', keys: ['DEEPSEEK_API_KEY'], args: (p, o) => ['run', '-m', `deepseek/${o.model || DEEPSEEK(o.env)}`, p] },
-  'aider-deepseek': { bin: 'aider', keys: ['DEEPSEEK_API_KEY'], args: (p, o) => ['--message', p, '--yes-always', '--no-auto-commits', '--no-pretty', '--model', `deepseek/${o.model || DEEPSEEK(o.env)}`] },
+  'aider-deepseek': { bin: 'aider', keys: ['DEEPSEEK_API_KEY'], args: (p, o) => ['--message', p, ...AIDER_ONE_SHOT, '--model', `deepseek/${o.model || DEEPSEEK(o.env)}`], failure: aiderFailure },
 };
 
 /** Drivers from settings.json: { "name": { "bin": "tool", "args": ["--ask", "{prompt}"] } }, {prompt} and {model} are filled in. */
@@ -144,7 +161,9 @@ export async function runHeadless({ driver, drivers = DRIVERS, prompt, cwd, env,
       const raw = { text: out.trim(), stderr: containerName ? explainDocker(err.trim(), box) : err.trim() };
       const tidy = d.tidy ? d.tidy(raw) : raw;
       const hint = !ok && d.hint ? d.hint(raw.stderr) : '';
-      resolve({ truncated, timedOut, cancelled, ms: Date.now() - started, ...r, text: tidy.text, stderr: hint ? `${hint}\n${tidy.stderr}`.trim() : tidy.stderr, ok });
+      const failure = ok && d.failure ? d.failure(tidy.text) : '';
+      const notes = [hint, failure].filter(Boolean);
+      resolve({ truncated, timedOut, cancelled, ms: Date.now() - started, ...r, text: tidy.text, stderr: [...notes, tidy.stderr].filter(Boolean).join('\n'), ok: ok && !failure, reportedError: Boolean(failure) });
     };
     child.on('error', (e) => finish({ exitCode: null, signal: null, stderr: `${err}${e.message}`.trim() }));
     child.on('close', (code, sig) => finish({ exitCode: code, signal: sig }));
