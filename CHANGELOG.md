@@ -4,6 +4,9 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Changed
+- README: a section on one-shot agents with which agents were checked against the real programs, and a Status paragraph that matches what exists today
+
 ## [0.21.2] - 2026-11-02
 
 ### Added
