@@ -18,6 +18,8 @@ const tree = (dir) => {
 };
 
 async function setup(t) {
+  // landing makes a merge commit, which needs an identity (CI machines have none configured)
+  Object.assign(process.env, { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' });
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-snapt-'));
   const app = await main({ port: 0, dataRoot: path.join(dir, 'data'), socketPath: path.join(dir, 'ipc.sock'), quiet: true });
   t.after(async () => { await app.close(); fs.rmSync(dir, { recursive: true, force: true }); });
