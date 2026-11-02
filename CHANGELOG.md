@@ -4,6 +4,8 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-11-02
+
 ### Changed
 - The kimi driver's bullet, version line and resume hint no longer reach the answer or the run report
 - A failed `gemini` run says that Google ended the CLI for individual accounts and points to `agy`
