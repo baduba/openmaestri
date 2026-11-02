@@ -4,6 +4,8 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.21.2] - 2026-11-02
+
 ### Added
 - `scripts/aws-spot-check.sh`: a Spot test box on AWS kept for a while, reached through SSM (no inbound port, no SSH key), with `up`, `run`, `stop`, `start`, `status` and a tag-checked `down`
 
