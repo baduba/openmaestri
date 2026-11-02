@@ -13,7 +13,20 @@ run "npm audit"                          npm audit --audit-level=low
 run "semgrep" semgrep scan --metrics=off --quiet --error --exclude node_modules --exclude dist \
   --config p/javascript --config p/nodejs --config p/security-audit --config p/owasp-top-ten \
   --config p/secrets --config p/command-injection --config p/xss --config p/github-actions .
-run "njsscan"   njsscan --exit-warning src bin web
+# njsscan sometimes skips the largest file when its rules time out ("could not be scanned") and exits 1
+# with no finding. A skipped file is not a clean file, so try again; real findings fail at once.
+# shellcheck disable=SC2329  # called through run()
+njs() {
+  local out try
+  for try in 1 2 3 4; do
+    out=$(njsscan --exit-warning src bin web 2>&1); local code=$?
+    if [ "$code" -eq 0 ]; then echo "$out" | tail -n 2; return 0; fi
+    if ! echo "$out" | grep -q "could not be scanned"; then echo "$out"; return 1; fi
+    echo "   (njsscan skipped a file, attempt $try)"
+  done
+  echo "$out" | tail -n 5; return 1
+}
+run "njsscan"   njs
 run "gitleaks"  gitleaks detect --no-banner --redact -s . --log-opts="--all"
 run "trivy"     trivy fs --quiet --scanners vuln,secret,misconfig --severity LOW,MEDIUM,HIGH,CRITICAL --exit-code 1 .
 run "shellcheck" shellcheck scripts/*.sh bin/shims/openmaestri test/fixtures/*.sh

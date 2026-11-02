@@ -90,3 +90,18 @@ openmaestri floor rollback "Work" 20261102093015123-a1b2
 - Only the last 20 snapshots of a floor are kept, and deleting the floor removes them. A snapshot of a floor with very large files takes room in `.git`.
 - A tree with more than 20000 new files that git does not ignore (for example a `node_modules` that is missing from `.gitignore`) is refused with advice, because every snapshot would be slow and heavy. `OPENMAESTRI_SNAPSHOT_MAX_FILES` raises the limit.
 - It needs the floor folder to be the top of a git repository or worktree. The ground floor works too.
+
+## Hooks
+
+A hook is a check that runs on a floor at two moments. You set them per floor:
+
+```bash
+openmaestri floor hooks "Work" --post-agent "npm test" --pre-land "npm run lint" --rollback-on-fail on
+openmaestri floor hooks "Work"                 # show
+openmaestri floor hooks "Work" --clear-hooks
+```
+
+- **`--post-agent`** runs in the floor folder after each agent of `openmaestri run --floors` finishes without error. The result (passed, failed, timed out, and the last lines of output) is in the report. With `--rollback-on-fail on`, a failing check puts the files back to how they were before the agent started; the agent's work stays in its *after* snapshot.
+- **`--pre-land`** runs before `floor land`. If it fails, nothing is landed and the output is shown. `floor land "Work" --no-hooks` skips it on purpose.
+- A hook is a shell command you wrote for your project. It runs with the same rights as a terminal, but with a short environment (no API keys), no input, and a time limit of 5 minutes (`OPENMAESTRI_HOOK_TIMEOUT_MS`); on timeout the command and everything it started are stopped.
+- Every run is in the [audit log](audit.html), and only a Maestro can change hooks.

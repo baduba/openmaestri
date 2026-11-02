@@ -124,6 +124,29 @@ export function createChat({ state, send, wsId, toast, $, el }) {
     send({ t: 'chat.send', workspaceId: wsId(), threadId: current, text });
   }
 
+  // Drop files on the chat to send them to the Maestro (up to 10 MB each, three at a time).
+  const dropPanel = $('#chat');
+  const hasFiles = (e) => [...(e.dataTransfer?.types ?? [])].includes('Files');
+  dropPanel.addEventListener('dragover', (e) => { if (hasFiles(e)) { e.preventDefault(); dropPanel.classList.add('dropping'); } });
+  dropPanel.addEventListener('dragleave', (e) => { if (e.target === dropPanel) dropPanel.classList.remove('dropping'); });
+  dropPanel.addEventListener('drop', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dropPanel.classList.remove('dropping');
+    const files = [...e.dataTransfer.files].slice(0, 3);
+    const caption = input.value.trim();
+    if (caption) input.value = '';
+    files.forEach((file, i) => {
+      if (file.size > 10 * 1024 * 1024) { toast(`${file.name} is over 10 MB`, 'chat', true); return; }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const data = String(reader.result).split(',')[1] ?? '';
+        send({ t: 'chat.upload', workspaceId: wsId(), threadId: current, name: file.name, data, text: i === 0 ? caption : '' });
+      };
+      reader.readAsDataURL(file);
+    });
+  });
+
   function closeMentions() { pop.hidden = true; mentionItems = []; }
   function renderMentions() {
     pop.replaceChildren();

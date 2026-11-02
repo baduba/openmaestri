@@ -78,3 +78,9 @@ A summary written by a model is not offered: it would send your conversation to 
 ## Not implemented yet
 
 Dragging files into the panel.
+
+## Dropping files
+
+Drag a file onto the chat panel and it goes to your Maestro with whatever you had typed as the message (up to three files at a time, 10 MB each). The Maestro is told the file's id and can get its path with `openmaestri recall attachment ID`. The file is kept in the chat's private vault, not in your project.
+
+Files that look like secrets (`.env`, private keys, names like `id_rsa`) or contain a private key are refused, and so are empty files.

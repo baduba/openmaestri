@@ -259,6 +259,21 @@ export class Chat extends EventEmitter {
       if (e instanceof ChatError) throw e;
       return fail(`cannot read ${sourcePath}`);
     }
+    return this.put(wsId, name, data);
+  }
+
+  /** A file dropped in the browser: bytes, not a path. Same limits as a path, and nothing that looks like a private key. */
+  attachBytes(wsId, originalName, data) {
+    if (!Buffer.isBuffer(data) || !data.length) fail('that file is empty');
+    if (data.length > MAX_ATTACHMENT) fail(`attachments are limited to ${MAX_ATTACHMENT / 1024 / 1024} MB`);
+    const name = cleanName(originalName);
+    if (looksSecret(name)) fail('that file looks like it holds secrets and cannot be attached');
+    if (data.subarray(0, 8192).toString('latin1').includes('PRIVATE KEY-----')) fail('that file contains a private key and cannot be attached');
+    return this.put(wsId, name, data);
+  }
+
+  /** Store bytes in the content-addressed vault and index them. */
+  put(wsId, name, data) {
     const sha = crypto.createHash('sha256').update(data).digest('hex');
     const id = `att_${sha.slice(0, 16)}`;
     const dest = path.join(this.dir(wsId), 'vault', sha, name);

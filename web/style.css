@@ -214,3 +214,6 @@ dialog.welcome { width: min(520px, 94vw); }
 .welcome-agent { margin: 3px 0; }
 .welcome-agent .ok { color: var(--ok); }
 .welcome-agent .warn { color: var(--muted); }
+
+/* Chat drop target */
+#chat.dropping { outline: 2px dashed var(--accent); outline-offset: -6px; }

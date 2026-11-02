@@ -4,6 +4,16 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-02
+
+### Added
+- Floor hooks: `floor hooks "Floor" --post-agent CMD --pre-land CMD --rollback-on-fail on`; the after-agent check runs on every `run --floors` agent and shows in the report (optionally rolling the files back), the pre-land check stops a landing when it fails (`--no-hooks` to skip)
+- `routine history "Name"`: the last 20 runs with trigger, outcome and time
+- Drop files on the chat panel: stored in the chat vault and announced to the Maestro with `recall attachment ID`
+
+### Security
+- Hooks run with an allow-listed environment (no keys), no input, a time limit, and the whole process group stopped on timeout; uploads refuse secret-looking names, private keys, empty and oversize files, and never keep a path from the browser
+
 ## [0.17.0] - 2026-11-02
 
 ### Added

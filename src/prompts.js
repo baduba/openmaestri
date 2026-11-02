@@ -9,6 +9,7 @@ connected to you (a Maestro sees the whole workspace).
 Everyday commands
   openmaestri list                         who and what you can reach
   openmaestri run "task" --agents a,b      same task to several one-shot agents in parallel (--floors: one git floor each, --dry-run to preview); report saved as a note
+  openmaestri floor hooks "Floor" --post-agent CMD --pre-land CMD   checks after each agent and before landing
   openmaestri floor snapshot|snapshots|rollback "Floor"   remember the files of a floor, list, put back (a rollback is itself undoable)
   openmaestri floor prs                    open pull/merge requests with their checks (then: floor create --pull-request N)
   openmaestri partitura export "Name" / import FILE   a layout as a file and back (imported commands stay held back)
