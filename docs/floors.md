@@ -88,4 +88,5 @@ openmaestri floor rollback "Work" 20261102093015123-a1b2
 - **What it restores:** files. It does not move the branch: commits made after the snapshot stay (the rollback tells you when that happened), and the staging area is not restored.
 - It refuses while an agent in that floor is printing output, because files would change under it.
 - Only the last 20 snapshots of a floor are kept, and deleting the floor removes them. A snapshot of a floor with very large files takes room in `.git`.
+- A tree with more than 20000 new files that git does not ignore (for example a `node_modules` that is missing from `.gitignore`) is refused with advice, because every snapshot would be slow and heavy. `OPENMAESTRI_SNAPSHOT_MAX_FILES` raises the limit.
 - It needs the floor folder to be the top of a git repository or worktree. The ground floor works too.

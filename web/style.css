@@ -207,3 +207,10 @@ dialog select { width: 100%; margin-top: 3px; background: var(--bg); border: 1px
 .fname.git-M { color: #d19a3a; }
 .fname.git-u { color: #5fae6a; }
 .fname.git-D { color: #d05a5a; text-decoration: line-through; }
+
+/* Welcome */
+dialog.welcome { width: min(520px, 94vw); }
+.welcome-agents { margin: 4px 0 8px; max-height: 190px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+.welcome-agent { margin: 3px 0; }
+.welcome-agent .ok { color: var(--ok); }
+.welcome-agent .warn { color: var(--muted); }

@@ -4,6 +4,12 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-02
+
+### Added
+- Welcome screen on first run: pick the project folder and an agent (installed ones first), press Start; the agent opens as the Maestro in that folder; optional AGENTS.md / CLAUDE.md / GEMINI.md that is never overwritten; Skip is remembered; `OPENMAESTRI_NO_WELCOME=1` turns it off (docs/getting-started.md)
+- Snapshots are refused, with advice, when more than 20000 new files are not ignored by git (`OPENMAESTRI_SNAPSHOT_MAX_FILES`)
+
 ## [0.15.0] - 2026-11-02
 
 ### Added
