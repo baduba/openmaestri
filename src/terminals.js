@@ -57,6 +57,7 @@ export function commandPath(word) {
     return hit || null;
   } catch { return null; }
 }
+const SHELLS = new Set(['sh', 'bash', 'zsh', 'fish', 'dash', 'ksh']);
 const maxTerminals = () => Math.max(1, Number(process.env.OPENMAESTRI_MAX_TERMINALS) || 40);
 
 const DEFAULT_COLS = 100;
@@ -144,6 +145,7 @@ export class Terminals extends EventEmitter {
   constructor(env) {
     super();
     this.env = env;
+    this.persist = env.persist ?? null; // tmux-backed sessions, or null for plain terminals
     this.rt = new Map();
   }
 
@@ -193,11 +195,14 @@ export class Terminals extends EventEmitter {
     const args = command
       ? ['-i', '-c', `${command}\nprintf '${AGENT_EXIT_PRINTF}'\nexec ${shellQuote(shell)} -i`]
       : ['-i'];
-    const proc = pty.spawn(shell, args, { name: 'xterm-256color', cols: DEFAULT_COLS, rows: DEFAULT_ROWS, cwd, env });
+    const { proc, persistent, reattached } = this.startProcess(node, { shell, args, cwd, env });
     const term = new Terminal({ cols: DEFAULT_COLS, rows: DEFAULT_ROWS, scrollback: SCROLLBACK, allowProposedApi: true });
     const serializer = new SerializeAddon();
     term.loadAddon(serializer);
     const rt = new Runtime(node, proc, term, serializer);
+    rt.persistent = persistent;
+    // a session that was already running keeps its state: if the agent has since exited, the shell is in front
+    if (reattached && node.command && SHELLS.has(path.basename(this.persist.foreground(node.id)))) rt.agentExited = true;
     this.rt.set(node.id, rt);
 
     proc.onData((data) => {
@@ -217,6 +222,24 @@ export class Terminals extends EventEmitter {
     });
     this.emit('status', node.id, 'running');
     return rt;
+  }
+
+  /**
+   * Start the process behind a terminal: a tmux client attached to a (new or surviving) session when
+   * persistence is on and works, otherwise the shell itself.
+   */
+  startProcess(node, { shell, args, cwd, env }) {
+    const opts = { name: 'xterm-256color', cols: DEFAULT_COLS, rows: DEFAULT_ROWS, cwd, env };
+    if (this.persist) {
+      try {
+        const reattached = this.persist.has(node.id);
+        if (reattached || this.persist.create(node.id, { cwd, env, argv: [shell, ...args], cols: DEFAULT_COLS, rows: DEFAULT_ROWS })) {
+          const a = this.persist.attachArgs(node.id);
+          return { proc: pty.spawn(a.file, a.args, opts), persistent: true, reattached };
+        }
+      } catch (e) { console.warn(`[persist] ${node.name}: falling back to a plain terminal (${e.message})`); }
+    }
+    return { proc: pty.spawn(shell, args, opts), persistent: false, reattached: false };
   }
 
   write(id, data) {
@@ -309,8 +332,10 @@ export class Terminals extends EventEmitter {
     });
   }
 
-  kill(id) {
+  /** Stop a terminal. A persistent one is ended for good (its tmux session too) unless `detach` is set. */
+  kill(id, { detach = false } = {}) {
     const rt = this.rt.get(id);
+    if (rt && rt.persistent && !detach) this.persist.kill(id);
     if (rt && rt.status === 'running') {
       try { rt.proc.kill(); } catch {}
     }
@@ -319,15 +344,16 @@ export class Terminals extends EventEmitter {
   /** The pid of a terminal's shell, or null. */
   pidOf(id) { const rt = this.rt.get(id); return rt?.status === 'running' ? rt.proc.pid : null; }
 
-  dispose(id) {
+  dispose(id, { detach = false } = {}) {
     const rt = this.rt.get(id);
     if (!rt) return;
-    this.kill(id);
+    this.kill(id, { detach });
     rt.term.dispose();
     this.rt.delete(id);
   }
 
+  /** On shutdown: let go of every terminal but leave the persistent sessions running for the next start. */
   disposeAll() {
-    for (const id of [...this.rt.keys()]) this.dispose(id);
+    for (const id of [...this.rt.keys()]) this.dispose(id, { detach: true });
   }
 }

@@ -10,7 +10,7 @@ Legend: done = works and is tested · partial = some of it · missing = not star
 
 | Area | Channels | Status | What exists / what is missing |
 |---|---:|---|---|
-| Terminals (PTY, xterm, resize, restart) | 30 | partial | spawn, IO, resize, restart, status badge, process list with memory and CPU, stop one process ([everyday](everyday.html)). Missing: persistent sessions (tmux), remote sessions |
+| Terminals (PTY, xterm, resize, restart) | 30 | done | spawn, IO, resize, restart, status badge, process list with memory and CPU, stop one process, sessions that survive a restart through tmux ([persistent terminals](persistent-terminals.html)). Missing: remote sessions |
 | Agent CLI (`ask`, `check`, `list`, `notify`) | 13 | done | batch and raw modes, name resolution, permissions by connection |
 | Notes | 14 | done | create/read/write/edit/delete, live sync, Markdown preview, pictures, a file as a note |
 | Note stacks (fichários) | 16 | done | file/unstack notes, tabs, per-stack front note, CLI and UI. Missing: shared uniform color, drag-and-drop between stacks |
@@ -25,13 +25,13 @@ Legend: done = works and is tested · partial = some of it · missing = not star
 | File tree and editor panes | 43 | done | `+ Files` node: confined tree with git markers, tabs, search in files, colours, Ctrl+S, conflict check, 10 versions, trash on delete, Markdown preview; see [files](files.html) |
 | Partituras (saved layouts) | 10 | partial | save/insert/update/delete from CLI, UI and palette, with or without commands and note text, global or per workspace. Single layouts as closed-format files (`partitura export/import`, commands held back). Missing: chat history option |
 | Portals (web panes) | 12 | done | a real Chromium per portal shared by the human and agents: snapshot with refs, click, fill, type, key, select, check, scroll, drag, upload, wait, evaluate, logs, screenshot, resize, user-agent presets; see [portals](portals.html). Missing: design mode |
-| Android devices | 7 | missing | |
+| Android devices | 7 | missing | Out of scope: it needs adb and a phone, and has nothing to do with orchestrating agents on a computer |
 | Maestri Chat (threads, `say`, `recall`) | 28 | done | seven threads, JSONL history, `say`/`recall`, panel with progress, unread, attention badges, search, interrupt, attachment vault, files dropped on the chat, local summaries plus summaries written by an agent you choose, copy and download a thread, see [chat](chat.html) |
 | Prompter (composer with @mentions, file index) and saved prompts | 16 | done | `@agent:`/`@note:`/`@file:` tokens, popup with keyboard, cancellable file index, 32 KB materialisation with a preview, saved prompts with undo and live updates; see [chat](chat.html) and [agents](agents.html). Files can be dropped on the chat ([chat](chat.html)). |
 | Agent accounts, usage and identity | 41 | partial | usage per terminal with tokens, cost estimate (reported or parsed, never guessed), DeepSeek prices with peak hours, `usage report`; role discovery and install with dry run. Named secrets (`secret://`) in the desktop keyring or a 0600 file, see [secrets](secrets.html). Named accounts (work / personal) per terminal, preset or one-shot run, see [accounts](accounts.html). Missing: identity |
-| Sandboxes, Docker, WSL, remote tunnels | 18+ | missing | |
+| Sandboxes, Docker, WSL, remote tunnels | 18+ | partial | one-shot agents can run in a Docker container with only the folder shared ([one-shot](oneshot.html)). Missing: WSL, remote tunnels (deliberately: exposing a page that drives shells to a network is not something openmaestri does) |
 | Auto-layout (tidy/snap), command palette | 4 | done | tidy by depth from the Maestro, snap to grid, Ctrl+K palette. Missing: drawing recognition |
-| App shell (window, tray, preferences, onboarding, updates) | 40 | partial | runs in the browser; `.deb` ships updates through apt. First-run welcome (folder, agent, optional AGENTS.md). Missing: Electron shell, tray, preferences screen |
+| App shell (window, tray, preferences, onboarding, updates) | 40 | done | runs in the browser; optional Electron window with tray and notifications ([desktop](desktop.html)); preferences window; first-run welcome; updates through the `.deb` and apt |
 | Licensing | 7 | not applicable | openmaestri is MIT |
 
 ## Order of work

@@ -3,7 +3,8 @@
 // Antigravity (agy), Kimi, OpenCode, Aider and Goose out of the box; any other tool can be added in settings.json under
 // "drivers" (see docs/agents.md). The flags below are what each tool documents at the time of
 // writing; a tool that changes them is fixed by overriding its driver, not by editing code.
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { commandPath, readUserEnv } from './terminals.js';
 
@@ -37,9 +38,11 @@ export function customDrivers(raw) {
   for (const [name, d] of Object.entries(raw)) {
     if (!/^[a-z][a-z0-9-]{0,30}$/.test(name) || !d || typeof d.bin !== 'string' || !Array.isArray(d.args) || !d.args.every((a) => typeof a === 'string')) continue;
     if (!d.args.some((a) => a.includes('{prompt}'))) continue;
+    let sandbox;
+    if (d.sandbox !== undefined) { try { sandbox = checkSandbox(d.sandbox); } catch { continue; } }
     // a custom driver without "keys" gets every key from the env file (it is your own driver); list "keys" to give it less
     const keys = Array.isArray(d.keys) && d.keys.every((k) => typeof k === 'string' && /^[A-Z_][A-Z0-9_]*$/.test(k)) ? d.keys : undefined;
-    out[name] = { bin: d.bin, ...(keys ? { keys } : {}), args: (p, o) => d.args.map((a) => a.replaceAll('{prompt}', p).replaceAll('{model}', o.model ?? '')) };
+    out[name] = { bin: d.bin, ...(keys ? { keys } : {}), ...(sandbox ? { sandbox } : {}), args: (p, o) => d.args.map((a) => a.replaceAll('{prompt}', p).replaceAll('{model}', o.model ?? '')) };
   }
   return out;
 }
@@ -72,27 +75,43 @@ export const MAX_TIMEOUT_MS = 60 * 60 * 1000;
 /**
  * @returns {Promise<{ok: boolean, text: string, exitCode: number|null, signal: string|null, timedOut: boolean, cancelled: boolean, truncated: boolean, stderr: string, ms: number}>}
  */
-export async function runHeadless({ driver, drivers = DRIVERS, prompt, cwd, env, model, timeoutMs = 10 * 60 * 1000, signal, resolveBin = commandPath }) {
+export async function runHeadless({ driver, drivers = DRIVERS, prompt, cwd, env, model, timeoutMs = 10 * 60 * 1000, signal, resolveBin = commandPath, sandbox = null }) {
   const d = drivers[driver];
   if (!d) fail(`no driver named "${driver}". Available: ${Object.keys(drivers).join(', ')}`);
   const text = String(prompt ?? '');
   if (!text.trim()) fail('give it a prompt');
   if (text.length > MAX_PROMPT) fail(`the prompt is over ${MAX_PROMPT / 1024} KB`);
   if (model !== undefined && (!/^[\w./:@-]{1,80}$/.test(String(model)) || String(model).includes('..'))) fail('model names use letters, digits and . _ / : @ -');
-  const bin = resolveBin(d.bin);
-  if (!bin) fail(`"${d.bin}" was not found in your shell. Install it (run: openmaestri doctor)`);
+  const box = sandbox ?? d.sandbox ?? null;
+  let bin;
+  let argv = d.args(text, { model, env });
+  let containerName = null;
+  if (box) {
+    // the agent runs inside a container: the program only has to exist in the image, and docker is what runs on the host
+    bin = resolveBin('docker');
+    if (!bin) fail('"docker" was not found in your shell, so the sandbox cannot start');
+    containerName = `om-${crypto.randomBytes(6).toString('hex')}`;
+    argv = dockerArgs(box, { name: containerName, cwd, bin: d.bin, args: argv, envNames: Object.keys(env) });
+  } else {
+    bin = resolveBin(d.bin);
+    if (!bin) fail(`"${d.bin}" was not found in your shell. Install it (run: openmaestri doctor)`);
+  }
   const limit = Math.min(Math.max(Number(timeoutMs) || 0, 1000), MAX_TIMEOUT_MS);
   const started = Date.now();
   return new Promise((resolve) => {
     // its own process group, so a timeout ends the agent and every tool it started
-    const child = spawn(bin, d.args(text, { model, env }), { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    const child = spawn(bin, argv, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
     let out = '';
     let err = '';
     let truncated = false;
     let timedOut = false;
     let cancelled = false;
     let done = false;
-    const kill = (sig) => { try { process.kill(-child.pid, sig); } catch { try { child.kill(sig); } catch { /* gone */ } } };
+    const kill = (sig) => {
+      // killing the docker client does not stop the container, so the container is killed by name too
+      if (containerName && sig === 'SIGKILL') spawnSync(bin, ['kill', containerName], { stdio: 'ignore', timeout: 10000 });
+      try { process.kill(-child.pid, sig); } catch { try { child.kill(sig); } catch { /* gone */ } }
+    };
     const stop = () => { kill('SIGTERM'); setTimeout(() => kill('SIGKILL'), 3000).unref(); };
     const timer = setTimeout(() => { timedOut = true; stop(); }, limit);
     const onAbort = () => { cancelled = true; stop(); };
@@ -112,6 +131,33 @@ export async function runHeadless({ driver, drivers = DRIVERS, prompt, cwd, env,
     child.on('error', (e) => finish({ exitCode: null, signal: null, stderr: `${err}${e.message}`.trim() }));
     child.on('close', (code, sig) => finish({ exitCode: code, signal: sig }));
   });
+}
+
+const IMAGE_RE = /^[a-z0-9][a-z0-9._/:@-]{0,200}$/;
+const MEMORY_RE = /^[1-9]\d{0,4}[mg]$/;
+
+/** Settings of a sandbox: an image, and optionally { network: 'bridge' | 'none', memory: '2g' }. A bare string is the image. */
+export function checkSandbox(raw) {
+  const box = typeof raw === 'string' ? { image: raw } : raw;
+  if (!box || typeof box !== 'object' || typeof box.image !== 'string' || !IMAGE_RE.test(box.image) || box.image.includes('..')) fail('a sandbox needs an image name such as node:22 or my-agents:latest');
+  const network = box.network ?? 'bridge';
+  if (!['bridge', 'none'].includes(network)) fail('a sandbox network is "bridge" (normal access) or "none" (no network)');
+  const memory = box.memory ?? '2g';
+  if (!MEMORY_RE.test(memory)) fail('sandbox memory looks like 512m or 2g');
+  return { image: box.image, network, memory };
+}
+
+/**
+ * The `docker run` command for one agent. The folder is the only thing shared with the host;
+ * variables are passed by name (the values travel in docker's own environment, not on a command
+ * line), the user is yourself rather than root, and the container cannot gain privileges.
+ */
+export function dockerArgs(box, { name, cwd, bin, args, envNames }) {
+  const { image, network, memory } = checkSandbox(box);
+  const uid = process.getuid?.() ?? 1000;
+  const gid = process.getgid?.() ?? 1000;
+  const names = envNames.filter((n) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(n) && !['PATH', 'HOME', 'TMPDIR', 'SHELL', 'USER', 'LOGNAME', 'PWD'].includes(n));
+  return ['run', '--rm', '--init', '--name', name, '--network', network, '--memory', memory, '--pids-limit', '256', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--user', `${uid}:${gid}`, '-v', `${cwd}:/work`, '-w', '/work', '-e', 'HOME=/tmp', ...names.flatMap((n) => ['-e', n]), image, bin, ...args];
 }
 
 export const cwdLabel = (cwd) => path.basename(cwd || '');

@@ -16,7 +16,8 @@ mkdir -p "$APP" "$STAGE/$PKG/DEBIAN" "$STAGE/$PKG/usr/bin" \
          "$STAGE/$PKG/usr/share/applications" "$STAGE/$PKG/usr/share/icons/hicolor/scalable/apps" \
          "$STAGE/$PKG/usr/share/doc/openmaestri"
 
-cp -r src bin web package.json package-lock.json LICENSE "$APP/"
+cp -r src bin web desktop assets package.json package-lock.json LICENSE "$APP/"
+rm -rf "$APP/desktop/node_modules"
 # production dependencies only; node-pty compiles here
 ( cd "$APP" && npm ci --omit=dev --no-audit --no-fund >/dev/null )
 # drop what the runtime never loads (sources, build intermediates, maps)

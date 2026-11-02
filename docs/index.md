@@ -16,6 +16,7 @@ A spatial canvas terminal workspace for AI agents. Open source, local, works wit
    [Audit log and workspace files](audit.html): what is recorded, and the strict import format.
    [Accounts](accounts.html): work and personal keys for the same agent.
    [Everyday tools](everyday.html): processes, workspace groups, note pictures, chat summaries.
+   [Persistent terminals](persistent-terminals.html) and the [desktop window](desktop.html).
    [Roadmap](roadmap.html): what is done and what comes next.
 3. [Floors](floors.html): one branch and one canvas per task.
 4. [Portals](portals.html): a browser you and your agents share.

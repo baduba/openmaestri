@@ -567,6 +567,18 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
         send(ws, { t: 'welcome.info', needed: process.env.OPENMAESTRI_NO_WELCOME !== '1' && !s.settings.onboarded && w.nodes.length === 0, dir: w.dir === os.homedir() ? fallback : w.dir, agents: agentChoices(s.settings.presets, (c) => commandAvailable(c).ok) });
         break;
       }
+      case 'prefs.get': {
+        send(ws, { t: 'prefs', prefs: core.preferences() });
+        break;
+      }
+      case 'prefs.set': {
+        if (typeof m.persistTerminals === 'boolean') s.settings.persistTerminals = m.persistTerminals;
+        if (m.showWelcomeAgain === true) s.settings.onboarded = false;
+        s.saveSettings();
+        core.audit.record('prefs.set', { persistTerminals: s.settings.persistTerminals === true, showWelcomeAgain: m.showWelcomeAgain === true }, 'ui');
+        send(ws, { t: 'prefs', prefs: core.preferences() });
+        break;
+      }
       case 'welcome.skip': s.settings.onboarded = true; s.saveSettings(); break;
       case 'welcome.start': {
         const w = wsOf();

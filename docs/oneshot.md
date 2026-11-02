@@ -52,6 +52,25 @@ These flags are what each tool documents today. When a tool changes them, or you
 
 `{prompt}` is required and is always a single argument; no shell is involved, so a prompt cannot run commands. A driver that does not show up in `openmaestri agent` is missing `{prompt}` or has a name outside lowercase letters, digits and `-`.
 
+## In a container
+
+`--sandbox IMAGE` runs the agent inside a Docker container instead of directly on your machine:
+
+```bash
+openmaestri agent claude "Review src/" --sandbox my-agents:latest
+openmaestri run "Find the bug" --agents claude,codex --floors --sandbox my-agents:latest --no-network
+```
+
+You provide the image: it must contain the agent program (`claude`, `aider`...). openmaestri then runs it with:
+
+- only the working folder shared, at `/work`, writable; nothing else of your machine is visible (not your home folder, not your keys);
+- your user id, not root; all Linux capabilities dropped; no privilege gain; 2 GB of memory and 256 processes at most;
+- the variables the driver is allowed (see below) passed **by name**, so values never appear in a process list;
+- `--no-network` removes the network entirely (useful for review jobs that need no API);
+- the container is killed on timeout or cancel, not just the `docker` client.
+
+A custom driver can carry its own sandbox in `settings.json`: `"sandbox": { "image": "my-agents:latest", "network": "none", "memory": "1g" }`. Programs that sign in through files in your home folder (for example a logged-in `claude`) do not find them inside the container; give them a key through an [account](accounts.html) instead.
+
 ## Safety
 
 - **Keys per driver.** A driver is given only the secret variables it needs: `claude` gets the Anthropic key, `aider-deepseek` the DeepSeek key, and neither sees the other. Settings that are not secrets (such as `OPENMAESTRI_DEEPSEEK_MODEL`) pass to all. A custom driver lists its own with `"keys": ["MY_TOKEN"]`; without that list it receives every key in the env file, since you wrote the driver.
@@ -61,5 +80,5 @@ These flags are what each tool documents today. When a tool changes them, or you
 - The program starts with a short allow-list of your environment (`PATH`, `HOME`, locale, proxies, certificates) plus the keys from `~/.openmaestri/env` (including `secret://` ones). It never receives `OPENMAESTRI_*`, so it cannot drive the canvas, and it does not see other tokens in the daemon's environment.
 - Standard input is closed: a tool that asks a question gets end-of-file instead of hanging.
 - A time limit (default 10 minutes, at most 60) stops the agent and every process it started. At most 6 run at once. Output is cut at 400 KB.
-- What this does not do: it is not a sandbox. An agent runs as you, so it can still read your home folder, use your git credentials stored in files, and start a background process that escapes the time limit (`setsid`, `nohup`). A floor separates the working files, not the shared `.git` folder. For code you do not trust, run openmaestri inside a container or a virtual machine.
+- What this does not do: without `--sandbox` it is not a sandbox. An agent runs as you, so it can still read your home folder, use your git credentials stored in files, and start a background process that escapes the time limit (`setsid`, `nohup`). A floor separates the working files, not the shared `.git` folder. For code you do not trust, run openmaestri inside a container or a virtual machine.
 - Tokens and cost are not guessed for one-shot runs: the footer shows the driver, seconds and folder.
