@@ -55,14 +55,11 @@ test('UI: bands, stacks, palette, tidy, undo, export and a held-back imported co
 
   // editing the open tab writes the right note file
   const ta = page.locator('.node', { hasText: 'Docs' }).locator('.note-text');
-  // a late redraw of the tab can land between the select-all and the insert of a fill, so the text is appended; try again until the saved note is right
-  for (let attempt = 0; attempt < 4 && store.readNote(ws.id, n2.id) !== 'two, edited'; attempt += 1) {
-    await ta.fill('two, edited');
-    await ta.blur();
-    // the UI saves after a short debounce; on a slow runner that can take longer than a fixed pause
-    const savedBy = Date.now() + 2500;
-    while (Date.now() < savedBy && store.readNote(ws.id, n2.id) !== 'two, edited') await page.waitForTimeout(100);
-  }
+  await ta.fill('two, edited');
+  await ta.blur();
+  // the UI saves after a short debounce; on a slow runner that can take longer than a fixed pause
+  const savedBy = Date.now() + 8000;
+  while (Date.now() < savedBy && store.readNote(ws.id, n2.id) !== 'two, edited') await page.waitForTimeout(100);
   assert.equal(store.readNote(ws.id, n2.id), 'two, edited');
   assert.equal(store.readNote(ws.id, n1.id), 'one');
 

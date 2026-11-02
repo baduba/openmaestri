@@ -15,6 +15,8 @@ Usage:
   openmaestri list                                   List connected agents, notes and portals
   openmaestri notify "message"                       Send the user a notification
   openmaestri run "task" --agents a,b [--floors] [--dry-run]   Same task to several one-shot agents in parallel; report kept as a note
+  openmaestri chat summarize [thread] --with DRIVER   Ask an agent you choose to write a summary of a chat thread (shown by recall --summary)
+  openmaestri ps [--all] | ps stop "Terminal" PID [--force]   Processes, memory and CPU of your terminals; stop one process
   openmaestri agent claude|codex|gemini|agy|kimi|opencode|aider|goose "prompt"   One-shot run of an agent CLI, prints its answer (no terminal)
   openmaestri ask "Agent" "prompt" [--timeout 120s]  Send a prompt to a connected agent, wait until it settles, print what it produced
   openmaestri ask --batch '{"A":"prompt","B":"prompt"}'  Ask several agents in parallel; prints a JSON array
@@ -97,6 +99,7 @@ function duration(v) {
   if (!m) throw new Error(`bad duration: ${v}`);
   return Number(m[1]) * { ms: 1, s: 1000, m: 60000, undefined: 1000 }[m[2]];
 }
+const optStr = (v) => (v === undefined ? undefined : v === true ? '' : String(v));
 const onOff = (v) => (v === undefined ? undefined : /^(on|true|1|yes)$/i.test(String(v)));
 
 /** Map argv to {cmd, args}. Throws Error with a usage message on bad input. */
@@ -123,6 +126,15 @@ export function build({ pos, flags }) {
       need(c1 && flags.agents, 'run "task" --agents claude,codex [--floors] [--dry-run] [--model M] [--timeout 10m]');
       return { cmd: 'run', args: { task: [c1, ...rest].join(' '), agents: String(flags.agents), floors: !!flags.floors, dryRun: !!flags['dry-run'], model: flags.model === undefined ? undefined : String(flags.model), timeoutMs: duration(flags.timeout), account: flags.account === undefined ? undefined : String(flags.account) } };
     }
+    case 'chat': {
+      if (c1 !== 'summarize') throw new Error('usage: chat summarize [thread] --with DRIVER [--account A]');
+      need(flags.with, 'chat summarize [thread] --with DRIVER [--account A]');
+      return { cmd: 'chat.summarize', args: { thread: rest[0], driver: String(flags.with), account: flags.account === undefined ? undefined : String(flags.account), timeoutMs: duration(flags.timeout) } };
+    }
+    case 'ps': {
+      if (c1 === 'stop') { need(rest[0] && rest[1], 'ps stop "Terminal" PID [--force]'); return { cmd: 'ps', args: { stop: rest[0], pid: rest[1], force: !!flags.force } }; }
+      return { cmd: 'ps', args: { all: !!flags.all } };
+    }
     case 'agent': {
       need(c1 && rest.length, 'agent <driver> "prompt" [--model M] [--floor NAME] [--timeout 10m]');
       return { cmd: 'agent.run', args: { driver: c1, prompt: rest.join(' '), model: flags.model === undefined ? undefined : String(flags.model), floor: flags.floor === undefined ? undefined : String(flags.floor), timeoutMs: duration(flags.timeout), account: flags.account === undefined ? undefined : String(flags.account) } };
@@ -132,13 +144,14 @@ export function build({ pos, flags }) {
       const [name, ...more] = rest;
       switch (c1) {
         case 'create': return { cmd: 'note.create', args: { content: name ?? '', name: flags.name, color: flags.color, stack: flags.stack } };
+        case 'from-file': need(name, 'note from-file PATH [--name N]'); return { cmd: 'note.fromfile', args: { path: name, name: flags.name } };
         case 'stack': need(name, 'note stack "Note" ["Stack"]'); return { cmd: 'note.stack', args: { name, stack: more[0] } };
         case 'unstack': need(name, 'note unstack "Note"'); return { cmd: 'note.unstack', args: { name } };
         case 'read': need(name, 'note read "Note" [offset] [limit]'); return { cmd: 'note.read', args: { name, offset: more[0] ? Number(more[0]) : undefined, limit: more[1] ? Number(more[1]) : undefined } };
         case 'write': need(name && more.length, 'note write "Note" "content"'); return { cmd: 'note.write', args: { name, content: more.join(' ') } };
         case 'edit': need(name && more.length >= 2, 'note edit "Note" "old" "new"'); return { cmd: 'note.edit', args: { name, old: more[0], new: more[1] } };
         case 'delete': need(name || flags.stack, 'note delete "Note" | note delete --stack "Stack"'); return { cmd: 'note.delete', args: { name, stack: flags.stack } };
-        default: throw new Error('usage: note create|read|write|edit|stack|unstack|delete');
+        default: throw new Error('usage: note create|read|write|edit|from-file|stack|unstack|delete');
       }
     }
     case 'portal': {
@@ -243,8 +256,10 @@ export function build({ pos, flags }) {
       switch (c1) {
         case 'list': return { cmd: 'workspace.list', args: {} };
         case 'create': need(name && flags.dir, 'workspace create "Name" --dir PATH [--from "Source"]'); return { cmd: 'workspace.create', args: { name, dir: flags.dir, from: flags.from } };
+        case 'set': need(name && (flags.icon !== undefined || flags.group !== undefined), 'workspace set "Name" [--icon X] [--group G]'); return { cmd: 'workspace.set', args: { name, icon: optStr(flags.icon), group: optStr(flags.group) } };
+        case 'unload': need(name, 'workspace unload "Name"'); return { cmd: 'workspace.unload', args: { name } };
         case 'rename': need(name && more[0], 'workspace rename "Current" "New"'); return { cmd: 'workspace.rename', args: { name, newName: more[0] } };
-        default: throw new Error('usage: workspace list|create|rename');
+        default: throw new Error('usage: workspace list|create|rename|set|unload');
       }
     }
     case 'floor': {

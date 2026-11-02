@@ -120,6 +120,21 @@ export class Memory {
     return `${dropped}${m.chapters.map((c, i) => renderChapter(c, (m.droppedChapters ?? 0) + i + 1)).join('\n')}`;
   }
 
+  modelFile(wsId, tid) { return path.join(this.chat.dir(wsId), 'memory', `${tid}.model.json`); }
+
+  /** A summary written by an agent the person chose, kept apart from the rule-based one. */
+  loadModelSummary(wsId, tid) {
+    try {
+      const m = JSON.parse(fs.readFileSync(this.modelFile(wsId, tid), 'utf8'));
+      return typeof m?.text === 'string' ? m : null;
+    } catch { return null; }
+  }
+
+  saveModelSummary(wsId, tid, { text, driver, messages }) {
+    fs.mkdirSync(path.dirname(this.modelFile(wsId, tid)), { recursive: true, mode: 0o700 });
+    atomicWrite(this.modelFile(wsId, tid), JSON.stringify({ text: redact(String(text)).slice(0, 8000), driver, messages, at: new Date().toISOString() }));
+  }
+
   status(wsId, tid) {
     const active = this.chat.readAll(wsId, tid).length;
     let archived = 0;

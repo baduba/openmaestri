@@ -4,6 +4,22 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-02
+
+### Added
+- `openmaestri ps`: processes, memory and CPU of each terminal; `ps stop` for one process below a terminal
+- Workspaces: icon and sidebar group (`workspace set`), `workspace unload`, a dot for running terminals
+- Notes: Markdown preview, pictures dropped or pasted (PNG/JPEG/GIF/WebP, checked by content), `note from-file`
+- Files editor: tabs that keep unsaved text, search in files, syntax colours
+- Chat: copy a thread, download it as Markdown (credentials masked), `chat summarize --with DRIVER`
+- docs/everyday.md; parity table brought up to date
+
+### Fixed
+- In a note stack, text typed right after switching tabs, before the server answered, was saved into the previous note
+
+### Security
+- Pictures are recognised by their first bytes and only raster formats are accepted; the Markdown view admits only pictures from the workspace vault; `ps stop` can only signal a descendant of the terminal's shell; the Markdown export is behind the token like everything else
+
 ## [0.18.0] - 2026-11-02
 
 ### Added

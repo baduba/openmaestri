@@ -20,6 +20,7 @@ What is done, what is next, and what is deliberately left out. The order follows
 | 0.16 | First-run welcome screen |
 | 0.17 | Accounts, single-partitura files, duplicate workspace |
 | 0.18 | Floor hooks, routine history, files dropped on the chat |
+| 0.19 | Process list, workspace groups and unload, notes with pictures, editor tabs/search/colours, chat export and agent-written summaries |
 
 ## Next
 

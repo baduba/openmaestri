@@ -15,7 +15,9 @@ import { dataDir, atomicWrite, safeId } from './store.js';
 import { startIpc, defaultSocketPath, ipcAlive } from './ipc.js';
 import { MAESTRO_BOOTSTRAP } from './prompts.js';
 import { threadId } from './chat.js';
+import { redact as redactChat } from './memory.js';
 import { commandAvailable } from './terminals.js';
+import { isRasterImage, rasterExt } from './images.js';
 import { materialize as materializeMentions } from './prompter.js';
 import { exportWorkspace, importWorkspace, capturePartitura } from './transfer.js';
 import { agentChoices, checkFolder, writeInstructions, WelcomeError } from './welcome.js';
@@ -92,6 +94,7 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
     }
     if (url.pathname.startsWith('/export/')) return serveExport(url.pathname, res);
     if (url.pathname.startsWith('/attachment/')) return serveAttachment(url.pathname, res);
+    if (url.pathname.startsWith('/chat-export/')) return serveChatExport(url.pathname, res);
     serveStatic(url.pathname, res);
   });
 
@@ -103,6 +106,25 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
     const inline = /^image\/(png|jpeg|gif|webp)$/.test(rec?.mime ?? '');
     res.writeHead(200, { 'content-type': inline ? rec.mime : 'application/octet-stream', 'content-disposition': `${inline ? 'inline' : 'attachment'}; filename="${rec?.name ?? 'file'}"` });
     fs.createReadStream(file).pipe(res);
+  }
+
+  /** One chat thread as Markdown, with credentials masked. */
+  function serveChatExport(pathname, res) {
+    const [wsPart, threadPart] = pathname.slice('/chat-export/'.length).replace(/\.md$/, '').split('/');
+    let wsKey;
+    try { wsKey = safeId(wsPart); } catch { wsKey = null; }
+    const tid = threadId(threadPart);
+    if (!wsKey || !tid || !core.store.workspaces.has(wsKey)) { res.writeHead(404); return res.end('not found'); }
+    const title = core.chat.list(wsKey).find((t) => t.id === tid)?.title ?? tid;
+    const rows = core.chat.history(wsKey, tid, { archive: true, turns: 100000 });
+    const entry = (m) => {
+      const when = new Date(m.ts).toISOString().slice(0, 16).replace('T', ' ');
+      const files = m.attachments.length ? `\n\n_attachments: ${m.attachments.map((a) => a.name).join(', ')}_` : '';
+      return `**${m.sender}** (${when} UTC)\n\n${redactChat(m.text)}${files}`;
+    };
+    const body = rows.map(entry).join('\n\n---\n\n');
+    res.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8', 'content-disposition': `attachment; filename="${tid}.md"` });
+    res.end(`# ${title.replace(/[\r\n]+/g, ' ')}\n\n${body || '(empty)'}\n`);
   }
 
   function serveExport(pathname, res) {
@@ -209,6 +231,19 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
         w.name = s.uniqueWorkspaceName(String(m.name || w.name));
         s.saveWorkspace(w.id);
         broadcast({ t: 'summary', ...core.summary() });
+        break;
+      }
+      case 'workspace.set': {
+        const w = core.wsOrFail(m.id);
+        try { core.applyWorkspaceLook(w, { icon: m.icon, group: m.group }); } catch (e) { throw new CommandError(e.message); }
+        broadcast({ t: 'summary', ...core.summary() });
+        break;
+      }
+      case 'workspace.unload': {
+        const w = core.wsOrFail(m.id);
+        const text = core.unloadWorkspace(w);
+        broadcast({ t: 'summary', ...core.summary() });
+        send(ws, { t: 'toast', from: 'agent', message: text });
         break;
       }
       case 'workspace.delete': {
@@ -381,6 +416,7 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
           case 'rename': F.rename(root, m.path, m.to); reply({ path: m.path, to: m.to }); break;
           case 'remove': F.remove(root, m.path, w.id); reply({ path: m.path }); break;
           case 'status': reply({ status: await F.status(root) }); break;
+          case 'search': reply(F.search(root, m.query, m.path ?? '')); break;
           case 'versions': reply({ path: m.path, versions: F.versions(w.id, root, m.path) }); break;
           case 'version': reply({ path: m.path, text: F.version(w.id, root, m.path, m.version) }); break;
           default: throw new CommandError(`unknown file operation: ${m.op}`);
@@ -398,6 +434,17 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
         const sent = core.chatSend(w, { thread: m.threadId, text: m.text });
         const bad = sent.mentions.filter((x) => !x.ok);
         if (bad.length) send(ws, { t: 'toast', from: 'prompter', message: `Not included: ${bad.map((x) => `@${x.kind}:${x.ref} (${x.reason})`).join('; ')}` });
+        break;
+      }
+      case 'note.image': {
+        const w = wsOf();
+        core.nodeOrFail(w, m.id);
+        const buf = Buffer.from(typeof m.data === 'string' ? m.data.slice(0, 8 * 1024 * 1024) : '', 'base64');
+        if (!isRasterImage(buf)) throw new CommandError('only PNG, JPEG, GIF and WebP pictures can be added to a note');
+        const ext = rasterExt(buf);
+        const base = String(m.name ?? 'picture').replace(/\.[A-Za-z0-9]+$/, '');
+        const att = core.chat.attachBytes(w.id, `${base || 'picture'}.${ext}`, buf);
+        send(ws, { t: 'note.image', id: m.id, markdown: `![${att.name.replace(/[[\]()]/g, '')}](/attachment/${w.id}/${att.id})` });
         break;
       }
       case 'chat.upload': {

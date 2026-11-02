@@ -13,6 +13,8 @@ import { Terminals } from './terminals.js';
 import { DRIVERS, customDrivers, workerEnv, runHeadless, HeadlessError } from './headless.js';
 import { discover as discoverRoles, plan as planRole, diffText, agentKind, RoleError, AGENT_FILES } from './roles.js';
 import { Files, FilesError } from './files.js';
+import { redact as redactChat } from './memory.js';
+import { tree as procTree, summarize as procSummary, stopProcess, ProcError } from './procinfo.js';
 import { runHook, describeHook, checkCommand, HookError } from './hooks.js';
 import { takeSnapshot, listSnapshots, rollback as rollbackFloor, dropSnapshots } from './snapshots.js';
 import { ForgeError, detectProvider, normalizeProvider, providerInfo, listChanges, formatChanges } from './forge.js';
@@ -21,7 +23,7 @@ import { Usage, UsageError } from './usage.js';
 import { readUserEnv, TerminalError, commandAvailable, commandPath } from './terminals.js';
 import { PromptLib, PromptError } from './promptlib.js';
 import { Chat, ChatError, THREAD_IDS, threadId, cleanText } from './chat.js';
-import { materialize as materializeMentions, parse as parseMentions, fileIndex, rank } from './prompter.js';
+import { materialize as materializeMentions, parse as parseMentions, fileIndex, rank, readMentionedFile } from './prompter.js';
 import { Portals, PortalError, checkUrl } from './portals.js';
 import { History } from './history.js';
 import { tidy as tidyLayout } from './layout.js';
@@ -123,7 +125,7 @@ export class Core extends EventEmitter {
   summary() {
     return {
       active: this.store.settings.activeWorkspaceId,
-      workspaces: [...this.store.workspaces.values()].map((w) => ({ id: w.id, name: w.name, dir: w.dir, nodes: w.nodes.length })),
+      workspaces: [...this.store.workspaces.values()].map((w) => ({ id: w.id, name: w.name, dir: w.dir, nodes: w.nodes.length, icon: w.icon ?? null, group: w.group ?? null, running: w.nodes.filter((n) => n.kind === 'terminal' && this.terminals.has(n.id)).length })),
       presets: this.store.settings.presets,
       accounts: (() => { try { return this.accounts.list().map((a) => a.name); } catch { return []; } })(),
       portalsAvailable: this.portals.available,
@@ -247,7 +249,7 @@ export class Core extends EventEmitter {
     try {
       return await h.call(this, ws, me, a);
     } catch (e) {
-      if (e instanceof ChatError || e instanceof PromptError || e instanceof UsageError || e instanceof RoleError || e instanceof TerminalError || e instanceof FilesError || e instanceof HeadlessError || e instanceof ForgeError || e instanceof AccountError || e instanceof HookError) fail(e.message);
+      if (e instanceof ChatError || e instanceof PromptError || e instanceof UsageError || e instanceof RoleError || e instanceof TerminalError || e instanceof FilesError || e instanceof HeadlessError || e instanceof ForgeError || e instanceof AccountError || e instanceof HookError || e instanceof ProcError) fail(e.message);
       throw e;
     }
   }
@@ -364,6 +366,13 @@ const HANDLERS = {
     else this.store.connect(ws, me.id, note.id);
     this.touch(ws);
     return { text: note.name, data: { name: note.name } };
+  },
+  /** Copy a text file of the project into a new note (up to 32 KB; nothing that looks like a secret). */
+  'note.fromfile'(ws, me, { path: rel, name }) {
+    this.requireMaestro(me);
+    const r = readMentionedFile(this.chatRoots(ws.id), String(rel ?? ''));
+    if (!r.ok) fail(`cannot make a note from that file: ${r.reason}`);
+    return HANDLERS['note.create'].call(this, ws, me, { content: r.text, name: name || path.basename(r.path) });
   },
   'note.stack'(ws, me, { name, stack }) {
     const note = this.resolve(ws, me, name, ['note']);
@@ -885,6 +894,20 @@ const HANDLERS = {
     this.emit('workspace-list');
     return { text: created.name };
   },
+  /** Icon and sidebar group of a workspace. An empty value clears it. */
+  'workspace.set'(ws, me, { name, icon, group }) {
+    this.requireMaestro(me);
+    const w = this.workspaceNamed(name);
+    this.applyWorkspaceLook(w, { icon, group });
+    return { text: `${w.name}: icon ${w.icon ?? '(none)'}, group ${w.group ?? '(none)'}` };
+  },
+  /** Stop everything a workspace is running (terminals and portals) and keep all of its data. */
+  'workspace.unload'(ws, me, { name }) {
+    this.requireMaestro(me);
+    const w = this.workspaceNamed(name);
+    if (w.id === ws.id) fail('a workspace cannot unload itself; run this from another workspace');
+    return { text: this.unloadWorkspace(w) };
+  },
   'workspace.rename'(ws, me, { name, newName }) {
     this.requireMaestro(me);
     const w = [...this.store.workspaces.values()].find((x) => x.name.toLowerCase() === String(name).toLowerCase()) || fail(`no workspace named "${name}"`);
@@ -910,6 +933,47 @@ const HANDLERS = {
   async 'floor.create'(ws, me, args) {
     this.requireMaestro(me);
     return this.doFloorCreate(ws, args);
+  },
+  /** Ask an agent you choose to write a summary of a chat thread. The text it reads is the thread with credentials masked. */
+  async 'chat.summarize'(ws, me, { thread, driver, account, timeoutMs }) {
+    this.requireMaestro(me);
+    if (!driver) fail('usage: chat summarize [thread] --with DRIVER');
+    const tid = thread === undefined ? this.chat.active(ws.id) : threadId(thread);
+    const rows = this.chat.history(ws.id, tid, { turns: 150, archive: true }).slice(-150);
+    if (rows.length < 2) fail('this thread is too short to summarize');
+    const transcript = rows.map((m) => `${m.sender}: ${redactChat(m.text)}`).join('\n').slice(-60000);
+    const prompt = `Summarize this conversation between a person and their AI assistants in at most 12 short lines. Keep decisions, open questions, file names and who is doing what. Reply with the summary only.\n\n--- conversation ---\n${transcript}`;
+    const drivers = { ...DRIVERS, ...customDrivers(this.store.settings.drivers) };
+    if (!drivers[driver]) fail(`no driver named "${driver}". Available: ${Object.keys(drivers).join(', ')}`);
+    const r = await this.execAgent({ driver, drivers, prompt, cwd: ws.dir, timeoutMs: timeoutMs ?? 5 * 60 * 1000, ws, account });
+    const why = r.stderr ? `: ${r.stderr.split('\n')[0]}` : '';
+    if (!r.ok || !r.text) fail(`${driver} could not write the summary${why}`);
+    this.chat.memory.saveModelSummary(ws.id, tid, { text: r.text, driver, messages: rows.length });
+    this.audit.record('chat.summarize', { thread: tid, driver, messages: rows.length, by: me.name }, 'terminal');
+    return { text: `saved a summary of ${rows.length} messages written by ${driver}. Read it with: recall --summary` };
+  },
+  /** Processes and memory of the terminals you can reach. */
+  ps(ws, me, { all, stop, pid, force }) {
+    this.requireMaestro(me);
+    if (stop) {
+      const node = this.resolve(ws, me, stop, ['terminal']);
+      const root = this.terminals.pidOf(node.id);
+      if (!root) fail(`${node.name} is not running`);
+      stopProcess(root, Number(pid), { force: !!force });
+      this.audit.record('ps.stop', { terminal: node.name, pid: Number(pid), force: !!force, by: me.name }, 'terminal');
+      return { text: `sent ${force ? 'SIGKILL' : 'SIGTERM'} to ${pid} in ${node.name}` };
+    }
+    const lines = [];
+    const data = [];
+    for (const n of this.reachable(ws, me).filter((x) => x.kind === 'terminal')) {
+      const root = this.terminals.pidOf(n.id);
+      const procs = root ? procTree(root) : [];
+      const sum = procSummary(procs);
+      data.push({ name: n.name, pid: root, ...sum });
+      lines.push(`${n.name.padEnd(20)} ${String(root ?? '-').padStart(7)}  ${String(sum.processes).padStart(3)} proc  ${String(sum.rssMb).padStart(5)} MB  ${String(sum.cpuSeconds).padStart(7)} s cpu  [${this.terminals.status(n.id)}]`);
+      if (all) for (const p of procs.slice(1)) lines.push(`    ${String(p.pid).padStart(7)}  ${String(Math.round(p.rssKb / 1024)).padStart(5)} MB  ${p.cmd}`);
+    }
+    return { text: lines.length ? lines.join('\n') : '(no terminals)', data };
   },
   /** Checks that run on a floor: after each agent of `run --floors`, and before the floor is landed. */
   'floor.hooks'(ws, me, { name, postAgent, preLand, rollbackOnFail, clear }) {
@@ -1046,7 +1110,9 @@ const HANDLERS = {
     const q = { turns: turns ?? (all ? 200 : 30), archive: !!archive };
     if (summary) {
       const text = this.chat.memory.summary(ws.id, tid);
-      return { text: text || '(this thread has no summary yet; it is made when a thread gets long)', data: { thread: tid, summary: text } };
+      const model = this.chat.memory.loadModelSummary(ws.id, tid);
+      const written = model ? `\n\nSummary written by ${model.driver} on ${model.at.slice(0, 10)} (${model.messages} messages):\n${model.text}` : '';
+      return { text: `${text || '(this thread has no rule-based summary yet; it is made when a thread gets long)'}${written}`, data: { thread: tid, summary: text, modelSummary: model } };
     }
     const day = 86400000;
     if (last) {
@@ -1564,6 +1630,35 @@ Core.prototype.runTask = async function (ws, me, { task, agents: rawAgents, floo
   this.touch(ws);
   if (!results.some((r) => r.ok)) fail(`${report}\n\n(also saved in the note "${note.name}")`);
   return { text: `${report}\n\n(also saved in the note "${note.name}")` };
+};
+
+Core.prototype.workspaceNamed = function (name) {
+  const lc = String(name ?? '').toLowerCase();
+  return [...this.store.workspaces.values()].find((w) => w.name.toLowerCase() === lc) || fail(`no workspace named "${name}"`);
+};
+
+/** Icon: up to 8 characters of text or emoji. Group: up to 40 characters. No control characters in either. */
+Core.prototype.applyWorkspaceLook = function (w, { icon, group }) {
+  const clean = (v, max, what) => {
+    const t = String(v).trim();
+    if ([...t].length > max || [...t].some((ch) => ch.codePointAt(0) < 32 || ch.codePointAt(0) === 127)) fail(`${what} is at most ${max} characters, without control characters`);
+    return t || null;
+  };
+  if (icon !== undefined) w.icon = clean(icon, 8, 'an icon');
+  if (group !== undefined) w.group = clean(group, 40, 'a group name');
+  this.store.saveWorkspace(w.id);
+  this.emit('workspace-list');
+};
+
+Core.prototype.unloadWorkspace = function (w) {
+  let stopped = 0;
+  for (const n of w.nodes) {
+    if (n.kind === 'terminal' && this.terminals.has(n.id)) { this.terminals.dispose(n.id); stopped += 1; }
+    if (n.kind === 'portal') { this.portals.detach?.(n.id)?.catch?.(() => {}); }
+  }
+  this.audit.record('workspace.unload', { name: w.name, terminals: stopped }, 'system');
+  this.emit('workspace-list');
+  return `${w.name}: stopped ${stopped} terminal${stopped === 1 ? '' : 's'}; everything is kept and starts again when you open it`;
 };
 
 Core.prototype.filesRoot = function (ws, node) {
