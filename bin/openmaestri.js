@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 
-const BOOL = new Set(['no-check', 'summary', 'archive', 'apply', 'trust', 'global', 'overwrite', 'progress', 'all', 'existing-branch', 'copy', 'no-git', 'copy-ground', 'delete-branch', 'keep-floor', 'keep-branch', 'keep-folder', 'open', 'version', 'json', 'raw-flag', 'batch', 'force', 'none', 'clear', 'without-me', 'no-notify', 'disabled', 'reminder', 'agent', 'floors', 'dry-run', 'note', 'band', 'fichario', 'portal', 'help']);
+const BOOL = new Set(['no-check', 'summary', 'archive', 'apply', 'trust', 'global', 'overwrite', 'progress', 'all', 'existing-branch', 'copy', 'no-git', 'copy-ground', 'delete-branch', 'keep-floor', 'keep-branch', 'keep-folder', 'open', 'version', 'json', 'raw-flag', 'batch', 'force', 'none', 'clear', 'without-me', 'no-notify', 'disabled', 'reminder', 'agent', 'floors', 'dry-run', 'verify', 'note', 'band', 'fichario', 'portal', 'help']);
 
 const HELP = `openmaestri - a spatial workspace for AI agents (open implementation)
 
@@ -56,6 +56,7 @@ Usage:
   openmaestri prompt list | read "name" | use "name" | save "name" "text" [--global] [--overwrite] | delete "name" | undo   Saved prompts (save/delete: Maestro)
   openmaestri prompt parse|materialize "text with @agent:Name @note:Name @file:path"   Expand mentions (files up to 32 KB, workspace only)
   openmaestri usage ["Agent"] [--days N] [--json] | usage report --in N --out N [--model M] [--cost USD] | usage reset ["Agent"]   Tokens, cost, turns
+  openmaestri audit [--verify] [--tail N]           Show or check the append-only record of keys, agent runs, imports and exports
   openmaestri secrets set|list|status|rm            Keep API keys outside the env file (secret://name); run in your own shell
   openmaestri doctor                                 Check what is installed and how to fix what is missing (works anywhere)
   openmaestri guide                                  How agents should use openmaestri (give this to your agent)
@@ -322,6 +323,8 @@ async function secretsCommand(parsed, insideTerminal) {
   if (insideTerminal) { console.error('openmaestri secrets: run it in your own shell, not inside an agent terminal.'); return 2; }
   const { Secrets, SecretError } = await import('../src/secrets.js');
   const { dataDir } = await import('../src/store.js');
+  const { Audit } = await import('../src/audit.js');
+  const audit = new Audit(path.join(dataDir(), 'audit.log'));
   const [, sub, name] = parsed.pos;
   try {
     const store = new Secrets({ root: dataDir() });
@@ -330,9 +333,10 @@ async function secretsCommand(parsed, insideTerminal) {
       return 0;
     }
     if (sub === 'status') { console.log(`backend: ${store.kind}\nstored: ${store.list().length}`); return 0; }
-    if (sub === 'rm' && name) { console.log(store.remove(name) ? `removed ${name}` : `no secret named ${name}`); return 0; }
+    if (sub === 'rm' && name) { audit.record('secret.remove', { name }, 'cli'); console.log(store.remove(name) ? `removed ${name}` : `no secret named ${name}`); return 0; }
     if (sub === 'set' && name) {
       store.set(name, await readSecretValue());
+      audit.record('secret.set', { name, backend: store.kind }, 'cli');
       console.log(`stored ${name}. Use it in ${path.join(dataDir(), 'env')} as:  SOME_API_KEY=secret://${name}`);
       return 0;
     }
@@ -370,6 +374,23 @@ async function readSecretValue() {
   });
 }
 
+/** `openmaestri audit [--verify] [--tail N]`: for people, outside agent terminals. */
+async function auditCommand(parsed, insideTerminal) {
+  if (insideTerminal) { console.error('openmaestri audit: run it in your own shell, not inside an agent terminal.'); return 2; }
+  const { Audit } = await import('../src/audit.js');
+  const { dataDir } = await import('../src/store.js');
+  const log = new Audit(path.join(dataDir(), 'audit.log'));
+  if (parsed.flags.verify) {
+    const r = log.verify();
+    if (r.ok) { console.log(`ok: ${r.count} events, head ${r.head ? r.head.slice(0, 16) : '(empty)'}`); return 0; }
+    console.error(`BROKEN at line ${r.at}: ${r.problem}`);
+    return 1;
+  }
+  const n = Math.min(Math.max(Number(parsed.flags.tail) || 20, 1), 500);
+  for (const e of log.read(n)) console.log(`${e.seq ?? '?'}  ${e.at ?? ''}  ${e.event}  ${e.actor ?? ''}  ${e.detail ? JSON.stringify(e.detail) : ''}`);
+  return 0;
+}
+
 async function run(argv) {
   const parsed = parseArgs(argv);
   if (parsed.pos[0] === 'doctor') {
@@ -380,6 +401,7 @@ async function run(argv) {
   }
   const insideTerminal = !!process.env.OPENMAESTRI_SOCKET;
   if (parsed.pos[0] === 'secrets') return secretsCommand(parsed, insideTerminal);
+  if (parsed.pos[0] === 'audit') return auditCommand(parsed, insideTerminal);
   if (!insideTerminal && (parsed.pos.length === 0 || parsed.pos[0] === 'serve') && !parsed.flags.help) return serve(parsed.flags);
   if (!parsed.pos.length || parsed.pos[0] === 'help' || parsed.flags.help) { console.log(HELP); return 0; }
   if (parsed.pos[0] === 'version' || parsed.flags.version) { console.log(JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version); return 0; }

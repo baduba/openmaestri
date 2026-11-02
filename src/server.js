@@ -109,6 +109,7 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
     if (!ws) { res.writeHead(404); return res.end('not found'); }
     const safeName = ws.name.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 60) || 'workspace';
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'content-disposition': `attachment; filename="${safeName}.openmaestri.json"` });
+    core.audit.record('workspace.export', { name: ws.name, nodes: ws.nodes.length }, 'ui');
     res.end(JSON.stringify(exportWorkspace(core.store, ws), null, 2));
   }
 
@@ -500,7 +501,12 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
         break;
       }
       case 'workspace.import': {
-        const w = importWorkspace(s, m.bundle, { name: m.name, dir: m.dir });
+        let w;
+        try { w = importWorkspace(s, m.bundle, { name: m.name, dir: m.dir }); } catch (e) {
+          core.audit.record('workspace.import', { accepted: false, reason: String(e.message).split('\n')[0], nodes: Array.isArray(m.bundle?.nodes) ? m.bundle.nodes.length : 0 }, 'ui');
+          throw e;
+        }
+        core.audit.record('workspace.import', { accepted: true, name: w.name, nodes: w.nodes.length, heldBackCommands: w.nodes.filter((n) => n.untrusted).length }, 'ui');
         s.settings.activeWorkspaceId = w.id;
         s.saveSettings();
         broadcast({ t: 'summary', ...core.summary() });

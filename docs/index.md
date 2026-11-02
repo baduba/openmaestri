@@ -13,6 +13,7 @@ A spatial canvas terminal workspace for AI agents. Open source, local, works wit
 1. [Getting started](getting-started.html): install, first terminal, first connection.
 2. [DeepSeek and open models](deepseek.html): presets, OpenCode and Aider.
    [API keys and secrets](secrets.html): keys for any agent, kept out of files.
+   [Audit log and workspace files](audit.html): what is recorded, and the strict import format.
 3. [Floors](floors.html): one branch and one canvas per task.
 4. [Portals](portals.html): a browser you and your agents share.
 5. [Files](files.html): browse and edit the project folder from the canvas.

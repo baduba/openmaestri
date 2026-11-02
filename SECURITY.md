@@ -13,6 +13,10 @@ Please include what you found, steps to reproduce, the impact you see, and your 
 
 Only the latest release receives fixes while the project is 0.x.
 
+## Audit and imports
+
+Workspace files are validated against a closed format and a refused file changes nothing; keys, agent runs, imports and exports are written to a hash-chained audit log (`openmaestri audit --verify`). It is tamper-evident, not tamper-proof; see docs/audit.md.
+
 ## What is in scope
 
 - Anything that lets a web page, another local user, or another origin reach the UI server, the WebSocket, or the agent socket without the token

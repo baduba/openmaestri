@@ -1,6 +1,6 @@
 {
   "name": "openmaestri",
-  "version": "0.12.1",
+  "version": "0.13.0",
   "description": "Spatial canvas terminal workspace for AI agents (open implementation).",
   "type": "module",
   "license": "MIT",
@@ -15,7 +15,7 @@
     "audit": "npm audit --omit=dev --audit-level=low"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",

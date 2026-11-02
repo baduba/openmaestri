@@ -104,8 +104,10 @@ export function instantiatePartitura(store, ws, part, { origin, floorId = null, 
 
 // --------------------------------------------------------- workspace bundles
 export function exportWorkspace(store, ws) {
-  const key = new Map(ws.nodes.map((n, i) => [n.id, `n${i}`]));
-  const nodes = ws.nodes.map((n) => {
+  // only the kinds the format defines: a Files browser is a view of a folder, not content to carry around
+  const exported = ws.nodes.filter((n) => KINDS.includes(n.kind));
+  const key = new Map(exported.map((n, i) => [n.id, `n${i}`]));
+  const nodes = exported.map((n) => {
     const o = { key: key.get(n.id), kind: n.kind, name: n.name, x: n.x, y: n.y, w: n.w, h: n.h, color: n.color, icon: n.icon };
     if (n.kind === 'terminal') Object.assign(o, { command: n.command, maestro: n.maestro, role: n.role, preset: n.preset, cwdRel: n.cwd && n.cwd.startsWith(ws.dir + path.sep) ? path.relative(ws.dir, n.cwd) : null });
     if (n.kind === 'portal') o.url = n.url;
@@ -117,9 +119,101 @@ export function exportWorkspace(store, ws) {
   return {
     format: BUNDLE_FORMAT, version: BUNDLE_VERSION, exportedAt: new Date().toISOString(),
     workspace: { name: ws.name, viewport: ws.viewport, floorStatus: null },
-    nodes, connections: ws.connections.map((c) => ({ from: key.get(c.from), to: key.get(c.to) })),
+    nodes, connections: ws.connections.filter((c) => key.has(c.from) && key.has(c.to)).map((c) => ({ from: key.get(c.from), to: key.get(c.to) })),
     routines: ws.routines.map((r) => ({ name: r.name, command: r.command, schedule: r.schedule, terminalKey: key.get(r.terminalId) ?? null, enabled: false })),
   };
+}
+
+// ---------------------------------------------------------------- closed schema for bundle v1
+const COMMON = ['key', 'kind', 'name', 'x', 'y', 'w', 'h', 'color', 'icon'];
+const EXTRA = {
+  terminal: ['command', 'maestro', 'role', 'preset', 'cwdRel'],
+  note: ['text', 'stackKey'],
+  portal: ['url'],
+  stack: ['order', 'front'],
+  band: ['members'],
+};
+const TOP = new Set(['format', 'version', 'exportedAt', 'workspace', 'nodes', 'connections', 'routines']);
+const ROUTINE = new Set(['name', 'command', 'schedule', 'terminalKey', 'enabled']);
+const MAX_ERRORS = 12;
+const MAX_DEPTH = 12;
+
+const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+const strOrNull = (v) => v === null || v === undefined || typeof v === 'string';
+
+function depthOf(v, d = 0) {
+  if (d > MAX_DEPTH) return d;
+  if (Array.isArray(v)) return v.reduce((m, x) => Math.max(m, depthOf(x, d + 1)), d);
+  if (isObj(v)) return Object.values(v).reduce((m, x) => Math.max(m, depthOf(x, d + 1)), d);
+  return d;
+}
+
+function checkNode(n, i, bad) {
+  const at = `nodes[${i}]`;
+  if (!isObj(n)) return bad(`${at} is not an object`);
+  if (!Object.hasOwn(EXTRA, n.kind)) return bad(`${at} has an unknown kind`);
+  const allowed = new Set([...COMMON, ...EXTRA[n.kind]]);
+  for (const k of Object.keys(n)) if (!allowed.has(k)) bad(`${at} has a field that this format does not define: ${k.slice(0, 40)}`);
+  if (typeof n.key !== 'string' || !n.key) bad(`${at}.key must be a text`);
+  for (const k of ['x', 'y', 'w', 'h']) if (n[k] !== undefined && !isNum(n[k])) bad(`${at}.${k} must be a number`);
+  for (const k of ['name', 'color', 'icon', 'role', 'preset', 'cwdRel', 'command', 'url', 'text', 'stackKey', 'front']) if (!strOrNull(n[k])) bad(`${at}.${k} must be a text`);
+  if (n.maestro !== undefined && typeof n.maestro !== 'boolean') bad(`${at}.maestro must be true or false`);
+  for (const k of ['order', 'members']) if (n[k] !== undefined && !(Array.isArray(n[k]) && n[k].every((x) => typeof x === 'string'))) bad(`${at}.${k} must be a list of texts`);
+}
+
+/** Size limits come first: there is no point listing type problems in a file that is simply too big. */
+function sizeProblem(bundle) {
+  if (Array.isArray(bundle.nodes) && bundle.nodes.length > LIMITS.nodes) return 'bundle has too many nodes';
+  if (Array.isArray(bundle.connections) && bundle.connections.length > LIMITS.connections) return 'bundle has too many connections';
+  if (!Array.isArray(bundle.nodes)) return null;
+  let bytes = 0;
+  for (const n of bundle.nodes) {
+    if (typeof n?.text !== 'string') continue;
+    if (n.text.length > LIMITS.noteBytes) return 'a note is too large';
+    bytes += n.text.length;
+  }
+  return bytes > LIMITS.totalBytes ? 'bundle is too large' : null;
+}
+
+function checkConnections(list, bad) {
+  if (!Array.isArray(list)) return bad('connections must be a list');
+  list.forEach((c, i) => { if (!isObj(c) || typeof c.from !== 'string' || typeof c.to !== 'string' || Object.keys(c).length !== 2) bad(`connections[${i}] must be exactly {from, to}`); });
+  return undefined;
+}
+
+function checkRoutines(list, bad) {
+  if (!Array.isArray(list)) return bad('routines must be a list');
+  list.forEach((r, i) => { if (!isObj(r) || Object.keys(r).some((k) => !ROUTINE.has(k))) bad(`routines[${i}] has a field that this format does not define`); });
+  return undefined;
+}
+
+function checkWorkspaceField(w, bad) {
+  if (!isObj(w)) return bad('workspace must be an object');
+  for (const k of Object.keys(w)) if (!['name', 'viewport', 'floorStatus'].includes(k)) bad(`unknown workspace field: ${k.slice(0, 40)}`);
+  return undefined;
+}
+
+/**
+ * Check a bundle against the closed format of version 1: a field the format does not define is
+ * a refusal, not something ignored. Returns a list of problems (empty when the bundle is fine).
+ */
+export function validateBundle(bundle) {
+  const errors = [];
+  const bad = (m) => { if (errors.length < MAX_ERRORS) errors.push(m); };
+  if (!isObj(bundle)) return ['the file is not a JSON object'];
+  if (bundle.format !== BUNDLE_FORMAT) return ['not an openmaestri workspace file'];
+  if (bundle.version !== BUNDLE_VERSION) return [`unsupported bundle version: ${String(bundle.version).slice(0, 20)} (this build reads version ${BUNDLE_VERSION})`];
+  if (depthOf(bundle) > MAX_DEPTH) return ['the file is nested too deeply'];
+  const tooBig = sizeProblem(bundle);
+  if (tooBig) return [tooBig];
+  for (const k of Object.keys(bundle)) if (!TOP.has(k)) bad(`unknown top-level field: ${k.slice(0, 40)}`);
+  if (Array.isArray(bundle.nodes)) bundle.nodes.forEach((n, i) => { if (errors.length < MAX_ERRORS) checkNode(n, i, bad); });
+  else bad('nodes must be a list');
+  if (bundle.connections !== undefined) checkConnections(bundle.connections, bad);
+  if (bundle.routines !== undefined) checkRoutines(bundle.routines, bad);
+  if (bundle.workspace !== undefined) checkWorkspaceField(bundle.workspace, bad);
+  return errors;
 }
 
 /**
@@ -128,44 +222,51 @@ export function exportWorkspace(store, ws) {
  * until the user trusts them (node.untrusted).
  */
 export function importWorkspace(store, bundle, { name, dir } = {}) {
-  if (!bundle || typeof bundle !== 'object' || bundle.format !== BUNDLE_FORMAT) throw new Error('not an openmaestri workspace file');
-  if (bundle.version !== BUNDLE_VERSION) throw new Error(`unsupported bundle version: ${bundle.version}`);
-  if (!Array.isArray(bundle.nodes) || bundle.nodes.length > LIMITS.nodes) throw new Error('bundle has too many nodes');
-  const conns = Array.isArray(bundle.connections) ? bundle.connections : [];
-  if (conns.length > LIMITS.connections) throw new Error('bundle has too many connections');
-  let bytes = 0;
-  for (const n of bundle.nodes) {
-    if (typeof n?.text === 'string') { bytes += n.text.length; if (n.text.length > LIMITS.noteBytes) throw new Error('a note is too large'); }
-  }
-  if (bytes > LIMITS.totalBytes) throw new Error('bundle is too large');
-
+  const problems = validateBundle(bundle);
+  if (problems.length) throw new Error(`this file cannot be imported:\n- ${problems.join('\n- ')}`);
   const wsDir = dir && fs.existsSync(dir) && fs.statSync(dir).isDirectory() ? path.resolve(dir) : os.homedir();
   const ws = store.createWorkspace({ name: str(name, 80)?.trim() || str(bundle.workspace?.name, 80)?.trim() || 'Imported', dir: wsDir });
   const idMap = new Map();
   const items = bundle.nodes.map((n) => ({ raw: n, clean: cleanNode(n) })).filter((i) => i.clean && typeof i.raw.key === 'string');
+  const of = (kind) => items.filter((i) => i.clean.kind === kind);
   const plain = items.filter((i) => !['band', 'stack'].includes(i.clean.kind));
-  for (const { raw: r, clean } of [...plain, ...items.filter((i) => i.clean.kind === 'stack')]) {
-    const props = { ...clean, text: clean.kind === 'note' && typeof r.text === 'string' ? r.text : '' };
-    props.cwd = clean.kind === 'terminal' ? (typeof r.cwdRel === 'string' && !path.isAbsolute(r.cwdRel) && !r.cwdRel.split(path.sep).includes('..') ? path.join(wsDir, r.cwdRel) : wsDir) : undefined;
-    const node = store.createNode(ws, clean.kind, props);
-    if (node.kind === 'terminal' && node.command) node.untrusted = true;
-    idMap.set(r.key, node.id);
-  }
-  for (const { raw: r } of items.filter((i) => i.clean.kind === 'note')) {
+  for (const item of [...plain, ...of('stack')]) idMap.set(item.raw.key, createImportedNode(store, ws, item, wsDir).id);
+  for (const { raw: r } of of('note')) {
     if (typeof r.stackKey === 'string' && idMap.get(r.stackKey)) store.addToStack(ws, idMap.get(r.key), idMap.get(r.stackKey));
   }
-  for (const { raw: r } of items.filter((i) => i.clean.kind === 'stack')) {
-    const st = ws.nodes.find((n) => n.id === idMap.get(r.key));
-    if (st && typeof r.front === 'string' && idMap.get(r.front) && st.order.includes(idMap.get(r.front))) st.front = idMap.get(r.front);
-  }
-  for (const { raw: r, clean } of items.filter((i) => i.clean.kind === 'band')) {
-    const members = (Array.isArray(r.members) ? r.members : []).map((k) => idMap.get(k)).filter(Boolean);
-    try { if (members.length) store.createBand(ws, clean.name, members, { color: clean.color, icon: clean.icon }); } catch { /* member already banded */ }
-  }
-  for (const c of conns) {
-    const a = idMap.get(c?.from), b = idMap.get(c?.to);
+  for (const { raw: r } of of('stack')) setStackFront(ws, idMap, r);
+  for (const item of of('band')) importBand(store, ws, idMap, item);
+  for (const c of Array.isArray(bundle.connections) ? bundle.connections : []) {
+    const a = idMap.get(c.from);
+    const b = idMap.get(c.to);
     if (a && b && a !== b) store.connect(ws, a, b);
   }
   store.saveWorkspace(ws.id, { now: true });
   return ws;
+}
+
+/** A node from a bundle: a clean copy with a fresh id, a working folder that stays inside the workspace, and no permission to run its command yet. */
+function createImportedNode(store, ws, { raw: r, clean }, wsDir) {
+  const props = { ...clean, text: clean.kind === 'note' && typeof r.text === 'string' ? r.text : '' };
+  props.cwd = clean.kind === 'terminal' ? importedCwd(wsDir, r.cwdRel) : undefined;
+  const node = store.createNode(ws, clean.kind, props);
+  if (node.kind === 'terminal' && node.command) node.untrusted = true;
+  return node;
+}
+
+function importedCwd(wsDir, rel) {
+  const inside = typeof rel === 'string' && !path.isAbsolute(rel) && !rel.split(path.sep).includes('..');
+  return inside ? path.join(wsDir, rel) : wsDir;
+}
+
+function setStackFront(ws, idMap, raw) {
+  const stack = ws.nodes.find((n) => n.id === idMap.get(raw.key));
+  const front = typeof raw.front === 'string' ? idMap.get(raw.front) : undefined;
+  if (stack && front && stack.order.includes(front)) stack.front = front;
+}
+
+function importBand(store, ws, idMap, { raw: r, clean }) {
+  const members = (Array.isArray(r.members) ? r.members : []).map((k) => idMap.get(k)).filter(Boolean);
+  if (!members.length) return;
+  try { store.createBand(ws, clean.name, members, { color: clean.color, icon: clean.icon }); } catch { /* member already banded */ }
 }
