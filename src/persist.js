@@ -74,6 +74,15 @@ export class Persist {
     return r.status === 0 ? r.stdout.trim() : '';
   }
 
+  /** [{id, created: Date, command}] for each running session, oldest first. */
+  details() {
+    const r = this.run(['list-sessions', '-F', '#{session_name}\t#{session_created}\t#{pane_current_command}']);
+    if (r.status !== 0) return [];
+    return r.stdout.split('\n').filter(Boolean).map((line) => line.split('\t')).filter(([n]) => n.startsWith(PREFIX) && ID_RE.test(n.slice(PREFIX.length)))
+      .map(([n, created, command]) => ({ id: n.slice(PREFIX.length), created: new Date(Number(created) * 1000), command: command ?? '' }))
+      .sort((a, b) => a.created - b.created);
+  }
+
   kill(id) { return this.run(['kill-session', '-t', `=${this.name(id)}`]).status === 0; }
 
   /** Remove sessions whose terminal no longer exists. */

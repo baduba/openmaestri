@@ -23,6 +23,8 @@ An agent sees only what is connected to it. A **Maestro** terminal sees the whol
 | `workspace set "Name" --icon X --group G` / `workspace unload "Name"` | Sidebar look; stop what a workspace runs |
 | `note from-file PATH [--name N]` | A project text file as a note |
 | `chat summarize [thread] --with DRIVER` | A summary written by the agent you choose |
+| `persist list` / `persist stop --yes` | (your own shell) The tmux sessions behind persistent terminals |
+| `desktop` | The optional desktop window. See [desktop](desktop.html) |
 | `audit [--verify] [--tail N]` | (your own shell) Show or verify the append-only audit log. See [audit](audit.html) |
 | `run "task" --agents a,b [--floors] [--dry-run] [--model M] [--timeout 10m]` | The same task to several one-shot agents in parallel, one report (also kept as a note). Maestro only. See [one-shot agents](oneshot.html) |
 | `agent <driver> "prompt" [--model M] [--floor NAME] [--timeout 10m]` | One-shot run of an agent CLI in its non-interactive mode (Maestro only); prints the answer. See [one-shot agents](oneshot.html) |

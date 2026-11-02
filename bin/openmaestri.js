@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 
-const BOOL = new Set(['no-check', 'summary', 'archive', 'apply', 'trust', 'global', 'overwrite', 'progress', 'all', 'existing-branch', 'copy', 'no-git', 'copy-ground', 'delete-branch', 'keep-floor', 'no-hooks', 'clear-hooks', 'keep-branch', 'keep-folder', 'open', 'version', 'json', 'raw-flag', 'batch', 'force', 'none', 'clear', 'without-me', 'no-notify', 'disabled', 'reminder', 'agent', 'floors', 'dry-run', 'no-network', 'verify', 'note', 'band', 'fichario', 'portal', 'help']);
+const BOOL = new Set(['no-check', 'summary', 'archive', 'apply', 'trust', 'global', 'overwrite', 'progress', 'all', 'existing-branch', 'copy', 'no-git', 'copy-ground', 'delete-branch', 'keep-floor', 'no-hooks', 'clear-hooks', 'keep-branch', 'keep-folder', 'open', 'version', 'json', 'raw-flag', 'batch', 'force', 'none', 'clear', 'without-me', 'no-notify', 'disabled', 'reminder', 'agent', 'floors', 'dry-run', 'no-network', 'yes', 'verify', 'note', 'band', 'fichario', 'portal', 'help']);
 
 const HELP = `openmaestri - a spatial workspace for AI agents (open implementation)
 
@@ -65,6 +65,7 @@ Usage:
   openmaestri accounts set|list|rm                  Named environments for agents (work / personal keys); run in your own shell
   openmaestri audit [--verify] [--tail N]           Show or check the append-only record of keys, agent runs, imports and exports
   openmaestri secrets set|list|status|rm            Keep API keys outside the env file (secret://name); run in your own shell
+  openmaestri persist list | stop --yes             The tmux sessions behind persistent terminals; run in your own shell
   openmaestri desktop                               Open the optional desktop window (one-time: npm --prefix desktop install)
   openmaestri doctor                                 Check what is installed and how to fix what is missing (works anywhere)
   openmaestri guide                                  How agents should use openmaestri (give this to your agent)
@@ -267,7 +268,7 @@ export function build({ pos, flags }) {
     case 'floor': {
       const [name, p2] = rest;
       switch (c1) {
-        case 'hooks': need(name, 'floor hooks "Floor" [--post-agent CMD] [--pre-land CMD] [--rollback-on-fail on|off] [--clear-hooks]'); return { cmd: 'floor.hooks', args: { name, postAgent: flags['post-agent'] === undefined ? undefined : String(flags['post-agent']), preLand: flags['pre-land'] === undefined ? undefined : String(flags['pre-land']), rollbackOnFail: onOff(flags['rollback-on-fail']), clear: !!flags['clear-hooks'] } };
+        case 'hooks': need(name, 'floor hooks "Floor" [--post-agent CMD] [--pre-land CMD] [--rollback-on-fail on|off] [--sandbox IMAGE] [--clear-hooks]'); return { cmd: 'floor.hooks', args: { name, postAgent: flags['post-agent'] === undefined ? undefined : String(flags['post-agent']), preLand: flags['pre-land'] === undefined ? undefined : String(flags['pre-land']), rollbackOnFail: onOff(flags['rollback-on-fail']), clear: !!flags['clear-hooks'], sandbox: optStr(flags.sandbox) } };
         case 'snapshot': return { cmd: 'floor.snapshot', args: { name, label: flags.label === undefined ? undefined : String(flags.label) } };
         case 'snapshots': return { cmd: 'floor.snapshots', args: { name } };
         case 'rollback': need(name, 'floor rollback "Floor" [SNAPSHOT_ID]'); return { cmd: 'floor.rollback', args: { name, id: p2 } };
@@ -476,6 +477,33 @@ async function auditCommand(parsed, insideTerminal) {
   return 0;
 }
 
+/** `openmaestri persist list|stop`: the tmux sessions behind persistent terminals, from your own shell. */
+async function persistCommand(parsed, insideTerminal) {
+  if (insideTerminal) { console.error('openmaestri persist: run it in your own shell, not inside an agent terminal.'); return 2; }
+  const { Persist } = await import('../src/persist.js');
+  const p = Persist.detect();
+  if (!p) { console.error('tmux is not installed (sudo apt install tmux).'); return 1; }
+  const [, sub] = parsed.pos;
+  const rows = p.details();
+  if (sub === 'list') {
+    if (!rows.length) console.log('No persistent sessions are running.');
+    for (const r of rows) console.log(`${r.id}  since ${r.created.toISOString().slice(0, 16).replace('T', ' ')} UTC  running: ${r.command}`);
+    return 0;
+  }
+  if (sub === 'stop') {
+    if (!parsed.flags.yes) { console.error(`This ends ${rows.length} persistent session(s) and the programs in them. Run again with --yes to confirm.`); return 1; }
+    const { Audit } = await import('../src/audit.js');
+    const { dataDir } = await import('../src/store.js');
+    let n = 0;
+    for (const r of rows) if (p.kill(r.id)) n += 1;
+    new Audit(path.join(dataDir(), 'audit.log')).record('persist.stop', { sessions: n }, 'cli');
+    console.log(`ended ${n} session(s)`);
+    return 0;
+  }
+  console.error('usage: openmaestri persist list | stop --yes');
+  return 2;
+}
+
 /** `openmaestri desktop`: the optional Electron window (needs `npm --prefix desktop install` once). */
 async function desktopCommand() {
   const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'desktop');
@@ -503,6 +531,7 @@ async function run(argv) {
   if (parsed.pos[0] === 'audit') return auditCommand(parsed, insideTerminal);
   if (parsed.pos[0] === 'accounts') return accountsCommand(parsed, insideTerminal);
   if (parsed.pos[0] === 'desktop' && !insideTerminal) return desktopCommand();
+  if (parsed.pos[0] === 'persist') return persistCommand(parsed, insideTerminal);
   if (!insideTerminal && (parsed.pos.length === 0 || parsed.pos[0] === 'serve') && !parsed.flags.help) return serve(parsed.flags);
   if (!parsed.pos.length || parsed.pos[0] === 'help' || parsed.flags.help) { console.log(HELP); return 0; }
   if (parsed.pos[0] === 'version' || parsed.flags.version) { console.log(JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version); return 0; }

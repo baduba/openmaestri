@@ -994,30 +994,32 @@ const HANDLERS = {
       const procs = root ? procTree(root) : [];
       const sum = procSummary(procs);
       data.push({ name: n.name, pid: root, ...sum });
-      lines.push(`${n.name.padEnd(20)} ${String(root ?? '-').padStart(7)}  ${String(sum.processes).padStart(3)} proc  ${String(sum.rssMb).padStart(5)} MB  ${String(sum.cpuSeconds).padStart(7)} s cpu  [${this.terminals.status(n.id)}]`);
+      lines.push(`${n.name.padEnd(20)} ${String(root ?? '-').padStart(7)}  ${String(sum.processes).padStart(3)} proc  ${String(sum.rssMb).padStart(5)} MB  ${String(sum.cpuSeconds).padStart(7)} s cpu  [${this.terminals.status(n.id)}]${this.terminals.get(n.id)?.persistent ? ' [kept in tmux]' : ''}`);
       if (all) for (const p of procs.slice(1)) lines.push(`    ${String(p.pid).padStart(7)}  ${String(Math.round(p.rssKb / 1024)).padStart(5)} MB  ${p.cmd}`);
     }
     return { text: lines.length ? lines.join('\n') : '(no terminals)', data };
   },
   /** Checks that run on a floor: after each agent of `run --floors`, and before the floor is landed. */
-  'floor.hooks'(ws, me, { name, postAgent, preLand, rollbackOnFail, clear }) {
+  'floor.hooks'(ws, me, { name, postAgent, preLand, rollbackOnFail, clear, sandbox }) {
     this.requireMaestro(me);
     const f = findFloor(ws, name);
     if (f.id === null) fail('hooks belong to a floor; the ground floor has none');
     const rec = floorById(ws, f.id);
-    if (clear) { delete rec.hooks; } else if (postAgent !== undefined || preLand !== undefined || rollbackOnFail !== undefined) {
+    const touched = postAgent !== undefined || preLand !== undefined || rollbackOnFail !== undefined || sandbox !== undefined;
+    if (clear) { delete rec.hooks; } else if (touched) {
       const next = { ...(rec.hooks ?? {}) };
       if (postAgent !== undefined) next.postAgent = checkCommand(postAgent);
       if (preLand !== undefined) next.preLand = checkCommand(preLand);
       if (rollbackOnFail !== undefined) next.rollbackOnFail = !!rollbackOnFail;
+      if (sandbox !== undefined) { if (sandbox) next.sandbox = checkSandbox(String(sandbox)); else delete next.sandbox; }
       rec.hooks = next;
     }
-    if (postAgent !== undefined || preLand !== undefined || rollbackOnFail !== undefined || clear) {
-      this.audit.record('floor.hooks', { floor: f.name, postAgent: !!rec.hooks?.postAgent, preLand: !!rec.hooks?.preLand, rollbackOnFail: !!rec.hooks?.rollbackOnFail, by: me.name }, 'terminal');
+    if (touched || clear) {
+      this.audit.record('floor.hooks', { sandbox: rec.hooks?.sandbox?.image ?? '', floor: f.name, postAgent: !!rec.hooks?.postAgent, preLand: !!rec.hooks?.preLand, rollbackOnFail: !!rec.hooks?.rollbackOnFail, by: me.name }, 'terminal');
       this.touch(ws);
     }
     const h = rec.hooks ?? {};
-    return { text: `${f.name}: after each agent: ${h.postAgent ?? '(none)'}\nbefore landing: ${h.preLand ?? '(none)'}\nroll the files back when the after-agent hook fails: ${h.rollbackOnFail ? 'yes' : 'no'}`, data: h };
+    return { text: `${f.name}: after each agent: ${h.postAgent ?? '(none)'}\nbefore landing: ${h.preLand ?? '(none)'}\nroll the files back when the after-agent hook fails: ${h.rollbackOnFail ? 'yes' : 'no'}\nrun hooks in a container: ${h.sandbox ? h.sandbox.image : 'no (on this machine)'}`, data: h };
   },
   async 'floor.snapshot'(ws, me, { name, label }) {
     this.requireMaestro(me);
@@ -1390,7 +1392,7 @@ Core.prototype.doFloorLand = async function (ws, { name, into, deleteBranch, kee
   if (f.id === null) fail('the ground floor cannot be landed');
   try {
     if (f.hooks?.preLand && !noHooks) {
-      const check = await runHook(f.hooks.preLand, { cwd: f.dir });
+      const check = await runHook(f.hooks.preLand, { cwd: f.dir, sandbox: f.hooks.sandbox ?? null });
       this.audit.record('floor.hook', { floor: f.name, hook: 'preLand', ok: check.ok, ms: check.ms }, 'system');
       if (!check.ok) fail(`${describeHook('pre-land', check)}\nNothing was landed. Fix it, or land without the check: floor land "${f.name}" --no-hooks`);
     }
@@ -1595,8 +1597,9 @@ Core.prototype.safeBin = function (ws, bin) {
 
 /** Problems that would stop a run before it starts: unknown driver, program not installed. */
 /** The after-agent check of a floor; when it fails and the floor asks for it, the files go back to how they were before the agent. */
-Core.prototype.runPostAgentHook = async function (ws, rec, beforeId) {
-  const result = await runHook(rec.hooks.postAgent, { cwd: rec.dir });
+Core.prototype.runPostAgentHook = async function (ws, rec, beforeId, runSandbox = null) {
+  // a run in a container checks its result in a container too, unless the floor names its own
+  const result = await runHook(rec.hooks.postAgent, { cwd: rec.dir, sandbox: rec.hooks.sandbox ?? runSandbox });
   let text = describeHook('post-agent', result);
   if (!result.ok && rec.hooks.rollbackOnFail && beforeId) {
     try { await withLock(ws.id, () => rollbackFloor(rec, beforeId)); text += '\nThe files were rolled back to before the agent (the agent\'s work is in its after snapshot).'; } catch (e) { text += `\nThe rollback failed: ${e.message}`; }
@@ -1654,7 +1657,7 @@ Core.prototype.runTask = async function (ws, me, { task, agents: rawAgents, floo
     const r = await this.execAgent({ driver, drivers, prompt, cwd, model, timeoutMs, ws, ac: slots[i], account, sandbox: box });
     // what the agent left behind can be put back with `floor rollback`
     if (floor) floor.snapshot = (await withLock(ws.id, () => takeSnapshot(rec, `after ${driver}`)).catch(() => null))?.id;
-    const hook = rec?.hooks?.postAgent && r.ok ? await this.runPostAgentHook(ws, rec, before) : null;
+    const hook = rec?.hooks?.postAgent && r.ok ? await this.runPostAgentHook(ws, rec, before, box) : null;
     return { driver, floor, ...r, ...(hook ? { hook } : {}) };
   })); } finally { for (const ac of slots) this.headless.delete(ac); }
   const report = reportText({ task: text, results, floors: !!floors });

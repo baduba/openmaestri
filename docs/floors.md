@@ -103,5 +103,6 @@ openmaestri floor hooks "Work" --clear-hooks
 
 - **`--post-agent`** runs in the floor folder after each agent of `openmaestri run --floors` finishes without error. The result (passed, failed, timed out, and the last lines of output) is in the report. With `--rollback-on-fail on`, a failing check puts the files back to how they were before the agent started; the agent's work stays in its *after* snapshot.
 - **`--pre-land`** runs before `floor land`. If it fails, nothing is landed and the output is shown. `floor land "Work" --no-hooks` skips it on purpose.
+- **In a container:** `floor hooks "Work" --sandbox my-image` runs both hooks inside a Docker container (only the floor folder, at `/work`, your user id, no capabilities). A `run --floors --sandbox IMAGE` checks each agent's work in a container too, unless the floor names its own image. Without a sandbox a hook runs on this machine.
 - A hook is a shell command you wrote for your project. It runs with the same rights as a terminal, but with a short environment (no API keys), no input, and a time limit of 5 minutes (`OPENMAESTRI_HOOK_TIMEOUT_MS`); on timeout the command and everything it started are stopped.
 - Every run is in the [audit log](audit.html), and only a Maestro can change hooks.

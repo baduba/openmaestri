@@ -55,6 +55,22 @@ export async function runDoctor({ env = process.env, root = dataDir(), socketPat
   const tmux = Persist.detect(env);
   const wantsPersist = env.OPENMAESTRI_PERSIST === 'tmux';
   add('tmux (persistent terminals)', tmux ? 'ok' : wantsPersist ? 'warn' : 'ok', tmux ? `${tmux.bin}${wantsPersist ? ', persistence is on' : ', not enabled (OPENMAESTRI_PERSIST=tmux turns it on)'}` : 'not installed', tmux ? undefined : wantsPersist ? 'sudo apt install tmux' : 'optional: sudo apt install tmux, then set OPENMAESTRI_PERSIST=tmux');
+  const dockerBin = sh('docker', ['--version']);
+  if (dockerBin) {
+    const up = sh('docker', ['info', '--format', '{{.ServerVersion}}']);
+    add('Docker (sandbox)', up ? 'ok' : 'warn', up ? `${dockerBin}, service running` : `${dockerBin}, but the service is not reachable`, up ? undefined : 'sudo systemctl start docker, and add your user to the docker group (sudo usermod -aG docker $USER)');
+  } else add('Docker (sandbox)', 'ok', 'not installed (optional: --sandbox needs it)');
+  if (tmux) {
+    const open = tmux.sessions().length;
+    add('Persistent sessions', 'ok', `${open} running${open ? ' (list them with: openmaestri persist list)' : ''}`);
+  }
+  for (const f of ['accounts.json', 'secrets.json']) {
+    let m = null;
+    try { m = fs.statSync(path.join(root, f)).mode & 0o777; } catch { /* not created */ }
+    if (m !== null) add(`${f} permissions`, (m & 0o077) === 0 ? 'ok' : 'warn', `${f} is ${m.toString(8)}`, (m & 0o077) === 0 ? undefined : `chmod 600 ${path.join(root, f)}`);
+  }
+  const electron = fs.existsSync(new URL('../desktop/node_modules/.bin/electron', import.meta.url));
+  add('Desktop window (Electron)', 'ok', electron ? 'installed' : 'not installed (optional: npm --prefix desktop install, then openmaestri desktop)');
   add('Secret store', secrets ? 'ok' : 'warn', secrets ? `${secrets.kind} (${secrets.list().length} stored)` : 'unavailable', secrets ? undefined : 'unset OPENMAESTRI_SECRETS_BACKEND or install libsecret-tools and unlock the keyring');
   if (mode !== null) add('Keys file permissions', (mode & 0o077) === 0 ? 'ok' : 'warn', `${envFile} is ${mode.toString(8)}`, (mode & 0o077) === 0 ? undefined : `chmod 600 ${envFile}`);
   if (hasKey) add('DeepSeek model', 'ok', fileKeys.OPENMAESTRI_DEEPSEEK_MODEL || env.OPENMAESTRI_DEEPSEEK_MODEL || 'deepseek-flash (default)');
