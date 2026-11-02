@@ -1,7 +1,7 @@
 import { Terminal } from '/vendor/xterm.mjs';
 import { FitAddon } from '/vendor/addon-fit.mjs';
 import { createChat } from '/chat.js';
-import { buildFiles } from '/files.js';
+import { buildFiles, renderMarkdown } from '/files.js';
 import { createWelcome } from '/welcome.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -75,6 +75,7 @@ function onMessage(m) {
       break;
     case 'chat.history': case 'chat.message': case 'chat.progress': case 'chat.state': case 'chat.search': case 'prompter.mentions': case 'prompter.preview': case 'prompts.list': case 'prompts.changed': case 'prompts.item': case 'prompts.deleted': chatUi.handle(m); break;
     case 'welcome.info': welcome.handle(m); break;
+    case 'note.image': state.views.get(m.id)?.imageAdded?.(m.markdown); break;
     case 'files.result': state.views.get(m.id)?.filesResult?.(m); break;
     case 'portal.frame': state.views.get(m.id)?.frame?.(m); break;
     case 'portal.nav': state.views.get(m.id)?.nav?.(m); break;
@@ -169,21 +170,46 @@ function renderFloors() {
 function renderSidebar() {
   const ul = $('#ws-list');
   ul.replaceChildren();
+  const collapsed = readCollapsed();
+  const groups = new Map();
   for (const w of state.summary.workspaces) {
-    const li = el('li', w.id === (state.ws?.id) ? 'active' : '');
-    li.append(el('span', 'name', w.name), el('span', 'count', String(w.nodes)));
-    const x = el('button', 'x', '×');
-    x.title = 'Delete workspace';
-    x.onclick = (e) => { e.stopPropagation(); if (confirm(`Delete workspace "${w.name}" and everything in it?`)) send({ t: 'workspace.delete', id: w.id }); };
-    const exp = el('button', 'x', '⭳');
-    exp.title = 'Export this workspace to a file';
-    exp.onclick = (e) => { e.stopPropagation(); location.href = `/export/${w.id}.json`; };
-    li.append(exp, x);
-    li.title = w.dir;
-    li.onclick = () => send({ t: 'workspace.select', id: w.id });
-    li.ondblclick = () => { const name = prompt('Rename workspace', w.name); if (name) send({ t: 'workspace.rename', id: w.id, name }); };
-    ul.append(li);
+    const key = w.group ?? '';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(w);
   }
+  const names = [...groups.keys()].sort((a, b) => (a === '' ? -1 : b === '' ? 1 : a.localeCompare(b)));
+  for (const g of names) {
+    if (g !== '') {
+      const head = el('li', 'ws-group', `${collapsed.has(g) ? '▸' : '▾'} ${g}`);
+      head.onclick = () => { if (collapsed.has(g)) collapsed.delete(g); else collapsed.add(g); saveCollapsed(collapsed); renderSidebar(); };
+      ul.append(head);
+      if (collapsed.has(g)) continue;
+    }
+    for (const w of groups.get(g)) ul.append(workspaceRow(w));
+  }
+}
+
+function readCollapsed() {
+  try { return new Set(JSON.parse(localStorage.getItem('om.collapsedGroups') || '[]')); } catch { return new Set(); }
+}
+function saveCollapsed(set) {
+  try { localStorage.setItem('om.collapsedGroups', JSON.stringify([...set])); } catch { /* storage may be off */ }
+}
+
+function workspaceRow(w) {
+  const li = el('li', w.id === (state.ws?.id) ? 'active' : '');
+  li.append(el('span', 'name', `${w.icon ? `${w.icon} ` : ''}${w.name}`), el('span', 'count', `${w.running ? '● ' : ''}${w.nodes}`));
+  const x = el('button', 'x', '×');
+  x.title = 'Delete workspace';
+  x.onclick = (e) => { e.stopPropagation(); if (confirm(`Delete workspace "${w.name}" and everything in it?`)) send({ t: 'workspace.delete', id: w.id }); };
+  const exp = el('button', 'x', '⭳');
+  exp.title = 'Export this workspace to a file';
+  exp.onclick = (e) => { e.stopPropagation(); location.href = `/export/${w.id}.json`; };
+  li.append(exp, x);
+  li.title = w.dir;
+  li.onclick = () => send({ t: 'workspace.select', id: w.id });
+  li.ondblclick = () => { const name = prompt('Rename workspace', w.name); if (name) send({ t: 'workspace.rename', id: w.id, name }); };
+  return li;
 }
 
 // ---------- viewport ----------
@@ -485,17 +511,48 @@ function buildTerminal(view, body, dot, getNode, baseUpdate) {
 
 function buildNote(view, body, dot, getNode, baseUpdate, patch) {
   dot.style.background = 'var(--accent)';
-  const ta = el('textarea', 'note-text');
+  const bar = el('div', 'notebar');
+  const previewBtn = el('button', null, 'Preview');
+  previewBtn.title = 'Show the note as formatted Markdown';
+  bar.append(previewBtn, el('span', 'muted', 'drop or paste a picture to add it'));
+  const ta = el('textarea', 'note-text with-bar');
   ta.spellcheck = false;
   ta.placeholder = 'Markdown note…';
-  body.append(ta);
+  const preview = el('div', 'note-preview');
+  preview.hidden = true;
+  body.append(bar, ta, preview);
   let timer;
+  const save = () => { clearTimeout(timer); send({ t: 'note.write', workspaceId: wsId(), id: getNode().id, text: ta.value }); };
   ta.addEventListener('input', () => {
     clearTimeout(timer);
     timer = setTimeout(() => send({ t: 'note.write', workspaceId: wsId(), id: getNode().id, text: ta.value }), 300);
   });
-  ta.addEventListener('blur', () => { clearTimeout(timer); send({ t: 'note.write', workspaceId: wsId(), id: getNode().id, text: ta.value }); });
-  view.setNote = (text) => { if (document.activeElement !== ta && ta.value !== text) ta.value = text; };
+  ta.addEventListener('blur', save);
+  previewBtn.onclick = () => {
+    preview.hidden = !preview.hidden;
+    ta.hidden = !preview.hidden;
+    previewBtn.textContent = preview.hidden ? 'Preview' : 'Edit';
+    if (!preview.hidden) renderMarkdown(ta.value, preview);
+  };
+  // pictures: dropped or pasted raster images go to the workspace vault and come back as Markdown
+  const sendImage = (file) => {
+    if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type)) return false;
+    if (file.size > 5 * 1024 * 1024) { toast(`${file.name || 'picture'} is over 5 MB`, 'note', true); return true; }
+    const reader = new FileReader();
+    reader.onload = () => send({ t: 'note.image', workspaceId: wsId(), id: getNode().id, name: file.name || 'picture.png', data: String(reader.result).split(',')[1] ?? '' });
+    reader.readAsDataURL(file);
+    return true;
+  };
+  ta.addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.types ?? [])].includes('Files')) e.preventDefault(); });
+  ta.addEventListener('drop', (e) => { const files = [...(e.dataTransfer?.files ?? [])]; if (files.some(sendImage)) e.preventDefault(); });
+  ta.addEventListener('paste', (e) => { const files = [...(e.clipboardData?.files ?? [])]; if (files.some(sendImage)) e.preventDefault(); });
+  view.imageAdded = (markdown) => {
+    const at = ta.selectionStart ?? ta.value.length;
+    ta.value = `${ta.value.slice(0, at)}\n${markdown}\n${ta.value.slice(at)}`;
+    save();
+    if (!preview.hidden) renderMarkdown(ta.value, preview);
+  };
+  view.setNote = (text) => { if (document.activeElement !== ta && ta.value !== text) { ta.value = text; if (!preview.hidden) renderMarkdown(text, preview); } };
   view.update = (next) => { baseUpdate(next); view.setNote(state.ws.notes.get(next.id) ?? ''); };
   view.cleanup = () => clearTimeout(timer);
   void patch;
@@ -915,6 +972,16 @@ function buildPaletteItems() {
   add('New terminal', 'canvas', () => $('#add-term').click());
   add('New note', 'canvas', () => $('#add-note').click());
   add('New portal', 'canvas', () => $('#add-portal').click());
+  add('Workspace: set icon and group', 'workspace', () => {
+    if (!state.ws) return;
+    const cur = state.summary.workspaces.find((w) => w.id === state.ws.id);
+    const icon = prompt('Icon (a letter or emoji, empty to clear)', cur?.icon ?? '');
+    if (icon === null) return;
+    const group = prompt('Group in the sidebar (empty for none)', cur?.group ?? '');
+    if (group === null) return;
+    send({ t: 'workspace.set', id: state.ws.id, icon, group });
+  });
+  for (const w of state.summary.workspaces) if (w.id !== wsId() && w.running) add(`Workspace: stop everything running in ${w.name}`, 'workspace', () => send({ t: 'workspace.unload', id: w.id }));
   add('Duplicate this workspace', 'workspace', () => state.ws && send({ t: 'workspace.create', name: `${state.ws.name} copy`, dir: state.ws.dir, from: state.ws.id }));
   add('New stack', 'canvas', () => $('#add-stack').click());
   add('New band (group agents)', 'canvas', () => $('#add-band').click());

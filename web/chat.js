@@ -124,6 +124,12 @@ export function createChat({ state, send, wsId, toast, $, el }) {
     send({ t: 'chat.send', workspaceId: wsId(), threadId: current, text });
   }
 
+  $('#chat-export').onclick = () => { location.href = `/chat-export/${encodeURIComponent(wsId())}/${encodeURIComponent(current)}.md`; };
+  $('#chat-copy').onclick = () => {
+    const text = [...document.querySelectorAll('#chat .msg')].map((d) => `${d.querySelector('.msg-h b')?.textContent ?? ''}: ${d.querySelector('.msg-b')?.textContent ?? ''}`).join('\n\n');
+    navigator.clipboard?.writeText(text).then(() => toast('Thread copied', 'chat'), () => toast('Could not copy', 'chat', true));
+  };
+
   // Drop files on the chat to send them to the Maestro (up to 10 MB each, three at a time).
   const dropPanel = $('#chat');
   const hasFiles = (e) => [...(e.dataTransfer?.types ?? [])].includes('Files');

@@ -13,18 +13,24 @@ run "npm audit"                          npm audit --audit-level=low
 run "semgrep" semgrep scan --metrics=off --quiet --error --exclude node_modules --exclude dist \
   --config p/javascript --config p/nodejs --config p/security-audit --config p/owasp-top-ten \
   --config p/secrets --config p/command-injection --config p/xss --config p/github-actions .
-# njsscan sometimes skips the largest file when its rules time out ("could not be scanned") and exits 1
-# with no finding. A skipped file is not a clean file, so try again; real findings fail at once.
+# njsscan skips a file when its rules time out ("could not be scanned") and still exits 1 with no
+# finding. A skipped file is not a clean file. So each file is scanned on its own (4 at a time) and
+# retried when it was skipped; a real finding fails at once.
+# shellcheck disable=SC2329  # called through xargs
+njs_one() {
+  local out code
+  for _ in 1 2 3 4; do
+    out=$(njsscan --exit-warning "$1" 2>&1); code=$?
+    if [ "$code" -eq 0 ]; then return 0; fi
+    if ! echo "$out" | grep -q "could not be scanned"; then echo "$out"; return 1; fi
+  done
+  echo "njsscan could not scan $1 after 4 tries"; return 1
+}
+export -f njs_one
 # shellcheck disable=SC2329  # called through run()
 njs() {
-  local out try
-  for try in 1 2 3 4; do
-    out=$(njsscan --exit-warning src bin web 2>&1); local code=$?
-    if [ "$code" -eq 0 ]; then echo "$out" | tail -n 2; return 0; fi
-    if ! echo "$out" | grep -q "could not be scanned"; then echo "$out"; return 1; fi
-    echo "   (njsscan skipped a file, attempt $try)"
-  done
-  echo "$out" | tail -n 5; return 1
+  # shellcheck disable=SC2016  # the single quotes are meant: the child shell expands $0
+  find src bin web -name '*.js' -type f -print0 | xargs -0 -n1 -P4 bash -c 'njs_one "$0"'
 }
 run "njsscan"   njs
 run "gitleaks"  gitleaks detect --no-banner --redact -s . --log-opts="--all"

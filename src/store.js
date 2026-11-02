@@ -110,6 +110,8 @@ export class Store {
     ws.routines ||= [];
     ws.viewport ||= { x: 0, y: 0, z: 1 };
     ws.floorStatus ||= null;
+    if (typeof ws.icon !== 'string') ws.icon = null;
+    if (typeof ws.group !== 'string') ws.group = null;
     ws.floors ||= [];
     return ws;
   }

@@ -14,6 +14,12 @@ A **Files** node (`+ Files` in the toolbar) shows the folder of the current floo
 - **Markdown preview**: `Preview` renders headings, lists, quotes, code blocks, bold, italic, code and `http(s)` links. Raw HTML in the file is shown as text, never run.
 - **New, rename, delete**: delete moves the item to a trash next to the version backups; nothing is erased outright.
 
+## Tabs, search and colours
+
+- **Tabs:** every file you open gets a tab. Switching keeps each file's unsaved text, and a ● marks a tab with changes.
+- **Search:** the box above the tree searches the text of all files below the folder (not a pattern, case does not matter, two characters at least). It skips `node_modules`, build folders, `.git`, binaries, files over 1 MB and symbolic links, and stops at 200 matches. Click a result to open the file at that line.
+- **Colours:** comments, strings, numbers and keywords are coloured for JavaScript, TypeScript, JSON, Python, shell, YAML and CSS files up to 200 KB. It is colouring, not parsing, so unusual code just looks plain.
+
 ## Safety rules
 
 - Every path is checked after resolving symbolic links, and must stay inside the folder of the node. `..`, absolute paths, backslashes and NUL are refused.

@@ -184,7 +184,23 @@ dialog select { width: 100%; margin-top: 3px; background: var(--bg); border: 1px
 
 /* Files node */
 .files { display: flex; height: 100%; min-height: 0; }
-.ftree { width: 36%; min-width: 120px; overflow: auto; border-right: 1px solid var(--line); padding: 4px; font-size: 12px; }
+.fleft { width: 36%; min-width: 120px; display: flex; flex-direction: column; border-right: 1px solid var(--line); min-height: 0; }
+.ftree, .fresults { flex: 1; min-height: 0; overflow: auto; padding: 4px; font-size: 12px; }
+.fsearch { margin: 4px; padding: 3px 6px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
+.fhit { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 2px 4px; cursor: pointer; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fhit:hover { background: rgba(127,127,127,.15); }
+.fhit b { color: var(--accent); }
+.ftabs { display: flex; overflow-x: auto; border-bottom: 1px solid var(--line); }
+.ftab { background: none; border: 0; border-right: 1px solid var(--line); padding: 3px 8px; cursor: pointer; font-size: 12px; white-space: nowrap; opacity: .7; }
+.ftab.on { opacity: 1; background: rgba(127,127,127,.12); }
+.ftab-x { margin-left: 6px; opacity: .6; }
+.ftab-x:hover { opacity: 1; }
+.fedwrap { position: relative; flex: 1; min-height: 0; }
+.fhl, .fedwrap .feditor { position: absolute; inset: 0; margin: 0; padding: 8px; font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre; overflow: auto; tab-size: 4; }
+.fhl { pointer-events: none; color: var(--text); }
+.fedwrap .feditor { background: transparent; color: transparent; caret-color: var(--text); resize: none; border: 0; }
+.fedwrap .feditor::selection { background: rgba(80,140,255,.35); color: transparent; }
+.hl-k { color: #c678dd; } .hl-s { color: #98c379; } .hl-c { color: #7f848e; font-style: italic; } .hl-n { color: #d19a66; }
 .fmain { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .fbar { display: flex; gap: 4px; align-items: center; padding: 4px; border-bottom: 1px solid var(--line); }
 .fbar button, .fbar select { padding: 1px 6px; }
@@ -193,7 +209,6 @@ dialog select { width: 100%; margin-top: 3px; background: var(--bg); border: 1px
 .fdirty { color: var(--accent); }
 .fmsg { font-size: 11px; opacity: .7; padding: 2px 6px; }
 .fmsg:empty { display: none; }
-.feditor { flex: 1; min-height: 0; }
 .fpreview { flex: 1; min-height: 0; overflow: auto; padding: 8px 12px; line-height: 1.5; }
 .fpreview pre { background: rgba(127,127,127,.15); padding: 8px; overflow: auto; border-radius: 6px; }
 .fpreview code { font-family: ui-monospace, Menlo, Consolas, monospace; }
@@ -217,3 +232,13 @@ dialog.welcome { width: min(520px, 94vw); }
 
 /* Chat drop target */
 #chat.dropping { outline: 2px dashed var(--accent); outline-offset: -6px; }
+
+/* sidebar groups */
+#ws-list .ws-group { cursor: pointer; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 8px 4px 2px; }
+
+/* notes */
+.notebar { display: flex; gap: 8px; align-items: center; padding: 3px 6px; font-size: 11px; border-bottom: 1px solid var(--line); }
+.notebar button { padding: 1px 6px; }
+.note-preview { height: calc(100% - 28px); overflow: auto; padding: 8px 12px; line-height: 1.5; }
+.node .note-text.with-bar { height: calc(100% - 28px); }
+.md-img { max-width: 100%; height: auto; border-radius: 4px; }

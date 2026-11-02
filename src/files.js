@@ -17,6 +17,9 @@ export const MAX_EDIT_BYTES = 1024 * 1024;
 const MAX_ENTRIES = 2000;
 const KEEP_VERSIONS = 10;
 const HIDDEN = new Set(['.git', '.openmaestri']);
+const SKIP_DIRS = new Set(['node_modules', 'dist', 'build', 'coverage', '.next', '.cache', '.venv', '__pycache__', 'target']);
+const SEARCH_RESULTS = 200;
+const SEARCH_FILES = 5000;
 
 const NONBLOCK = fs.constants.O_NONBLOCK ?? 0;
 const NOFOLLOW = fs.constants.O_NOFOLLOW ?? 0;
@@ -82,6 +85,50 @@ export class Files {
     }
     entries.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1));
     return { path: segments(rel).join('/'), entries, truncated: names.length > MAX_ENTRIES };
+  }
+
+  /**
+   * Find text in the files below `rel` (case-insensitive, plain text, not a pattern). It walks real
+   * folders only (never through a symbolic link), skips generated folders, binaries and big files,
+   * and stops at a result, file or time limit.
+   */
+  search(root, query, rel = '') {
+    const needle = String(query ?? '').toLowerCase();
+    if (needle.length < 2 || needle.length > 200) fail('type at least two characters to search for');
+    const { real, base } = this.confine(root, rel);
+    const results = [];
+    const deadline = Date.now() + 3000;
+    let files = 0;
+    let truncated = false;
+    const walk = (dir) => {
+      let ents;
+      try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      ents.sort((a, b) => a.name.localeCompare(b.name));
+      for (const e of ents) {
+        if (results.length >= SEARCH_RESULTS || files >= SEARCH_FILES || Date.now() > deadline) { truncated = true; return; }
+        if (HIDDEN.has(e.name) || SKIP_DIRS.has(e.name) || e.isSymbolicLink()) continue;
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) walk(full);
+        else if (e.isFile()) { files += 1; this.searchFile(full, needle, base, results); }
+      }
+    };
+    walk(real);
+    return { query: String(query), results, truncated };
+  }
+
+  searchFile(full, needle, base, results) {
+    let fd;
+    try {
+      fd = fs.openSync(full, fs.constants.O_RDONLY | NOFOLLOW | NONBLOCK);
+      const st = fs.fstatSync(fd);
+      if (!st.isFile() || st.size > MAX_EDIT_BYTES || st.size === 0) return;
+      const buf = fs.readFileSync(fd);
+      if (buf.subarray(0, 8192).includes(0)) return;
+      const lines = buf.toString('utf8').split('\n');
+      for (let i = 0; i < lines.length && results.length < SEARCH_RESULTS; i += 1) {
+        if (lines[i].toLowerCase().includes(needle)) results.push({ path: path.relative(base, full).split(path.sep).join('/'), line: i + 1, text: lines[i].trim().slice(0, 160) });
+      }
+    } catch { /* unreadable: not a result */ } finally { if (fd !== undefined) fs.closeSync(fd); }
   }
 
   openRead(abs) {
