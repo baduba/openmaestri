@@ -10,7 +10,7 @@ import path from 'node:path';
 import { Store, dataDir } from './store.js';
 import { GUIDE } from './prompts.js';
 import { Terminals } from './terminals.js';
-import { DRIVERS, customDrivers, workerEnv, runHeadless, HeadlessError } from './headless.js';
+import { DRIVERS, customDrivers, workerEnv, runHeadless, HeadlessError, checkSandbox } from './headless.js';
 import { discover as discoverRoles, plan as planRole, diffText, agentKind, RoleError, AGENT_FILES } from './roles.js';
 import { Files, FilesError } from './files.js';
 import { Persist } from './persist.js';
@@ -128,6 +128,21 @@ export class Core extends EventEmitter {
     const usage = {};
     for (const n of ws.nodes) if (n.kind === 'terminal') usage[n.id] = this.usage.summary(n.id);
     return { ...ws, notes, status, history: this.history.state(ws), chat: this.chatState(ws), usage };
+  }
+
+  /** What the preferences window shows. Only a few switches can be changed from the interface. */
+  preferences() {
+    const tmux = Persist.detect();
+    return {
+      version: JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version,
+      dataDir: this.dataRoot,
+      persistTerminals: this.store.settings.persistTerminals === true || process.env.OPENMAESTRI_PERSIST === 'tmux',
+      persistActive: !!this.persist,
+      persistForcedByEnv: process.env.OPENMAESTRI_PERSIST === 'tmux',
+      tmuxInstalled: !!tmux,
+      onboarded: this.store.settings.onboarded === true,
+      secretStore: (() => { try { return new Secrets({ root: this.dataRoot }).kind; } catch { return 'unavailable'; } })(),
+    };
   }
 
   summary() {
@@ -322,7 +337,7 @@ const HANDLERS = {
   },
 
   /** A one-shot run of any agent CLI in its non-interactive mode: no terminal, the answer comes back as text. */
-  async 'agent.run'(ws, me, { driver, prompt, model, floor, timeoutMs, account }) {
+  async 'agent.run'(ws, me, { driver, prompt, model, floor, timeoutMs, account, sandbox, noNetwork }) {
     this.requireMaestro(me);
     const drivers = { ...DRIVERS, ...customDrivers(this.store.settings.drivers) };
     if (!driver) fail(`usage: agent <driver> "prompt". Drivers: ${Object.keys(drivers).join(', ')}`);
@@ -332,7 +347,8 @@ const HANDLERS = {
     const cwd = [rec?.dir, me.cwd, ws.dir].find((d) => d && fs.existsSync(d)) ?? process.env.HOME;
     const expanded = materializeMentions(String(prompt ?? ''), this.prompterCtx(ws, me)).text;
     this.audit.record('agent.run', { driver, account: account ?? '', by: me.name, folder: path.basename(cwd), model: model ?? '', promptChars: expanded.length, promptSha256: sha256(expanded) }, 'terminal');
-    const r = await this.execAgent({ driver, drivers, prompt: expanded, cwd, model, timeoutMs, ws, account });
+    const box = this.sandboxFrom(sandbox, noNetwork);
+    const r = await this.execAgent({ driver, drivers, prompt: expanded, cwd, model, timeoutMs, ws, account, sandbox: box });
     const secs = (r.ms / 1000).toFixed(1);
     if (r.timedOut) fail(`${driver} did not finish in time and was stopped (${secs}s)${r.text ? `. Partial output:\n${r.text}` : ''}`);
     if (r.cancelled) fail(`${driver} was stopped`);
@@ -1551,12 +1567,18 @@ Core.prototype.roleChange = function (ws, me, { role, agent, apply, trust }, rem
 
 /** The folder a Files node browses: its floor's folder, or the workspace folder. */
 /** Run one headless agent; tracked so shutdown and the concurrency limit see it. Never throws for a failed run. */
-Core.prototype.execAgent = async function ({ driver, drivers, prompt, cwd, model, timeoutMs, ac = new AbortController(), ws, account }) {
+/** The sandbox asked for on the command line: an image name, and --no-network. null for none. */
+Core.prototype.sandboxFrom = function (image, noNetwork) {
+  if (!image) return null;
+  return checkSandbox({ image: String(image), network: noNetwork ? 'none' : 'bridge' });
+};
+
+Core.prototype.execAgent = async function ({ driver, drivers, prompt, cwd, model, timeoutMs, ac = new AbortController(), ws, account, sandbox = null }) {
   this.headless.add(ac);
   try {
     const env = workerEnv(process.env, path.join(this.dataRoot, 'env'), this.resolveSecret, drivers[driver]);
     if (account) Object.assign(env, this.accounts.env(account, this.resolveSecret)); // the account was chosen on purpose, so its keys pass whatever the driver lists
-    return await runHeadless({ driver, drivers, prompt, cwd, env, model, timeoutMs, signal: ac.signal, resolveBin: (b) => this.safeBin(ws, b) });
+    return await runHeadless({ driver, drivers, prompt, cwd, env, model, timeoutMs, signal: ac.signal, resolveBin: (b) => this.safeBin(ws, b), sandbox });
   } finally { this.headless.delete(ac); }
 };
 
@@ -1583,23 +1605,27 @@ Core.prototype.runPostAgentHook = async function (ws, rec, beforeId) {
   return { ok: result.ok, text };
 };
 
-Core.prototype.preflightAgents = function (ws, agents, drivers) {
+Core.prototype.preflightAgents = function (ws, agents, drivers, box = null) {
   const problems = [];
+  const missing = (bin, what) => { try { return this.safeBin(ws, bin) ? null : `"${bin}" (${what}) was not found in your shell`; } catch (e) { return e.message; } };
   for (const a of agents) {
-    if (!drivers[a]) { problems.push(`no driver named "${a}"`); continue; }
-    try { if (!this.safeBin(ws, drivers[a].bin)) problems.push(`"${drivers[a].bin}" (driver ${a}) was not found in your shell`); } catch (e) { problems.push(e.message); }
+    if (!drivers[a]) problems.push(`no driver named "${a}"`);
+    // in a sandbox the agent program lives in the image; only docker has to exist on this machine
+    else if (!box && !drivers[a].sandbox) { const m = missing(drivers[a].bin, `driver ${a}`); if (m) problems.push(m); }
   }
+  if ((box || agents.some((a) => drivers[a]?.sandbox)) && !problems.length) { const m = missing('docker', 'needed for the sandbox'); if (m) problems.push(m); }
   return problems;
 };
 
-Core.prototype.runTask = async function (ws, me, { task, agents: rawAgents, floors, dryRun, model, timeoutMs, account }) {
+Core.prototype.runTask = async function (ws, me, { task, agents: rawAgents, floors, dryRun, model, timeoutMs, account, sandbox, noNetwork }) {
+  const box = this.sandboxFrom(sandbox, noNetwork);
   if (account) this.accounts.env(account); // a missing account stops the run before it starts
   const text = String(task ?? '').trim();
   const agents = parseAgents(rawAgents);
   if (!text || !agents.length) fail('usage: run "task" --agents claude,codex [--floors] [--dry-run] [--model M] [--timeout 10m]');
   if (agents.length > MAX_AGENTS) fail(`at most ${MAX_AGENTS} agents per run`);
   const drivers = { ...DRIVERS, ...customDrivers(this.store.settings.drivers) };
-  const problems = this.preflightAgents(ws, agents, drivers);
+  const problems = this.preflightAgents(ws, agents, drivers, box);
   if (problems.length) fail(`cannot start the run:\n- ${problems.join('\n- ')}`);
   if (floors && !(await repoTop(ws.dir))) fail('--floors needs the workspace folder to be a git repository; without one, agents would share the same folder');
   const plan = planText({ task: text, agents, floors: !!floors, model });
@@ -1625,7 +1651,7 @@ Core.prototype.runTask = async function (ws, me, { task, agents: rawAgents, floo
     }
     const rec = floor ? ws.floors.find((f) => f.dir === cwd) : null;
     const before = rec ? (await withLock(ws.id, () => takeSnapshot(rec, `before ${driver}`)).catch(() => null))?.id : null;
-    const r = await this.execAgent({ driver, drivers, prompt, cwd, model, timeoutMs, ws, ac: slots[i], account });
+    const r = await this.execAgent({ driver, drivers, prompt, cwd, model, timeoutMs, ws, ac: slots[i], account, sandbox: box });
     // what the agent left behind can be put back with `floor rollback`
     if (floor) floor.snapshot = (await withLock(ws.id, () => takeSnapshot(rec, `after ${driver}`)).catch(() => null))?.id;
     const hook = rec?.hooks?.postAgent && r.ok ? await this.runPostAgentHook(ws, rec, before) : null;

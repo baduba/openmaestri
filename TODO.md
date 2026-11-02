@@ -21,14 +21,14 @@ Legenda: [x] feito · [ ] pendente
 ## C. Modelos abertos / DeepSeek
 - [x] 11. Presets prontos: OpenCode (+ DeepSeek), Aider (+ DeepSeek), Claude Code, Codex, Gemini CLI, Goose
 - [x] 12. Guia `docs/deepseek.md`: OpenCode com `DEEPSEEK_API_KEY` (provider deepseek) e Aider com `--model deepseek/deepseek-chat`
-- [ ] 13. Parcial: chaves em `~/.openmaestri/env` fora do workspace.json; chaveiro e secret:// feitos (v0.10.0); falta variáveis por preset/conta
+- [x] 13. chaves em `~/.openmaestri/env` fora do workspace.json; chaveiro e secret:// feitos (v0.10.0); contas por preset feitas (v0.17.0)
 - [x] 14. Teste de integração do fluxo "Maestro recruta 2 workers e coordena" com um agente falso (script) para CI sem chave de API
 
 ## D. Produto
 - [x] 15. Floors com git worktree (criar, status, land/merge, apagar). Falta: hooks e snapshots
 - [x] 16. Partituras: salvar e reinserir layouts (agentes, notas, conexões)
 - [x] 17. Automação de portal (snapshot/click/fill) via CDP por pipe
-- [ ] 18. Empacotar em Electron (janela única, bandeja, notificações do SO) mantendo o modo navegador
+- [x] 18. Janela desktop opcional em Electron (janela única, bandeja, notificações) mantendo o modo navegador (v0.20.0)
 
 ## E. Distribuição e comunidade
 - [x] 19. Pacote `.deb` (amd64) com binário `openmaestri`, `.desktop` e ícone, gerado por script e pelo CI
@@ -43,10 +43,10 @@ Legenda: [x] feito · [ ] pendente
 - [x] Endurecimento: SSRF nos portais, hooks do git, teto de terminais, vazamento no export
 - [x] `openmaestri doctor`, `recruit --model`, checagem do agente instalado
 - [x] Árvore de arquivos e editor no canvas (v0.9.0) · [x] lista de PRs e floors a partir de PR (gh/glab, v0.14.0) · [x] snapshots e rollback de floor (v0.15.0) · [x] hooks de floor (v0.18.0)
-- [x] Chaves nomeadas com chaveiro (secret://, v0.10.0) · [x] contas por agente e por preset (v0.17.0) · [ ] Electron (por último) · [x] arrastar e soltar arquivos no chat (v0.18.0)
+- [x] Chaves nomeadas com chaveiro (secret://, v0.10.0) · [x] contas por agente e por preset (v0.17.0) · [x] Electron (v0.20.0) · [x] arrastar e soltar arquivos no chat (v0.18.0)
 
 ## F. Fase 1 de paridade (feito em feature/canvas-parity)
 - [x] Fichários (stacks), bands, partituras, desfazer/refazer, tidy, snap, paleta Ctrl+K, exportar/importar workspace
 - [x] Fase 2: floors com git worktree, landing, hooks, snapshots; revisão de PRs (v0.18.0)
 - [x] Fase 3: automação de portal (CDP)
-- [ ] Fase 4: [x] chat com threads (say/recall) · [x] memória resumida · [x] prompter (popup, preview, índice cancelável, arrastar e soltar) · [x] prompts salvos · [x] uso dos agentes (relatado/parseado, sem estimativa) · [x] descoberta/instalação de roles · [x] memória longa (local, sem modelo) · [ ] arrastar e soltar
+- [x] Fase 4: [x] chat com threads (say/recall) · [x] memória resumida · [x] prompter (popup, preview, índice cancelável, arrastar e soltar) · [x] prompts salvos · [x] uso dos agentes (relatado/parseado, sem estimativa) · [x] descoberta/instalação de roles · [x] memória longa (local, sem modelo) · [ ] arrastar e soltar

@@ -21,12 +21,12 @@ What is done, what is next, and what is deliberately left out. The order follows
 | 0.17 | Accounts, single-partitura files, duplicate workspace |
 | 0.18 | Floor hooks, routine history, files dropped on the chat |
 | 0.19 | Process list, workspace groups and unload, notes with pictures, editor tabs/search/colours, chat export and agent-written summaries |
+| 0.20 | Persistent terminals (tmux), Docker sandbox for one-shot agents, optional desktop window, preferences |
 
 ## Next
 
-1. **Persistent terminals**: terminals that survive a restart of openmaestri (needs `tmux`; it cannot be tested on every machine).
-2. Whatever the planning agents flag after the next review, and bugs people report.
+Nothing is planned beyond bug reports and what the planning agents flag at their next review.
 
 ## Left out on purpose
 
-Electron shell and tray, images in notes, tabs and syntax highlighting in the file editor, Android, sandboxes and remote tunnels. Each costs a lot to keep working and adds little to orchestrating agents; they come back if people ask.
+Android (needs a phone and adb), WSL, and remote tunnels (a page that drives shells must not be exposed to a network). Posting reviews to GitHub or GitLab is left out too: it writes to a service in your name, so it should be an explicit act of yours.

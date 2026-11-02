@@ -3,6 +3,7 @@ import { FitAddon } from '/vendor/addon-fit.mjs';
 import { createChat } from '/chat.js';
 import { buildFiles, renderMarkdown } from '/files.js';
 import { createWelcome } from '/welcome.js';
+import { createPrefs } from '/prefs.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const el = (tag, cls, text) => {
@@ -40,6 +41,7 @@ function connect() {
 const send = (m) => socket?.readyState === 1 && socket.send(JSON.stringify(m));
 const wsId = () => state.ws?.id;
 const welcome = createWelcome({ send, wsId });
+const prefs = createPrefs({ send });
 function setConn(ok) {
   const c = $('#conn');
   c.classList.toggle('off', !ok);
@@ -75,6 +77,7 @@ function onMessage(m) {
       break;
     case 'chat.history': case 'chat.message': case 'chat.progress': case 'chat.state': case 'chat.search': case 'prompter.mentions': case 'prompter.preview': case 'prompts.list': case 'prompts.changed': case 'prompts.item': case 'prompts.deleted': chatUi.handle(m); break;
     case 'welcome.info': welcome.handle(m); break;
+    case 'prefs': prefs.show(m.prefs); break;
     case 'note.image': state.views.get(m.id)?.imageAdded?.(m.markdown); break;
     case 'files.result': state.views.get(m.id)?.filesResult?.(m); break;
     case 'portal.frame': state.views.get(m.id)?.frame?.(m); break;
@@ -1005,6 +1008,7 @@ function buildPaletteItems() {
     send({ t: 'workspace.set', id: state.ws.id, icon, group });
   });
   for (const w of state.summary.workspaces) if (w.id !== wsId() && w.running) add(`Workspace: stop everything running in ${w.name}`, 'workspace', () => send({ t: 'workspace.unload', id: w.id }));
+  add('Preferences', 'canvas', () => prefs.open());
   add('Duplicate this workspace', 'workspace', () => state.ws && send({ t: 'workspace.create', name: `${state.ws.name} copy`, dir: state.ws.dir, from: state.ws.id }));
   add('New stack', 'canvas', () => $('#add-stack').click());
   add('New band (group agents)', 'canvas', () => $('#add-band').click());

@@ -13,7 +13,7 @@ export default [
   { ignores: ['node_modules/**', 'dist/**'] },
   js.configs.recommended,
   security.configs.recommended,
-  { files: ['src/**', 'bin/**', 'test/**'], languageOptions: { globals: globals.node, sourceType: 'module' } },
+  { files: ['src/**', 'bin/**', 'test/**', 'desktop/**'], languageOptions: { globals: globals.node, sourceType: 'module' } },
   {
     files: ['web/**'],
     plugins: { 'no-unsanitized': noUnsanitized },

@@ -4,6 +4,17 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-02
+
+### Added
+- Persistent terminals: with `OPENMAESTRI_PERSIST=tmux` or the preference, each terminal runs in its own session on a private tmux server and survives a restart of openmaestri (docs/persistent-terminals.md)
+- `--sandbox IMAGE` and `--no-network` for `agent` and `run`: the agent runs in a Docker container with only the working folder shared, your user id, no capabilities, memory and process limits; custom drivers can carry a sandbox
+- Optional desktop window (Electron): `openmaestri desktop`, tray icon, notifications; not part of the .deb's dependencies (docs/desktop.md)
+- Preferences window (command palette): persistence switch, version and folders, show the welcome again
+
+### Security
+- The tmux server starts with a minimal environment and each session gets its own, so keys of one terminal never reach another; the container receives variables by name only and is killed by name on timeout; the desktop window is sandboxed, loopback-only and allows only notifications
+
 ## [0.19.0] - 2026-11-02
 
 ### Added

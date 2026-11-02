@@ -242,3 +242,9 @@ dialog.welcome { width: min(520px, 94vw); }
 .note-preview { height: calc(100% - 28px); overflow: auto; padding: 8px 12px; line-height: 1.5; }
 .node .note-text.with-bar { height: calc(100% - 28px); }
 .md-img { max-width: 100%; height: auto; border-radius: 4px; }
+
+/* Preferences */
+dialog.prefs { width: min(520px, 94vw); }
+.prefs-facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 12px 0; font-size: 12px; }
+.prefs-facts dt { color: var(--muted); }
+.prefs-facts dd { margin: 0; overflow-wrap: anywhere; }

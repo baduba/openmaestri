@@ -4,9 +4,10 @@
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 
-const BOOL = new Set(['no-check', 'summary', 'archive', 'apply', 'trust', 'global', 'overwrite', 'progress', 'all', 'existing-branch', 'copy', 'no-git', 'copy-ground', 'delete-branch', 'keep-floor', 'no-hooks', 'clear-hooks', 'keep-branch', 'keep-folder', 'open', 'version', 'json', 'raw-flag', 'batch', 'force', 'none', 'clear', 'without-me', 'no-notify', 'disabled', 'reminder', 'agent', 'floors', 'dry-run', 'verify', 'note', 'band', 'fichario', 'portal', 'help']);
+const BOOL = new Set(['no-check', 'summary', 'archive', 'apply', 'trust', 'global', 'overwrite', 'progress', 'all', 'existing-branch', 'copy', 'no-git', 'copy-ground', 'delete-branch', 'keep-floor', 'no-hooks', 'clear-hooks', 'keep-branch', 'keep-folder', 'open', 'version', 'json', 'raw-flag', 'batch', 'force', 'none', 'clear', 'without-me', 'no-notify', 'disabled', 'reminder', 'agent', 'floors', 'dry-run', 'no-network', 'verify', 'note', 'band', 'fichario', 'portal', 'help']);
 
 const HELP = `openmaestri - a spatial workspace for AI agents (open implementation)
 
@@ -14,7 +15,7 @@ Usage:
   openmaestri [serve] [--open]                       Start the app (outside a terminal): daemon + web UI. --open launches the browser
   openmaestri list                                   List connected agents, notes and portals
   openmaestri notify "message"                       Send the user a notification
-  openmaestri run "task" --agents a,b [--floors] [--dry-run]   Same task to several one-shot agents in parallel; report kept as a note
+  openmaestri run "task" --agents a,b [--floors] [--dry-run] [--sandbox IMAGE [--no-network]]   Same task to several one-shot agents in parallel; report kept as a note
   openmaestri chat summarize [thread] --with DRIVER   Ask an agent you choose to write a summary of a chat thread (shown by recall --summary)
   openmaestri ps [--all] | ps stop "Terminal" PID [--force]   Processes, memory and CPU of your terminals; stop one process
   openmaestri agent claude|codex|gemini|agy|kimi|opencode|aider|goose "prompt"   One-shot run of an agent CLI, prints its answer (no terminal)
@@ -64,6 +65,7 @@ Usage:
   openmaestri accounts set|list|rm                  Named environments for agents (work / personal keys); run in your own shell
   openmaestri audit [--verify] [--tail N]           Show or check the append-only record of keys, agent runs, imports and exports
   openmaestri secrets set|list|status|rm            Keep API keys outside the env file (secret://name); run in your own shell
+  openmaestri desktop                               Open the optional desktop window (one-time: npm --prefix desktop install)
   openmaestri doctor                                 Check what is installed and how to fix what is missing (works anywhere)
   openmaestri guide                                  How agents should use openmaestri (give this to your agent)
   openmaestri debug
@@ -123,8 +125,8 @@ export function build({ pos, flags }) {
       return { cmd: 'ask', args: { name: c1, prompt: rest.join(' '), timeoutMs } };
     }
     case 'run': {
-      need(c1 && flags.agents, 'run "task" --agents claude,codex [--floors] [--dry-run] [--model M] [--timeout 10m]');
-      return { cmd: 'run', args: { task: [c1, ...rest].join(' '), agents: String(flags.agents), floors: !!flags.floors, dryRun: !!flags['dry-run'], model: flags.model === undefined ? undefined : String(flags.model), timeoutMs: duration(flags.timeout), account: flags.account === undefined ? undefined : String(flags.account) } };
+      need(c1 && flags.agents, 'run "task" --agents claude,codex [--floors] [--dry-run] [--model M] [--timeout 10m] [--sandbox IMAGE [--no-network]]');
+      return { cmd: 'run', args: { task: [c1, ...rest].join(' '), agents: String(flags.agents), floors: !!flags.floors, dryRun: !!flags['dry-run'], model: flags.model === undefined ? undefined : String(flags.model), timeoutMs: duration(flags.timeout), account: flags.account === undefined ? undefined : String(flags.account), sandbox: optStr(flags.sandbox), noNetwork: !!flags['no-network'] } };
     }
     case 'chat': {
       if (c1 !== 'summarize') throw new Error('usage: chat summarize [thread] --with DRIVER [--account A]');
@@ -137,7 +139,7 @@ export function build({ pos, flags }) {
     }
     case 'agent': {
       need(c1 && rest.length, 'agent <driver> "prompt" [--model M] [--floor NAME] [--timeout 10m]');
-      return { cmd: 'agent.run', args: { driver: c1, prompt: rest.join(' '), model: flags.model === undefined ? undefined : String(flags.model), floor: flags.floor === undefined ? undefined : String(flags.floor), timeoutMs: duration(flags.timeout), account: flags.account === undefined ? undefined : String(flags.account) } };
+      return { cmd: 'agent.run', args: { driver: c1, prompt: rest.join(' '), model: flags.model === undefined ? undefined : String(flags.model), floor: flags.floor === undefined ? undefined : String(flags.floor), timeoutMs: duration(flags.timeout), account: flags.account === undefined ? undefined : String(flags.account), sandbox: optStr(flags.sandbox), noNetwork: !!flags['no-network'] } };
     }
     case 'check': need(c1, 'check "Agent" [--lines N]'); return { cmd: 'check', args: { name: c1, lines: flags.lines ? Number(flags.lines) : undefined } };
     case 'note': {
@@ -474,6 +476,20 @@ async function auditCommand(parsed, insideTerminal) {
   return 0;
 }
 
+/** `openmaestri desktop`: the optional Electron window (needs `npm --prefix desktop install` once). */
+async function desktopCommand() {
+  const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'desktop');
+  const electron = path.join(dir, 'node_modules', '.bin', 'electron');
+  if (!fs.existsSync(electron)) {
+    console.error(`The desktop window is optional and not installed. Install it once with:\n  npm --prefix ${dir} install\nthen run: openmaestri desktop`);
+    return 1;
+  }
+  const env = { ...process.env };
+  delete env.ELECTRON_RUN_AS_NODE; // set by some editors; it would make Electron behave as plain Node
+  const child = spawn(electron, [dir], { env, stdio: 'inherit' });
+  return new Promise((resolve) => child.on('exit', (code) => resolve(code ?? 0)));
+}
+
 async function run(argv) {
   const parsed = parseArgs(argv);
   if (parsed.pos[0] === 'doctor') {
@@ -486,6 +502,7 @@ async function run(argv) {
   if (parsed.pos[0] === 'secrets') return secretsCommand(parsed, insideTerminal);
   if (parsed.pos[0] === 'audit') return auditCommand(parsed, insideTerminal);
   if (parsed.pos[0] === 'accounts') return accountsCommand(parsed, insideTerminal);
+  if (parsed.pos[0] === 'desktop' && !insideTerminal) return desktopCommand();
   if (!insideTerminal && (parsed.pos.length === 0 || parsed.pos[0] === 'serve') && !parsed.flags.help) return serve(parsed.flags);
   if (!parsed.pos.length || parsed.pos[0] === 'help' || parsed.flags.help) { console.log(HELP); return 0; }
   if (parsed.pos[0] === 'version' || parsed.flags.version) { console.log(JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version); return 0; }
