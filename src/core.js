@@ -12,6 +12,7 @@ import { Terminals } from './terminals.js';
 import { DRIVERS, customDrivers, workerEnv, runHeadless, HeadlessError } from './headless.js';
 import { discover as discoverRoles, plan as planRole, diffText, agentKind, RoleError, AGENT_FILES } from './roles.js';
 import { Files, FilesError } from './files.js';
+import { takeSnapshot, listSnapshots, rollback as rollbackFloor, dropSnapshots } from './snapshots.js';
 import { ForgeError, detectProvider, normalizeProvider, providerInfo, listChanges, formatChanges } from './forge.js';
 import { MAX_AGENTS, parseAgents, planText, reportText } from './taskrun.js';
 import { Usage, UsageError } from './usage.js';
@@ -872,6 +873,31 @@ const HANDLERS = {
     this.requireMaestro(me);
     return this.doFloorCreate(ws, args);
   },
+  async 'floor.snapshot'(ws, me, { name, label }) {
+    this.requireMaestro(me);
+    const f = findFloor(ws, name);
+    const snap = await withLock(ws.id, () => takeSnapshot(f, label));
+    this.audit.record('floor.snapshot', { floor: f.name, id: snap.id, by: me.name }, 'terminal');
+    return { text: `snapshot ${snap.id} of ${f.name}${snap.label ? ` (${snap.label})` : ''}. Put it back with: floor rollback "${f.name}" ${snap.id}`, data: snap };
+  },
+  async 'floor.snapshots'(ws, me, { name }) {
+    this.requireMaestro(me);
+    const f = findFloor(ws, name);
+    const rows = await withLock(ws.id, () => listSnapshots(f));
+    return { text: rows.length ? rows.map((r) => `${r.id}  ${r.at}  ${r.label || '-'}`).join('\n') : `No snapshots on ${f.name}. Take one with: floor snapshot "${f.name}"`, data: rows };
+  },
+  async 'floor.rollback'(ws, me, { name, id }) {
+    this.requireMaestro(me);
+    if (name == null) fail('usage: floor rollback "Floor" [SNAPSHOT_ID]');
+    const f = findFloor(ws, name);
+    for (const n of ws.nodes.filter((x) => x.floorId === f.id && x.kind === 'terminal')) {
+      if (this.terminals.status(n.id) === 'working' && n.id !== me.id) fail(`"${n.name}" is working on ${f.name} right now; wait for it to stop before rolling the files back under it`);
+    }
+    const r = await withLock(ws.id, () => rollbackFloor(f, id));
+    this.audit.record('floor.rollback', { floor: f.name, restoredFrom: id ?? 'latest', safety: r.safety.id, by: me.name }, 'terminal');
+    this.touch(ws);
+    return { text: `${f.name}: ${r.restored} files restored, ${r.removed} removed.${r.headMoved ? ' Note: the branch has new commits since the snapshot; they stay (use git reset to move the branch).' : ''}\nUndo this rollback with: floor rollback "${f.name}" ${r.safety.id}` };
+  },
   /** Open pull requests (GitHub, via gh) or merge requests (GitLab, via glab) with their checks. Read-only. */
   async 'floor.prs'(ws, me, { provider, json }) {
     this.requireMaestro(me);
@@ -1170,6 +1196,7 @@ Core.prototype.dropFloor = async function (ws, floor, opts) {
   for (const n of nodes) this.terminals.dispose(n.id); // processes first: they may hold the folder open
   // remove the checkout before the nodes, so a refusal (uncommitted changes) loses nothing
   const { warnings } = await withLock(ws.id, () => removeFloor(ws, rec, opts));
+  if (rec.repo) await dropSnapshots(rec.repo, rec);
   for (const n of nodes) this.store.deleteNode(ws, n.id);
   return warnings.length ? `\nnote: ${warnings.join('; ')}` : '';
 };
@@ -1214,6 +1241,7 @@ Core.prototype.doFloorLand = async function (ws, { name, into, deleteBranch, kee
   const f = findFloor(ws, name);
   if (f.id === null) fail('the ground floor cannot be landed');
   try {
+    await withLock(ws.id, () => takeSnapshot(f, 'before land')).catch(() => {}); // a safety net, never a reason to refuse
     const out = await withLock(ws.id, () => landFloor(ws, f, { into }));
     let tail = '';
     if (!keepFloor) tail = await this.dropFloor(ws, f, { keepBranch: !deleteBranch });
@@ -1445,6 +1473,8 @@ Core.prototype.runTask = async function (ws, me, { task, agents: rawAgents, floo
       } catch (e) { return { driver, ok: false, problem: `the floor could not be created: ${e.message}` }; }
     }
     const r = await this.execAgent({ driver, drivers, prompt, cwd, model, timeoutMs, ws, ac: slots[i] });
+    // what the agent left behind can be put back with `floor rollback`
+    if (floor) floor.snapshot = (await withLock(ws.id, () => takeSnapshot(ws.floors.find((f) => f.dir === cwd), `after ${driver}`)).catch(() => null))?.id;
     return { driver, floor, ...r };
   })); } finally { for (const ac of slots) this.headless.delete(ac); }
   const report = reportText({ task: text, results, floors: !!floors });

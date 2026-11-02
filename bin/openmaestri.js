@@ -46,6 +46,7 @@ Usage:
       schedules: --every 30m | --daily 09:00 | --weekly mon,fri@09:00 | --once "2026-12-01 15:00"
       options:   --terminal "Name" | --count N | --until DATE | --pre-run "cmd" ({{output}} in the command) | --no-notify | --disabled
   openmaestri workspace list|create|rename ...
+  openmaestri floor snapshot|snapshots|rollback ["Floor"] ...  Remember the files of a floor, list the memories, put them back (rollback is itself undoable)
   openmaestri floor prs [--provider github|gitlab] [--json]   Open pull/merge requests with their checks (needs gh or glab, signed in)
   openmaestri floor create "Name" [--from PATH] [--branch B] [--existing-branch] [--copy] [--no-git] [--copy-ground] [--partitura P] | --dir PATH | --pull-request N|URL
   openmaestri floor list | land "Name" [--into B] [--delete-branch] [--keep-floor] | delete "Name" [--keep-branch] [--keep-folder] [--force] | set-dir "Name" PATH | unload "Name"
@@ -230,6 +231,9 @@ export function build({ pos, flags }) {
     case 'floor': {
       const [name, p2] = rest;
       switch (c1) {
+        case 'snapshot': return { cmd: 'floor.snapshot', args: { name, label: flags.label === undefined ? undefined : String(flags.label) } };
+        case 'snapshots': return { cmd: 'floor.snapshots', args: { name } };
+        case 'rollback': need(name, 'floor rollback "Floor" [SNAPSHOT_ID]'); return { cmd: 'floor.rollback', args: { name, id: p2 } };
         case 'prs': return { cmd: 'floor.prs', args: { provider: flags.provider, json: !!flags.json } };
         case 'create': need(name || flags['pull-request'], 'floor create "Name" [--from PATH] [--branch B] [--existing-branch] [--copy] [--no-git] [--copy-ground] [--partitura P] | --dir PATH | --pull-request N|URL');
           return { cmd: 'floor.create', args: { name, from: flags.from, branch: flags.branch, existingBranch: !!flags['existing-branch'], copy: !!flags.copy, noGit: !!flags['no-git'], copyGround: !!flags['copy-ground'], partitura: flags.partitura, dir: flags.dir, pullRequest: flags['pull-request'], provider: flags.provider } };

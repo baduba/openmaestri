@@ -25,10 +25,10 @@ const fail = (m) => { throw new FloorError(m); };
  */
 const hookArgs = () => (process.env.OPENMAESTRI_GIT_HOOKS === '1' ? [] : ['-c', 'core.hooksPath=/dev/null']);
 
-export async function git(cwd, args, { timeout = 60000 } = {}) {
+export async function git(cwd, args, { timeout = 60000, env, raw = false } = {}) {
   try {
-    const { stdout } = await run('git', [...hookArgs(), ...args], { cwd, env: gitEnv(), timeout, maxBuffer: 8 << 20 });
-    return stdout.trim();
+    const { stdout } = await run('git', [...hookArgs(), ...args], { cwd, env: { ...gitEnv(), ...env }, timeout, maxBuffer: 64 << 20 });
+    return raw ? stdout : stdout.trim();
   } catch (e) {
     const text = String(e.stderr || e.stdout || e.message).trim().split('\n').slice(0, 6).join('\n');
     throw new FloorError(text || 'git failed');
