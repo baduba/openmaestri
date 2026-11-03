@@ -45,6 +45,7 @@ How to orchestrate well
   7. If openmaestri mcp lists context7, use it to read current library documentation before you write code against a library; do not guess APIs.
   8. Read openmaestri facts before you plan: earlier agents and the human left decisions and traps there. Save yours with openmaestri remember.
   9. Do not judge a teammate's work by reading its reply. Give ask a --check that proves it (a test, a script, grep) and use --verdict for reviews. The answer starts with [gate] PASSED or [gate] FAILED and you act on that. If you see [loop], stop sending the same message: say it differently with the exact error, or use --then to give the task to another teammate.
+  When there is no test to run, have a reviewer teammate write an independent verify script first, then make the author's --check compare the two outputs (for example: python3 flag.py > a.out && python3 verify.py > b.out && diff a.out b.out). A reviewer's "APPROVED" alone proves nothing.
   10. When the human has already given the goal and the files, do not ask them to clarify: recruit and start. Use a question tool only when the goal itself is missing.
 `;
 

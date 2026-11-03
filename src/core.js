@@ -1646,14 +1646,20 @@ Core.prototype.watchMaestro = function (ws, maestro, thread, sentAt) {
   clearInterval(this.nudgeTimers.get(maestro.id));
   let sent = 0;
   const started = Date.now();
+  // still means the same screen, not "no bytes": a full-screen program keeps sending cursor and title codes while it waits
+  let seen = '';
+  let changedAt = Date.now();
   const timer = setInterval(() => {
     const rt = this.terminals.rt.get(maestro.id);
     const answered = this.chat.history(ws.id, thread, { turns: 100 }).some((m) => m.role === 'agent' && !m.progress && m.ts >= sentAt);
     if (!rt || rt.status !== 'running' || answered || sent >= MAX_NUDGES || Date.now() - started > 30 * 60 * 1000) { clearInterval(timer); return; }
-    const still = Date.now() - rt.lastDataAt >= NUDGE_IDLE_MS() && !looksBusy(this.terminals.lines(maestro.id, 60));
-    if (!still) return;
+    const lines = this.terminals.lines(maestro.id, 80);
+    const shot = lines.join('\n');
+    if (shot !== seen) { seen = shot; changedAt = Date.now(); return; }
+    if (Date.now() - changedAt < NUDGE_IDLE_MS() || looksBusy(lines)) return;
     try { this.terminals.deliver(maestro.id, NUDGE); } catch { clearInterval(timer); return; }
     sent++;
+    changedAt = Date.now();
     this.noteEvent(ws, { kind: 'nudge', to: maestro.name, note: `${sent} of ${MAX_NUDGES}: the human wrote and there was no answer` });
   }, NUDGE_TICK_MS());
   timer.unref?.();
