@@ -14,6 +14,8 @@ An agent sees only what is connected to it. A **Maestro** terminal sees the whol
 |---|---|
 | `list` | Reachable agents, notes, portals with status |
 | `ask "Agent" "prompt" [--timeout 120s]` | Type the prompt (bracketed paste for multi-line), wait until output is quiet, print the new screen text |
+| `ask "Agent" "prompt" [--check CMD] [--verdict] [--retries N] [--then "Other"]` | The program judges the answer: `CMD` must exit 0 in the agent's folder, `--verdict` needs an exact verdict block. A failure goes back to the agent (at most 2 times), then to `Other`. The answer starts with `[gate] PASSED` or `[gate] FAILED`. `--check` is Maestro only. See [checking work](validation.html) |
+| `report [--json]` | What was asked, checked, rejected and corrected in this workspace, written by the program |
 | `ask --batch '{"A":"…","B":"…"}'` | Parallel asks, JSON array `[{agent,state,output}]`; `state` is `idle`, `timeout` or `exited` |
 | `accounts set NAME VAR=value ... \| list \| rm NAME [VAR ...]` | (your own shell) Named environments for agents. See [accounts](accounts.html) |
 | `partitura export "Name"` / `partitura import FILE [--name N]` | A layout as a file, and back (imported commands are held back) |
@@ -27,7 +29,7 @@ An agent sees only what is connected to it. A **Maestro** terminal sees the whol
 | `desktop` | The optional desktop window. See [desktop](desktop.html) |
 | `audit [--verify] [--tail N]` | (your own shell) Show or verify the append-only audit log. See [audit](audit.html) |
 | `run "task" --agents a,b [--floors] [--dry-run] [--model M] [--timeout 10m]` | The same task to several one-shot agents in parallel, one report (also kept as a note). Maestro only. See [one-shot agents](oneshot.html) |
-| `agent <driver> "prompt" [--model M] [--floor NAME] [--timeout 10m] [--fallback d1,d2]` | One-shot run of an agent CLI in its non-interactive mode (Maestro only); prints the answer. See [one-shot agents](oneshot.html) |
+| `agent <driver> "prompt" [--model M] [--floor NAME] [--timeout 10m] [--fallback d1,d2] [--check CMD]` | One-shot run of an agent CLI in its non-interactive mode (Maestro only); prints the answer. With `--check`, work that fails the command goes to the next driver of the chain. See [one-shot agents](oneshot.html) |
 | `fallback [list]`, `fallback set DRIVER d1,d2`, `fallback clear DRIVER` | Who answers when a driver's account is out of quota (Maestro only). See [one-shot agents](oneshot.html) |
 | `ask "Agent" --raw "\x03"` | Raw keystrokes. Escapes: `\n` Enter, `\t` Tab, `\e` ESC, `\xNN` byte |
 | `check "Agent" [--lines N]` | Current screen of an agent |

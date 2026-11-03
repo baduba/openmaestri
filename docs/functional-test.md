@@ -28,7 +28,7 @@ node test/challenge/run.mjs --maestro 'opencode -m opencode/big-pickle' --worker
 node test/challenge/run.mjs --scripted
 ```
 
-Options: `--inject` (see below), `--seed N`, `--timeout MIN` (default 30), `--stall MIN` (give up after this long without any terminal output, default 8), `--boot SECONDS`, `--out DIR`.
+Options: `--record FILE` (append one line per run for the [per-model table](models.html)), `--inject` (see below), `--seed N`, `--timeout MIN` (default 30), `--stall MIN` (give up after this long without any terminal output, default 8), `--boot SECONDS`, `--out DIR`.
 
 It prints one line and writes `report.md` and `result.json` (the checks, the messages delivered to each teammate with times, the final chat answer, the last lines of every terminal) and a copy of `flag.py`.
 
@@ -68,3 +68,7 @@ A run that hits a provider's limit stops at once with the outcome `provider-limi
 A real run passed on 2026-11-03: opencode with Nemotron 3 Ultra (free) as Maestro and gpt-oss-120b as teammates, 7 of 7 checks, 394 seconds, 9 messages, about 1.4 cents on OpenRouter. GLM 5.3 Flash as Maestro did not work: it treated the task as a bug report and asked the human a question instead of recruiting. Small models can fail the challenge for their own reasons; that says nothing about openmaestri.
 
 OpenCode has free models (`opencode models`), but they stop with "Free usage limit reached" when the quota is used up. Since 0.21.4 openmaestri reports that at once instead of waiting for the timeout. Run the challenge when a probe such as `opencode run -m opencode/big-pickle "Reply OK"` answers.
+
+## Gates in the challenge
+
+The task text tells the Maestro to give the Dev `--check "python3 flag.py"` and to ask the Auditor with `--verdict` (see [checking work](validation.html)). The report counts the asks that the program judged and how many of them failed, next to the Auditor's verdicts, so a run shows whether the gate saved the Maestro from a mistake.

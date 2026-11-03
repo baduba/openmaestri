@@ -179,6 +179,11 @@ export class Terminals extends EventEmitter {
     if (node.account) Object.assign(env, this.env.accountEnv?.(node.account) ?? {});
     // each floor has its own block of ports and its own compose project; what the person set themselves wins
     for (const [k, v] of Object.entries(this.env.floorEnv?.(workspace, node) ?? {})) if (!(k in env)) env[k] = v;
+    // a weak model that runs `git log` or `git commit` without -m must not freeze the pane on a pager or an editor nobody can answer;
+    // only for an agent (a command is set), and what the person set themselves wins
+    if (node.command) {
+      for (const [k, v] of Object.entries({ PAGER: 'cat', GIT_PAGER: 'cat', GIT_EDITOR: 'true', GIT_TERMINAL_PROMPT: '0', DEBIAN_FRONTEND: 'noninteractive' })) if (!(k in env)) env[k] = v;
+    }
     Object.assign(env, {
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',

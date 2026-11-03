@@ -120,3 +120,16 @@ test('ask to a teammate that is still starting waits until its screen is drawn, 
   const r = await core.command({ terminalId: maestro.id }, 'ask', { name: 'Late', prompt: 'hello there', timeoutMs: 20000 });
   assert.match(r.data.output, /got: hello there/);
 });
+
+test('an agent terminal gets guards against pagers and editors; a plain shell and a person\'s own values are left alone', async (t) => {
+  const { core, ws, dir } = await startDaemon(t, 'om-env-');
+  const agent = core.store.createNode(ws, 'terminal', { name: 'Agent', cwd: dir, command: 'echo "pager=$GIT_PAGER editor=$GIT_EDITOR prompt=$GIT_TERMINAL_PROMPT"; sleep 30' });
+  core.startTerminal(ws, agent);
+  const plain = core.store.createNode(ws, 'terminal', { name: 'Plain', cwd: dir });
+  core.startTerminal(ws, plain);
+  await sleep(1500);
+  core.terminals.write(plain.id, 'echo "pager=[$GIT_PAGER]"\r');
+  await sleep(1000);
+  assert.match(core.terminals.text(agent.id), /pager=cat editor=true prompt=0/);
+  assert.match(core.terminals.text(plain.id), /pager=\[\]/);
+});

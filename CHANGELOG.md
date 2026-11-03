@@ -4,6 +4,18 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+- `ask --check CMD`, `--verdict`, `--retries N`, `--then "Other"`: the program judges a teammate's work instead of the (possibly weak) Maestro. `CMD` runs in the teammate's folder and container with no keys; a failure goes back to the teammate by itself, at most twice, with the log cut to its first 20 and last 40 lines; the verdict must be an exact block and fails closed. The answer starts with `[gate] PASSED` or `[gate] FAILED`. See docs/validation.md
+- `agent --check CMD`: an answer whose work fails the command goes to the next driver of the fallback chain
+- `report [--json]`: what was asked, checked, rejected and corrected, written by the program from what it saw
+- A loop guard on `ask`: the third nearly identical message to a teammate gets a `[loop]` warning and the fifth is refused
+- Agent terminals get `PAGER=cat`, `GIT_PAGER=cat`, `GIT_EDITOR=true`, `GIT_TERMINAL_PROMPT=0` and `DEBIAN_FRONTEND=noninteractive` unless set, so a model that runs `git commit` without `-m` fails instead of freezing the pane
+- The Maestro guide teaches the gate and says not to ask the human what the goal is when it was already given
+- Orchestration challenge: `--record FILE` and `test/challenge/summary.mjs` build a table of runs per model (docs/models.md)
+
+### Fixed
+- The `ps command` test waited a fixed half second for a process to appear and failed on a loaded machine
+
 ## [0.22.1] - 2026-11-03
 
 ### Fixed
