@@ -46,3 +46,10 @@ test('looksBusy: the working hint at the bottom of the screen, not words in an a
   assert.equal(looksBusy(['press esc to interrupt is mentioned here', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'done']), false);
   assert.equal(looksBusy(['all done', '/work 6.9K (5%) · $0.00  ctrl+p commands']), false);
 });
+
+test('screen diff: the question shown back by the program is not part of the answer', () => {
+  const q = 'Review this against data/rules.md. Reply with exactly APPROVED or REJECTED plus a reason.';
+  const after = ['  ┃  Review this against data/rules.md. Reply with exactly', '  ┃  APPROVED or REJECTED plus a reason.', '', '  REJECTED: Norte is flagged by mistake.'];
+  const out = newScreenText([], after, { echo: q });
+  assert.equal(out, 'REJECTED: Norte is flagged by mistake.');
+});

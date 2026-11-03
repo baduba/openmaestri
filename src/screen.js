@@ -8,8 +8,9 @@ const DECORATION = /^[\s─━│┃┆╹╻▀▄█▌▐▪▫■□▣⬝�
 const HINT = /(ctrl\+[a-z] (?:commands|to)|esc (?:to )?(?:interrupt|cancel)|\? for shortcuts|shift\+tab|tab (?:to )?(?:cycle|switch)|press enter to)/i;
 const FRAME_EDGE = /^[\s┃│▌▐]+/u;
 
-/** The rows of `after` that were not on the screen before, in order, without frames, status bars and blank runs. */
-export function newScreenText(before, after) {
+/** The rows of `after` that were not on the screen before, in order, without frames, status bars, the question shown back (`echo`) and blank runs. */
+export function newScreenText(before, after, { echo = '' } = {}) {
+  const sent = String(echo).replace(/\s+/g, ' ');
   const seen = new Map();
   for (const l of before) { const k = l.trim(); if (k) seen.set(k, (seen.get(k) ?? 0) + 1); }
   const out = [];
@@ -19,6 +20,8 @@ export function newScreenText(before, after) {
     const n = seen.get(k) ?? 0;
     if (n > 0) { seen.set(k, n - 1); continue; }
     if (DECORATION.test(k) || HINT.test(k)) continue;
+    // the program shows the question back; it is not part of the answer
+    if (sent && k.replace(FRAME_EDGE, '').replace(/\s+/g, ' ').length >= 12 && sent.includes(k.replace(FRAME_EDGE, '').replace(/\s+/g, ' '))) continue;
     out.push(raw.replace(FRAME_EDGE, '').trimEnd());
   }
   while (out.length && out[out.length - 1] === '') out.pop();

@@ -61,6 +61,15 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
       return state;
     };
 
+    // what ask handed back to the Maestro, per teammate: the evidence of who said what (a TUI redraws, so the screen alone loses it)
+    const answers = [];
+    const origCommand = core.command.bind(core);
+    core.command = async (ctx, cmd, a) => {
+      const r = await origCommand(ctx, cmd, a);
+      if (cmd === 'ask' && a?.name && r?.data) answers.push({ at: t(), from: r.data.name, output: String(r.data.output ?? '') });
+      return r;
+    };
+
     const boss = core.store.createNode(ws, 'terminal', { name: 'Maestro', maestro: true, cwd: dir, command: maestro });
     core.startTerminal(ws, boss);
     await sleep(bootMs);
@@ -99,7 +108,7 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
     const repeated = trace.filter((x, i) => trace.findIndex((y) => y.to === x.to && y.text === x.text) !== i && x.to !== 'Maestro').length;
     const figures = Object.values(sc.stats).map((s) => String(s.revenue));
     const leaked = trace.filter((x) => x.to !== 'Maestro' && (x.text.match(/\d+/g) ?? []).filter((d) => figures.includes(d)).length >= 2).length;
-    const auditorScreen = team.filter((x) => x.name === 'Auditor').map((x) => core.terminals.text(x.id, { lastLines: 3000 })).join('\n');
+    const verdicts = answers.filter((a) => a.from === 'Auditor').map((a) => (/\bREJECTED\b/.test(a.output) ? 'REJECTED' : /\bAPPROVED\b/.test(a.output) ? 'APPROVED' : '?'));
     const finalHash = fs.existsSync(path.join(dir, 'flag.py')) ? crypto.createHash('sha256').update(fs.readFileSync(path.join(dir, 'flag.py'))).digest('hex') : null;
     const reads = (core.terminals.text(boss.id, { lastLines: 2000 }).match(/ORD-\d{4},/g) ?? []).length;
     const checks = {
@@ -113,7 +122,7 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
       'no message to a teammate was sent twice': repeated === 0,
       'the Maestro did not dictate sales figures to a teammate': leaked === 0,
       ...(inject ? {
-        'the planted bug was caught: the Auditor said REJECTED': planted !== null && /REJECTED/.test(auditorScreen),
+        'the planted bug was caught: the Auditor said REJECTED': planted !== null && verdicts.includes('REJECTED'),
         'the Dev was asked again after the rejection': toName('Dev') >= 2,
         'flag.py was fixed, not left as planted': planted !== null && finalHash !== planted,
       } : {}),
@@ -121,7 +130,7 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
     const result = {
       outcome, seconds: t(), passed: Object.values(checks).every(Boolean), checks, key: sc.flagged, answered, scriptOut,
       roundTrips: trace.filter((x) => x.to !== 'Maestro').length, toDev: toName('Dev'), toAuditor: toName('Auditor'),
-      finalAnswer: final, trace, events, asks, repeated, leaked,
+      finalAnswer: final, trace, events, asks, answers, verdicts, repeated, leaked,
       screens: Object.fromEntries(ws.nodes.filter((n) => n.kind === 'terminal').map((n) => [n.name, core.terminals.text(n.id, { lastLines: 60 })])),
     };
     const out = outDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'om-challenge-report-'));
@@ -151,6 +160,7 @@ ${rows}
 
 Answer key: ${r.key.join(', ')}. Maestro answered: ${r.answered.join(', ') || '(nothing)'}.
 Messages sent to teammates: ${r.roundTrips} (Dev ${r.toDev}, Auditor ${r.toAuditor}). Repeated: ${r.repeated}. With sales figures in them: ${r.leaked}.
+Auditor verdicts in order (from what ask returned): ${r.verdicts.join(', ') || '(none)'}.
 Waits for an answer: ${r.asks.map((a) => `${a.to} ${a.state} ${a.secs}s`).join(', ') || '(none)'}.
 Harness events: ${r.events.map((e) => `${e.at}s ${e.text}`).join('; ') || '(none)'}.
 
