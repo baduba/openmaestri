@@ -28,7 +28,7 @@ node test/challenge/run.mjs --maestro 'opencode -m opencode/big-pickle' --worker
 node test/challenge/run.mjs --scripted
 ```
 
-Options: `--seed N`, `--timeout MIN` (default 30), `--stall MIN` (give up after this long without any terminal output, default 8), `--boot SECONDS`, `--out DIR`.
+Options: `--inject` (see below), `--seed N`, `--timeout MIN` (default 30), `--stall MIN` (give up after this long without any terminal output, default 8), `--boot SECONDS`, `--out DIR`.
 
 It prints one line and writes `report.md` and `result.json` (the checks, the messages delivered to each teammate with times, the final chat answer, the last lines of every terminal) and a copy of `flag.py`.
 
@@ -42,6 +42,18 @@ It prints one line and writes `report.md` and `result.json` (the checks, the mes
 | Auditor and Dev were recruited | recruiting works |
 | Auditor asked at least twice, Dev at least once | there were round trips |
 | the Maestro did not read the data itself | it delegated |
+| no message to a teammate was sent twice | the answer of `ask` reached the Maestro, so it had no reason to ask again |
+| the Maestro did not dictate sales figures to a teammate | the Auditor's verdict comes from its own reading of the data, not from the Maestro's |
+
+With `--inject` the harness also plants a bug in `flag.py` (every row counts, the classic mistake) the moment the Dev hands it over, before the Maestro runs it. Without it a capable Dev gets it right at once and the review loop is never exercised: an `APPROVED` after one round proves little. With it three more checks apply:
+
+| Check | Why |
+|---|---|
+| the Auditor said REJECTED | the review caught a real defect by reading the data |
+| the Dev was asked again after the rejection | the feedback went back to the author |
+| `flag.py` was fixed, not left as planted | the loop ended with a corrected work product |
+
+The report lists the Auditor's verdicts in order, taken from what `ask` returned (a full-screen program redraws, so its screen at the end loses them), and how long each wait for an answer took. A run that passes with `REJECTED` before `APPROVED` is a real chain: delegate, produce, review, send back, fix, approve.
 
 The report also counts messages sent to each teammate, so a run that only needed one round shows it.
 
