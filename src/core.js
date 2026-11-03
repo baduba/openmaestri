@@ -10,10 +10,11 @@ import path from 'node:path';
 import { Store, dataDir } from './store.js';
 import { GUIDE } from './prompts.js';
 import { Terminals } from './terminals.js';
+import { freePortBase, floorVars } from './ports.js';
 import { Mcp, McpError, buildServer, mcpText, planInstall } from './mcp.js';
 import { Facts, FactsError, factsText, factsBrief, factsBlock } from './facts.js';
 import { handoffText, takeoverLine, SELF_REPORT_PROMPT } from './handoff.js';
-import { DRIVERS, customDrivers, workerEnv, runHeadless, HeadlessError, checkSandbox, quotaRefused } from './headless.js';
+import { DRIVERS, customDrivers, workerEnv, runHeadless, HeadlessError, checkSandbox, quotaRefused, dockerTerminalCommand } from './headless.js';
 import { discover as discoverRoles, plan as planRole, diffText, agentKind, RoleError, AGENT_FILES } from './roles.js';
 import { Files, FilesError } from './files.js';
 import { Persist } from './persist.js';
@@ -61,7 +62,7 @@ export class Core extends EventEmitter {
     this.headless = new Set();
     this.accounts = new Accounts(path.join(dataRoot, 'accounts.json'));
     const accountEnv = (name) => { try { return this.accounts.env(name, resolveSecret); } catch (e) { console.warn(`[accounts] ${e.message}`); return {}; } };
-    this.terminals = new Terminals({ socketPath, cliDir, cliBin, envFile: path.join(dataRoot, 'env'), resolveSecret, accountEnv });
+    this.terminals = new Terminals({ socketPath, cliDir, cliBin, envFile: path.join(dataRoot, 'env'), resolveSecret, accountEnv, floorEnv: (w, n) => this.floorEnv(w, n), sandboxCommand: (n, c, d) => this.terminalBox(n, c, d) });
     this.socketPath = socketPath;
     this.startedAt = Date.now();
     this.notifyLog = new Map();
@@ -359,7 +360,7 @@ const HANDLERS = {
     const expanded = materializeMentions(String(prompt ?? ''), this.prompterCtx(ws, me)).text;
     this.audit.record('agent.run', { driver, account: account ?? '', by: me.name, folder: path.basename(cwd), model: model ?? '', promptChars: expanded.length, promptSha256: sha256(expanded) }, 'terminal');
     const box = this.sandboxFrom(sandbox, noNetwork);
-    const r = await this.execAgent({ driver, drivers, prompt: expanded, cwd, model, timeoutMs, ws, account, sandbox: box, fallback });
+    const r = await this.execAgent({ driver, drivers, prompt: expanded, cwd, model, timeoutMs, ws, account, sandbox: box, fallback, extraEnv: this.floorEnv(ws, rec ?? floorById(ws, me.floorId)) });
     const secs = (r.ms / 1000).toFixed(1);
     const who = r.driver ?? driver;
     if (r.timedOut) fail(`${who} did not finish in time and was stopped (${secs}s)${r.text ? `. Partial output:\n${r.text}` : ''}`);
@@ -567,7 +568,7 @@ const HANDLERS = {
   },
 
   // ----- orchestration (maestro only) -----
-  async recruit(ws, me, { name, preset, role, dir, command, color, icon, replace, floor, model, noCheck, account, noHandoff, handoff }) {
+  async recruit(ws, me, { name, preset, role, dir, command, color, icon, replace, floor, model, noCheck, account, noHandoff, handoff, sandbox, noNetwork }) {
     this.requireMaestro(me);
     const accountName = account ?? this.store.settings.presets.find((p) => p.name.toLowerCase() === String(preset ?? '').toLowerCase())?.account ?? null;
     if (accountName) this.accounts.env(accountName); // fails with a clear message when it does not exist
@@ -580,7 +581,13 @@ const HANDLERS = {
       if (!cmd.includes('OPENMAESTRI_DEEPSEEK_MODEL')) fail('this preset has no model setting. --model works with the DeepSeek presets');
       cmd = `OPENMAESTRI_DEEPSEEK_MODEL='${m}' ${cmd}`;
     }
-    if (cmd && !noCheck) {
+    const box = this.sandboxFrom(sandbox, noNetwork);
+    if (box) {
+      if (presetObj?.maestro) fail('the Maestro cannot run in a box: it has to reach the app to coordinate. Put its workers in boxes instead');
+      if (!cmd) fail('a plain shell cannot run in a box. Give the agent a --preset or a --command');
+      if (!commandPath('docker')) fail('"docker" was not found in your shell, so the box cannot start');
+    }
+    if (cmd && !noCheck && !box) { // in a box the program lives in the image; only docker has to exist here
       const avail = commandAvailable(cmd);
       if (!avail.ok) fail(`"${avail.word}" was not found in your shell, so the agent could not start. Install it (run: openmaestri doctor) or add --no-check`);
     }
@@ -591,6 +598,7 @@ const HANDLERS = {
       const oldName = old.name;
       this.terminals.dispose(old.id);
       this.store.patchNode(ws, old.id, { command: cmd, ...(name ? { name } : {}) });
+      if (box) old.sandbox = box; // a box that was already there stays; asking for one sets it
       this.startTerminal(ws, old);
       if (note && cmd) setTimeout(() => { try { this.terminals.deliver(old.id, [takeoverLine(note, oldName), this.factsBrief(ws)].filter(Boolean).join('\n\n')); } catch { /* the terminal was closed meanwhile */ } }, 3000).unref?.();
       this.touch(ws);
@@ -609,6 +617,7 @@ const HANDLERS = {
     const pos = this.placeBeside(ws, anchor, { w: 640, h: 400 });
     const node = this.store.createNode(ws, 'terminal', { name, command: cmd, cwd, color, icon, role: role || null, preset: presetObj?.name ?? null, account: accountName, maestro: !!presetObj?.maestro, floorId: target.id, ...pos });
     if (model !== undefined) node.usageModel = String(model);
+    if (box) node.sandbox = box;
     this.store.connect(ws, me.id, node.id);
     this.startTerminal(ws, node);
     const intro = [rolePrompt, cmd ? this.factsBrief(ws) : ''].filter(Boolean).join('\n\n');
@@ -1474,7 +1483,7 @@ Core.prototype.doFloorLand = async function (ws, { name, into, deleteBranch, kee
   if (f.id === null) fail('the ground floor cannot be landed');
   try {
     if (f.hooks?.preLand && !noHooks) {
-      const check = await runHook(f.hooks.preLand, { cwd: f.dir, sandbox: f.hooks.sandbox ?? null, docker: f.hooks.sandbox ? this.dockerPath(ws) : null });
+      const check = await runHook(f.hooks.preLand, { cwd: f.dir, sandbox: f.hooks.sandbox ?? null, docker: f.hooks.sandbox ? this.dockerPath(ws) : null, extraEnv: this.floorEnv(ws, f) });
       this.audit.record('floor.hook', { floor: f.name, hook: 'preLand', ok: check.ok, ms: check.ms }, 'system');
       if (!check.ok) fail(`${describeHook('pre-land', check)}\nNothing was landed. Fix it, or land without the check: floor land "${f.name}" --no-hooks`);
     }
@@ -1699,11 +1708,12 @@ Core.prototype.execAgent = async function ({ driver, drivers, fallback, ...rest 
   return { ...last, tried };
 };
 
-Core.prototype.execOne = async function ({ driver, drivers, prompt, cwd, model, timeoutMs, ac = new AbortController(), ws, account, sandbox = null }) {
+Core.prototype.execOne = async function ({ driver, drivers, prompt, cwd, model, timeoutMs, ac = new AbortController(), ws, account, sandbox = null, extraEnv = {} }) {
   this.headless.add(ac);
   try {
     const env = workerEnv(process.env, path.join(this.dataRoot, 'env'), this.resolveSecret, drivers[driver]);
     if (account) Object.assign(env, this.accounts.env(account, this.resolveSecret)); // the account was chosen on purpose, so its keys pass whatever the driver lists
+    Object.assign(env, extraEnv);
     return await runHeadless({ driver, drivers, prompt, cwd, env, model, timeoutMs, signal: ac.signal, resolveBin: (b) => this.safeBin(ws, b), sandbox });
   } finally { this.headless.delete(ac); }
 };
@@ -1724,7 +1734,7 @@ Core.prototype.safeBin = function (ws, bin) {
 Core.prototype.runPostAgentHook = async function (ws, rec, beforeId, runSandbox = null) {
   // a run in a container checks its result in a container too, unless the floor names its own
   const box = rec.hooks.sandbox ?? runSandbox;
-  const result = await runHook(rec.hooks.postAgent, { cwd: rec.dir, sandbox: box, docker: box ? this.dockerPath(ws) : null });
+  const result = await runHook(rec.hooks.postAgent, { cwd: rec.dir, sandbox: box, docker: box ? this.dockerPath(ws) : null, extraEnv: this.floorEnv(ws, rec) });
   let text = describeHook('post-agent', result);
   if (!result.ok && rec.hooks.rollbackOnFail && beforeId) {
     try { await withLock(ws.id, () => rollbackFloor(rec, beforeId)); text += '\nThe files were rolled back to before the agent (the agent\'s work is in its after snapshot).'; } catch (e) { text += `\nThe rollback failed: ${e.message}`; }
@@ -1779,7 +1789,7 @@ Core.prototype.runTask = async function (ws, me, { task, agents: rawAgents, floo
     }
     const rec = floor ? ws.floors.find((f) => f.dir === cwd) : null;
     const before = rec ? (await withLock(ws.id, () => takeSnapshot(rec, `before ${driver}`)).catch(() => null))?.id : null;
-    const r = await this.execAgent({ driver, drivers, prompt, cwd, model, timeoutMs, ws, ac: slots[i], account, sandbox: box, fallback: [] });
+    const r = await this.execAgent({ driver, drivers, prompt, cwd, model, timeoutMs, ws, ac: slots[i], account, sandbox: box, fallback: [], extraEnv: this.floorEnv(ws, rec) });
     // what the agent left behind can be put back with `floor rollback`
     if (floor) floor.snapshot = (await withLock(ws.id, () => takeSnapshot(rec, `after ${driver}`)).catch(() => null))?.id;
     const hook = rec?.hooks?.postAgent && r.ok ? await this.runPostAgentHook(ws, rec, before, box) : null;
@@ -1900,4 +1910,32 @@ Core.prototype.exportFacts = function (ws, me, { agent, apply }) {
   if (!r.changed) return { text: `already up to date in ${r.file}` };
   if (!apply) return { text: `Dry run: this would update ${r.file}\n\n${diffText(r.file, r.before, r.after)}\n\nRun again with --apply to write it${r.existed ? ' (a backup is made first)' : ''}.` };
   return { text: `updated ${r.file}${r.backup ? `\nbackup: ${r.backup}` : ''}\nRestart ${node.name} so it reads the file again.` };
+};
+
+/** The block of ports of a floor (null for the ground floor). Handed out on first use and kept in the workspace file. */
+Core.prototype.portBaseOf = function (ws, floor) {
+  const rec = floor ?? ws;
+  if (Number.isInteger(rec.portBase)) return rec.portBase;
+  const taken = [...this.store.workspaces.values()].flatMap((w) => [w.portBase, ...w.floors.map((f) => f.portBase)]).filter(Number.isInteger);
+  const base = freePortBase(taken);
+  if (base === null) return null;
+  rec.portBase = base;
+  this.store.saveWorkspace(ws.id);
+  return base;
+};
+
+/** PORT, OPENMAESTRI_PORT_BASE, OPENMAESTRI_FLOOR and COMPOSE_PROJECT_NAME for whatever starts in this floor. */
+Core.prototype.floorEnv = function (ws, nodeOrFloor) {
+  const floor = nodeOrFloor?.kind === 'terminal' ? floorById(ws, nodeOrFloor.floorId) : nodeOrFloor ?? null;
+  const base = this.portBaseOf(ws, floor);
+  return base === null ? {} : floorVars(ws, floor, base);
+};
+
+/** The container command for a terminal that runs in a box, or null when docker is missing. Only account keys go in, by name. */
+Core.prototype.terminalBox = function (node, command, cwd) {
+  const docker = commandPath('docker');
+  if (!docker) return null;
+  const name = `om-t-${crypto.randomBytes(6).toString('hex')}`;
+  const accountKeys = node.account ? Object.keys(this.accounts.env(node.account, this.resolveSecret)) : [];
+  return { name, docker, command: dockerTerminalCommand(checkSandbox(node.sandbox), { name, cwd, command, envNames: accountKeys, docker }) };
 };

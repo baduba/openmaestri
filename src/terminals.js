@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 import pty from 'node-pty';
@@ -176,6 +176,8 @@ export class Terminals extends EventEmitter {
     }
     Object.assign(env, readUserEnv(this.env.envFile, this.env.resolveSecret));
     if (node.account) Object.assign(env, this.env.accountEnv?.(node.account) ?? {});
+    // each floor has its own block of ports and its own compose project; what the person set themselves wins
+    for (const [k, v] of Object.entries(this.env.floorEnv?.(workspace, node) ?? {})) if (!(k in env)) env[k] = v;
     Object.assign(env, {
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
@@ -191,16 +193,22 @@ export class Terminals extends EventEmitter {
     // An agent command runs inside an interactive shell and falls back to that
     // shell when the agent exits, so the pane never silently dies.
     // a command that arrived through an imported file stays unrun until the user trusts it
-    const command = node.untrusted ? '' : node.command;
-    const args = command
-      ? ['-i', '-c', `${command}\nprintf '${AGENT_EXIT_PRINTF}'\nexec ${shellQuote(shell)} -i`]
-      : ['-i'];
+    let command = node.untrusted ? '' : node.command;
+    // a worker in a box: the agent runs in a container that sees only its folder, and when it ends the pane ends (no host shell behind it)
+    let box = null;
+    if (command && node.sandbox) {
+      box = this.env.sandboxCommand?.(node, command, cwd, env) ?? null;
+      if (!box) throw new TerminalError(`${node.name} is set to run in a container, and the sandbox could not be prepared (is docker installed?)`);
+      command = box.command;
+    }
+    const args = !command ? ['-i'] : box ? ['-i', '-c', command] : ['-i', '-c', `${command}\nprintf '${AGENT_EXIT_PRINTF}'\nexec ${shellQuote(shell)} -i`];
     const { proc, persistent, reattached } = this.startProcess(node, { shell, args, cwd, env });
     const term = new Terminal({ cols: DEFAULT_COLS, rows: DEFAULT_ROWS, scrollback: SCROLLBACK, allowProposedApi: true });
     const serializer = new SerializeAddon();
     term.loadAddon(serializer);
     const rt = new Runtime(node, proc, term, serializer);
     rt.persistent = persistent;
+    if (box) { rt.box = box; }
     // a session that was already running keeps its state: if the agent has since exited, the shell is in front
     if (reattached && node.command && SHELLS.has(path.basename(this.persist.foreground(node.id)))) rt.agentExited = true;
     this.rt.set(node.id, rt);
@@ -230,7 +238,7 @@ export class Terminals extends EventEmitter {
    */
   startProcess(node, { shell, args, cwd, env }) {
     const opts = { name: 'xterm-256color', cols: DEFAULT_COLS, rows: DEFAULT_ROWS, cwd, env };
-    if (this.persist) {
+    if (this.persist && !node.sandbox) {
       try {
         const reattached = this.persist.has(node.id);
         if (reattached || this.persist.create(node.id, { cwd, env, argv: [shell, ...args], cols: DEFAULT_COLS, rows: DEFAULT_ROWS })) {
@@ -339,6 +347,8 @@ export class Terminals extends EventEmitter {
     if (rt && rt.status === 'running') {
       try { rt.proc.kill(); } catch {}
     }
+    // killing the docker client does not stop the container, so it is removed by name
+    if (rt?.box) spawnSync(rt.box.docker, ['rm', '-f', rt.box.name], { stdio: 'ignore', timeout: 10000 });
   }
 
   /** The pid of a terminal's shell, or null. */

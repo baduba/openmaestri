@@ -5,6 +5,8 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 ## [Unreleased]
 
 ### Added
+- Ports per floor: every floor gets a block of 100 ports, and terminals, hooks and one-shot agents started in it see `OPENMAESTRI_PORT_BASE`, `PORT` and `COMPOSE_PROJECT_NAME` (the ground floor only the first), so two agents' dev servers and compose stacks do not collide
+- `recruit --sandbox IMAGE`: a terminal teammate that runs in a container with only its folder (no daemon socket, no capabilities, no host shell when it ends). Not for the Maestro
 - `mcp add/list/rm/install`: one list of MCP servers per workspace (preset `context7` for current library docs), written into `.mcp.json` for Claude Code and `opencode.json` for OpenCode with a dry run, a backup and no keys in the file. Checked against the real `claude mcp` and `opencode mcp list`. See docs/mcp.md
 - Project memory: `remember`, `facts` (list, search, rm, export). Agents leave decisions and lessons; new and replacement teammates and the Maestro are told the newest ones; floor landings and runs add an automatic line; `facts export` writes the decisions into `AGENTS.md` or `CLAUDE.md`. See docs/project-memory.md
 - `handoff "Agent" [--ask]` and `recruit --replace`: the agent that leaves writes a note (what was on its screen with credentials masked, the git state, the notes it could see, and with `--ask` its own goal, done, next and gotchas); the one that takes over is told to read it first. `--no-handoff` skips it

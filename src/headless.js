@@ -240,12 +240,23 @@ export function checkSandbox(raw) {
  * variables are passed by name (the values travel in docker's own environment, not on a command
  * line), the user is yourself rather than root, and the container cannot gain privileges.
  */
-export function dockerArgs(box, { name, cwd, bin, args, envNames }) {
+export function dockerArgs(box, { name, cwd, bin, args, envNames, tty = false }) {
   const { image, network, memory } = checkSandbox(box);
   const uid = process.getuid?.() ?? 1000;
   const gid = process.getgid?.() ?? 1000;
   const names = envNames.filter((n) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(n) && !['PATH', 'HOME', 'TMPDIR', 'SHELL', 'USER', 'LOGNAME', 'PWD'].includes(n));
-  return ['run', '--rm', '--init', '--name', name, '--network', network, '--memory', memory, '--pids-limit', '256', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--user', `${uid}:${gid}`, '-v', `${cwd}:/work`, '-w', '/work', '-e', 'HOME=/tmp', ...names.flatMap((n) => ['-e', n]), image, bin, ...args];
+  return ['run', ...(tty ? ['-it'] : []), '--rm', '--init', '--name', name, '--network', network, '--memory', memory, '--pids-limit', '256', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--user', `${uid}:${gid}`, '-v', `${cwd}:/work`, '-w', '/work', '-e', 'HOME=/tmp', ...names.flatMap((n) => ['-e', n]), image, bin, ...args];
+}
+
+const shq = (s) => `'${String(s).replaceAll("'", "'\\''")}'`;
+
+/**
+ * An agent terminal in a container, as one command line for the terminal's shell. Same box as a one-shot run
+ * (only the folder, no capabilities, no daemon socket or OPENMAESTRI_* variables), with a tty. The shell it
+ * replaces does not fall back to the host afterwards: when the agent ends, the pane ends.
+ */
+export function dockerTerminalCommand(box, { name, cwd, command, envNames, docker }) {
+  return [docker, ...dockerArgs(box, { name, cwd, bin: 'sh', args: ['-c', command], envNames, tty: true })].map(shq).join(' ');
 }
 
 export const cwdLabel = (cwd) => path.basename(cwd || '');

@@ -22,10 +22,10 @@ export function checkCommand(cmd) {
 const timeoutMs = () => Math.min(Math.max(Number(process.env.OPENMAESTRI_HOOK_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS, 1000), 30 * 60 * 1000);
 
 /** @returns {Promise<{ok: boolean, exitCode: number|null, timedOut: boolean, output: string, ms: number}>} */
-export function runHook(command, { cwd, base = process.env, sandbox = null, docker = null }) {
+export function runHook(command, { cwd, base = process.env, sandbox = null, docker = null, extraEnv = {} }) {
   const env = {};
   for (const [k, v] of Object.entries(base)) if (KEEP.test(k) && typeof v === 'string') env[k] = v;
-  Object.assign(env, { TERM: 'dumb', NO_COLOR: '1', CI: '1', OPENMAESTRI_HOOK: '1' });
+  Object.assign(env, extraEnv, { TERM: 'dumb', NO_COLOR: '1', CI: '1', OPENMAESTRI_HOOK: '1' });
   const started = Date.now();
   return new Promise((resolve) => {
     // Intentional: the hook is a shell command the user configured for their own project.
