@@ -165,8 +165,11 @@ export function planInstall({ cwd, kind, servers, remove = false, apply = false,
   const result = { file, existed, before, after, changed, note: t.note, mode };
   if (!apply || !changed) return result;
   if (existed) {
-    result.backup = `${file}.bak-${now}`;
-    fs.writeFileSync(result.backup, before, { mode, flag: 'wx' });
+    // two writes in the same millisecond must not share a backup name; 'wx' refuses to overwrite one
+    for (let n = 0; ; n++) {
+      result.backup = `${file}.bak-${now}${n ? `-${n}` : ''}`;
+      try { fs.writeFileSync(result.backup, before, { mode, flag: 'wx' }); break; } catch (e) { if (e.code !== 'EEXIST' || n >= 50) throw e; }
+    }
   }
   const tmp = `${file}.om-${process.pid}.tmp`;
   fs.writeFileSync(tmp, after, { mode, flag: 'wx' });
