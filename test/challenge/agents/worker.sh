@@ -2,7 +2,6 @@
 # Scripted teammate for the orchestration challenge. Auditor reads rules and judges; Dev writes flag.py, wrong the first time on purpose.
 name="${OPENMAESTRI_TERMINAL_NAME:-worker}"
 echo "[$name] ready"
-fix=0
 write_flag() { # $1 = how many regions to cut off the end of the output (the deliberate bug)
 cat > flag.py <<PY
 import csv, re

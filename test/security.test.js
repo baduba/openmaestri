@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { WebSocket } from 'ws';
 import { main } from '../src/server.js';
 import { Store, safeId } from '../src/store.js';
@@ -146,4 +147,62 @@ test('the env file with loose permissions is flagged', async (t) => {
   readUserEnv(f);
   console.warn = w;
   assert.ok(warns.some((m) => /chmod 600/.test(m)));
+});
+
+// A web page can make the browser send "Origin: null" (a sandboxed frame, a data: page) to 127.0.0.1. That used to
+// throw inside the request handler and take the whole daemon down. Found by scripts/dast.mjs.
+test('a request the server cannot parse is answered, it does not crash the daemon', async (t) => {
+  const { app } = await boot(t);
+  const send = (lines) => new Promise((resolve) => {
+    const c = net.connect(app.port, '127.0.0.1');
+    let out = '';
+    c.setTimeout(3000, () => { c.destroy(); resolve(out); });
+    c.on('data', (d) => { out += d; });
+    c.on('close', () => resolve(out));
+    c.on('error', () => resolve(out));
+    c.write(`${lines.join('\r\n')}\r\n\r\n`);
+  });
+  const host = `host: 127.0.0.1:${app.port}`;
+  const status = (r) => Number(/^HTTP\/1\.1 (\d+)/.exec(r)?.[1] ?? 0);
+  for (const origin of ['null', 'not a url', 'http://', '://x', 'chrome-extension://abc']) {
+    assert.equal(status(await send([`GET /?token=${app.token} HTTP/1.1`, host, `origin: ${origin}`, 'connection: close'])), 403, `Origin: ${origin}`);
+  }
+  assert.equal(status(await send(['GET //[ HTTP/1.1', host, 'connection: close'])), 400, 'a target that is not a URL');
+  // the same on the WebSocket upgrade
+  const up = await send([`GET /ws?token=${app.token} HTTP/1.1`, host, 'origin: null', 'connection: Upgrade', 'upgrade: websocket', 'sec-websocket-version: 13', `sec-websocket-key: ${randomBytes(16).toString('base64')}`]);
+  assert.match(up, /^HTTP\/1\.1 403/);
+  assert.equal(status(await send([`GET /index.html?token=${app.token} HTTP/1.1`, host, 'connection: close'])), 200, 'and the server is still up');
+});
+
+test('WebSocket messages that are not objects are ignored, they do not crash the daemon', async (t) => {
+  const { app } = await boot(t);
+  const crashes = [];
+  const onRejection = (e) => crashes.push(e);
+  process.on('unhandledRejection', onRejection);
+  t.after(() => process.off('unhandledRejection', onRejection));
+  const w = new WebSocket(`ws://127.0.0.1:${app.port}/ws?token=${app.token}`, { origin: `http://127.0.0.1:${app.port}` });
+  await new Promise((resolve, reject) => { w.on('open', resolve); w.on('error', reject); });
+  for (const junk of ['null', '123', '"text"', 'true', '[]', '[1,2]', '{}', '{"t":5}']) w.send(junk);
+  await new Promise((r) => setTimeout(r, 400));
+  assert.deepEqual(crashes.map(String), []);
+  assert.equal(w.readyState, 1, 'the connection is still open');
+  w.close();
+});
+
+test('a WebSocket frame over the size limit closes that connection, not the daemon', async (t) => {
+  const { app } = await boot(t);
+  const crashes = [];
+  const onException = (e) => crashes.push(e);
+  process.on('uncaughtException', onException);
+  t.after(() => process.off('uncaughtException', onException));
+  const w = new WebSocket(`ws://127.0.0.1:${app.port}/ws?token=${app.token}`, { origin: `http://127.0.0.1:${app.port}` });
+  await new Promise((resolve, reject) => { w.on('open', resolve); w.on('error', reject); });
+  const closed = new Promise((resolve) => { w.on('close', resolve); w.on('error', () => {}); });
+  w.send(Buffer.alloc(9 * 1024 * 1024, 'a'));
+  await closed;
+  await new Promise((r) => setTimeout(r, 300));
+  assert.deepEqual(crashes.map(String), []);
+  const again = new WebSocket(`ws://127.0.0.1:${app.port}/ws?token=${app.token}`, { origin: `http://127.0.0.1:${app.port}` });
+  await new Promise((resolve, reject) => { again.on('open', resolve); again.on('error', reject); });
+  again.close();
 });

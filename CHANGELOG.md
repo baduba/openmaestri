@@ -5,6 +5,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 ## [Unreleased]
 
 ### Added
+- `scripts/dast.sh` and `test/dast.mjs`: dynamic security tests against a running daemon (72 checks) and an OWASP ZAP baseline or active scan. See docs/security-scanning.md
 - Ports per floor: every floor gets a block of 100 ports, and terminals, hooks and one-shot agents started in it see `OPENMAESTRI_PORT_BASE`, `PORT` and `COMPOSE_PROJECT_NAME` (the ground floor only the first), so two agents' dev servers and compose stacks do not collide
 - `recruit --sandbox IMAGE`: a terminal teammate that runs in a container with only its folder (no daemon socket, no capabilities, no host shell when it ends). Not for the Maestro
 - `mcp add/list/rm/install`: one list of MCP servers per workspace (preset `context7` for current library docs), written into `.mcp.json` for Claude Code and `opencode.json` for OpenCode with a dry run, a backup and no keys in the file. Checked against the real `claude mcp` and `opencode mcp list`. See docs/mcp.md
@@ -14,6 +15,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 - Orchestration challenge (`test/challenge/`, docs/functional-test.md): a Maestro coordinates an Auditor and a Dev through several round trips, and the result is checked against an answer key. Scripted agents run it in `npm test`; real agents run it with `node test/challenge/run.mjs`
 
 ### Fixed
+- Three ways to stop the daemon, found by the new dynamic tests: a request with `Origin: null` (which any web page can make the browser send to 127.0.0.1), a WebSocket message that is JSON `null` or another non-object, and a WebSocket frame over the 8 MB limit. Each now gets a refusal or is ignored; regression tests in `test/security.test.js`
 - opencode no longer sits silent until the timeout when the model refuses the call (free quota used up, bad key): the run stops at once and says why
 
 ## [0.21.3] - 2026-11-02

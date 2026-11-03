@@ -116,8 +116,8 @@ cmd_up() {
     --tag-specifications "ResourceType=security-group,Tags=[$(tags "$review")]" --query GroupId --output text)
   save OM_SG "$sg"
   # the default egress rule stays (the box downloads packages); there is no inbound rule at all
-  local try
-  for try in 1 2 3 4 5 6; do
+
+  for _ in 1 2 3 4 5 6; do
     if out=$(aws_ ec2 run-instances --image-id "$ami" --instance-type "$TYPE" --subnet-id "$subnet" --security-group-ids "$sg" \
       --iam-instance-profile "Name=$role" \
       --instance-market-options 'MarketType=spot,SpotOptions={SpotInstanceType=persistent,InstanceInterruptionBehavior=stop}' \
@@ -263,8 +263,7 @@ cmd_down() {
   fi
   if [ -n "${OM_SG:-}" ]; then
     echo "deleting security group $OM_SG"
-    local try
-    for try in 1 2 3 4 5 6; do aws_ ec2 delete-security-group --group-id "$OM_SG" >/dev/null 2>&1 && break; sleep 10; done
+    for _ in 1 2 3 4 5 6; do aws_ ec2 delete-security-group --group-id "$OM_SG" >/dev/null 2>&1 && break; sleep 10; done
     aws_ ec2 describe-security-groups --group-ids "$OM_SG" >/dev/null 2>&1 && die "security group $OM_SG is still there"
   fi
   if [ -n "${OM_ROLE:-}" ]; then

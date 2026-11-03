@@ -2,3 +2,5 @@
 # The test now builds it at run time; this entry only silences the earlier commit that held the literal.
 d93c42462739ea56f1c48aa1d6e0646e2b189a65:test/hardening2.test.js:generic-api-key:114
 172a934663b29a7185d789f06a9d30d43265fc0b:test/daily-use.test.js:generic-api-key:126
+# RFC 6455 sample nonce in a regression test (replaced by a random key in the next commit); not a secret
+48a1066804564ca1d12c292c985aadb5ad7c3dfb:test/security.test.js:generic-api-key:171
