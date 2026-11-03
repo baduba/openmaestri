@@ -625,7 +625,7 @@ const HANDLERS = {
   },
 
   // ----- orchestration (maestro only) -----
-  async recruit(ws, me, { name, preset, role, dir, command, color, icon, replace, floor, model, noCheck, account, noHandoff, handoff, sandbox, noNetwork }) {
+  async recruit(ws, me, { name, preset, role, dir, command, color, icon, replace, floor, model, noCheck, account, noHandoff, handoff, sandbox, noSandbox, noNetwork }) {
     this.requireMaestro(me);
     const accountName = account ?? this.store.settings.presets.find((p) => p.name.toLowerCase() === String(preset ?? '').toLowerCase())?.account ?? null;
     if (accountName) this.accounts.env(accountName); // fails with a clear message when it does not exist
@@ -638,7 +638,11 @@ const HANDLERS = {
       if (!cmd.includes('OPENMAESTRI_DEEPSEEK_MODEL')) fail('this preset has no model setting. --model works with the DeepSeek presets');
       cmd = `OPENMAESTRI_DEEPSEEK_MODEL='${m}' ${cmd}`;
     }
-    const box = this.sandboxFrom(sandbox, noNetwork);
+    // the person can make a box the default for every teammate (OPENMAESTRI_DEFAULT_SANDBOX or defaultSandbox in the settings);
+    // the Maestro and a plain shell are never boxed by default, and --no-sandbox opts out for one recruit
+    const byDefault = sandbox === undefined && !noSandbox && !!cmd && !presetObj?.maestro ? this.defaultSandbox() : null;
+    const box = this.sandboxFrom(sandbox ?? byDefault, noNetwork);
+    if (byDefault && !commandPath('docker')) fail(`the default is to run teammates in a box (${byDefault}), but "docker" was not found. Install it, or recruit with --no-sandbox`);
     if (box) {
       if (presetObj?.maestro) fail('the Maestro cannot run in a box: it has to reach the app to coordinate. Put its workers in boxes instead');
       if (!cmd) fail('a plain shell cannot run in a box. Give the agent a --preset or a --command');
@@ -680,7 +684,20 @@ const HANDLERS = {
     const intro = [rolePrompt, cmd ? this.factsBrief(ws) : ''].filter(Boolean).join('\n\n');
     if (intro) setTimeout(() => { try { this.terminals.deliver(node.id, intro); } catch {} }, 3000);
     this.touch(ws);
-    return { text: node.name, data: { name: node.name } };
+    const exposed = !box && cmd && !presetObj?.maestro ? this.exposedKeys(node) : [];
+    const warn = exposed.length ? `\nNote: ${node.name} runs on this machine with access to your files and these keys: ${exposed.join(', ')}. For a model you do not trust, recruit it with --sandbox IMAGE, or make a box the default (OPENMAESTRI_DEFAULT_SANDBOX).` : '';
+    return { text: `${node.name}${warn}`, data: { name: node.name, exposed } };
+  },
+
+  /** Where the teammates run: in a box or on this machine, and which keys the ones on this machine can read. Read only: the default is the person's to set. */
+  sandbox(ws) {
+    const def = this.defaultSandbox();
+    const rows = ws.nodes.filter((n) => n.kind === 'terminal' && n.command).map((n) => {
+      if (n.sandbox) return `  ${n.name}: in a box (${n.sandbox.image})`;
+      const keys = this.exposedKeys(n);
+      return `  ${n.name}: on this machine${n.maestro ? ' (the Maestro cannot be boxed)' : ''}${keys.length ? `, can read the keys ${keys.join(', ')}` : ', no keys in its environment'}`;
+    });
+    return { text: `Default for new teammates: ${def ? `a box (${def})` : 'none; set OPENMAESTRI_DEFAULT_SANDBOX when the daemon starts'}\n${rows.join('\n') || '  (no agents yet)'}`, data: { default: def } };
   },
 
   /** `mcp [list] | add NAME ... | rm NAME | install "Agent" [--apply] [--remove]`: the MCP servers of this workspace. */
@@ -1758,6 +1775,19 @@ Core.prototype.roleChange = function (ws, me, { role, agent, apply, trust }, rem
 /** The folder a Files node browses: its floor's folder, or the workspace folder. */
 /** Run one headless agent; tracked so shutdown and the concurrency limit see it. Never throws for a failed run. */
 /** The sandbox asked for on the command line: an image name, and --no-network. null for none. */
+/** The image every teammate runs in unless told otherwise: set by the person, never by an agent. */
+Core.prototype.defaultSandbox = function () {
+  const v = process.env.OPENMAESTRI_DEFAULT_SANDBOX || this.store.settings.defaultSandbox || '';
+  return typeof v === 'string' && v.trim() ? v.trim() : null;
+};
+
+/** The names (never the values) of the secret variables a terminal on this machine is given: the env file and its account. */
+Core.prototype.exposedKeys = function (node) {
+  const names = new Set(Object.keys(readUserEnv(path.join(this.dataRoot, 'env'), this.resolveSecret)));
+  if (node.account) { try { for (const k of Object.keys(this.accounts.env(node.account, this.resolveSecret))) names.add(k); } catch { /* the account is missing: nothing to name */ } }
+  return [...names].filter((k) => /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL)/i.test(k)).sort((a, b) => a.localeCompare(b));
+};
+
 Core.prototype.sandboxFrom = function (image, noNetwork) {
   if (!image) return null;
   return checkSandbox({ image: String(image), network: noNetwork ? 'none' : 'bridge' });
