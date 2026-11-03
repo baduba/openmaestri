@@ -38,6 +38,7 @@ Usage:
   Maestro terminals only:
   openmaestri recruit "Name" [--preset P] [--role R] [--dir PATH] [--command C] [--color C]
   openmaestri recruit "Name" --preset "OpenCode (DeepSeek)" --model deepseek-v4-pro [--no-check]   (checks the agent is installed)
+  openmaestri recruit "Name" --preset P --sandbox IMAGE [--no-network]   a teammate that runs in a container and sees only its folder (not for the Maestro)
   openmaestri recruit "New" --preset P --replace "Old" [--handoff ask | --no-handoff]   (the old agent leaves a handoff note; with ask it also writes its own)
   openmaestri mcp [list] | add NAME [--command "npx -y pkg" | --url URL] | rm NAME | install "Agent" [--apply]   MCP servers of the workspace (try: mcp add context7) written into an agent's project config
   openmaestri remember "text" [--kind decision|lesson|fact]   Leave project memory for the agents that come later
@@ -223,7 +224,7 @@ export function build({ pos, flags }) {
         default: throw new Error('usage: partitura list|insert|create|update|delete|export|import');
       }
     }
-    case 'recruit': return { cmd: 'recruit', args: { name: c1, preset: flags.preset, role: flags.role, dir: flags.dir, command: flags.command, color: flags.color, icon: flags.icon, replace: flags.replace, account: flags.account, floor: flags.floor, model: flags.model, noCheck: !!flags['no-check'], noHandoff: !!flags['no-handoff'], handoff: flags.handoff === undefined ? undefined : String(flags.handoff) } };
+    case 'recruit': return { cmd: 'recruit', args: { name: c1, preset: flags.preset, role: flags.role, dir: flags.dir, command: flags.command, color: flags.color, icon: flags.icon, replace: flags.replace, account: flags.account, floor: flags.floor, model: flags.model, noCheck: !!flags['no-check'], noHandoff: !!flags['no-handoff'], handoff: flags.handoff === undefined ? undefined : String(flags.handoff), sandbox: optStr(flags.sandbox), noNetwork: !!flags['no-network'] } };
     case 'mcp': {
       const action = !c1 ? 'list' : c1;
       if (!['list', 'add', 'rm', 'install'].includes(action)) throw new Error('usage: mcp [list] | mcp add NAME [--command "npx -y pkg" | --url URL] [--env K=V] [--header K=V] [--key VAR] | mcp rm NAME | mcp install "Agent" [--apply] [--remove]');

@@ -54,7 +54,7 @@ Portals are real browsers you and your agents share: `snapshot`, `click`, `fill`
 
 | Command | Description |
 |---|---|
-| `recruit "Name" [--preset P] [--role R] [--dir PATH] [--command C]` | Start a teammate wired to you |
+| `recruit "Name" [--preset P] [--role R] [--dir PATH] [--command C] [--sandbox IMAGE [--no-network]]` | Start a teammate wired to you; with `--sandbox` it runs in a container that sees only its folder (see [one-shot agents](oneshot.html)) |
 | `recruit "New" --preset P --replace "Old" [--handoff ask \| --no-handoff]` | Swap what runs in a teammate, keeping connections. The old agent first leaves a handoff note (screen, git state, notes it saw; with `ask` also its own account of goal, done, next, gotchas) and the new one is told to read it |
 | `handoff "Agent" [--ask]` | Leave that handoff note without replacing anyone |
 | `mcp [list]` | The MCP servers of the workspace (any agent) |

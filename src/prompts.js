@@ -26,6 +26,7 @@ Everyday commands
 
 Maestro-only commands
   openmaestri recruit "Name" --preset "OpenCode (DeepSeek)" --dir PATH   start a teammate wired to you
+  openmaestri recruit "Name" --preset P --sandbox IMAGE   a teammate that runs in a container and sees only its folder (safer for risky work)
   openmaestri dismiss "Name"               stop and remove a teammate
   openmaestri connect "A" "B"              let two things see each other
   openmaestri routine create "Name" --command "..." --every 30m --terminal "Name"

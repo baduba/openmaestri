@@ -91,6 +91,19 @@ openmaestri floor rollback "Work" 20261102093015123-a1b2
 - A tree with more than 20000 new files that git does not ignore (for example a `node_modules` that is missing from `.gitignore`) is refused with advice, because every snapshot would be slow and heavy. `OPENMAESTRI_SNAPSHOT_MAX_FILES` raises the limit.
 - It needs the floor folder to be the top of a git repository or worktree. The ground floor works too.
 
+## Ports and compose projects per floor
+
+Worktrees separate files, not the machine. Two agents that each start a dev server on 3000, or a database on 5432, collide. So every floor has its own block of 100 ports (from 20000, never given twice across your workspaces), and everything started in it (terminals, hooks, one-shot agents) sees:
+
+| Variable | Value |
+|---|---|
+| `OPENMAESTRI_PORT_BASE` | The first port of the block, for example `20100`. Use `$OPENMAESTRI_PORT_BASE + 1`, `+ 2`... for the other services |
+| `PORT` | The same number, set only in real floors (many dev servers read it). Your own `PORT` in `~/.openmaestri/env` wins |
+| `COMPOSE_PROJECT_NAME` | `om-<workspace>-<floor>`, so `docker compose up` in two floors does not reuse containers and networks. Real floors only |
+| `OPENMAESTRI_FLOOR` | The floor name, or `ground` |
+
+The ground floor only gets `OPENMAESTRI_PORT_BASE`: what you already run there does not change. In a compose file use `"${OPENMAESTRI_PORT_BASE:-5432}:5432"`.
+
 ## Hooks
 
 A hook is a check that runs on a floor at two moments. You set them per floor:

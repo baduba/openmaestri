@@ -98,6 +98,18 @@ If Docker is not running, you are not allowed to use it, or the image is missing
 
 A custom driver can carry its own sandbox in `settings.json`: `"sandbox": { "image": "my-agents:latest", "network": "none", "memory": "1g" }`. Programs that sign in through files in your home folder (for example a logged-in `claude`) do not find them inside the container; give them a key through an [account](accounts.html) instead.
 
+## A teammate in a box
+
+A one-shot run can be boxed (above). So can a terminal teammate:
+
+```bash
+openmaestri recruit "Worker" --preset "OpenCode" --sandbox my-agents:latest [--no-network]
+```
+
+The agent runs in a container with a terminal, from an image that has the agent installed. It sees only its folder (mounted at `/work`), has no capabilities, no new privileges, 2 GB of memory, no daemon socket and no `OPENMAESTRI_*` variables, so it cannot drive the canvas: the Maestro talks to it with `ask` and `check` as always. Only the keys of the teammate's account are passed in, by name. When the agent ends, the pane ends: there is no host shell behind it. Closing or restarting the pane removes the container.
+
+The Maestro itself cannot be boxed, since it has to reach the app, and a plain shell cannot either. Persistent (tmux) sessions are not used for boxed terminals.
+
 ## Safety
 
 - **Keys per driver.** A driver is given only the secret variables it needs: `claude` gets the Anthropic key, `aider-deepseek` the DeepSeek key, and neither sees the other. Settings that are not secrets (such as `OPENMAESTRI_DEEPSEEK_MODEL`) pass to all. A custom driver lists its own with `"keys": ["MY_TOKEN"]`; without that list it receives every key in the env file, since you wrote the driver.
