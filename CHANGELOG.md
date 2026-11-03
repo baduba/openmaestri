@@ -4,6 +4,12 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed
+- `ask` returned the footer of the screen instead of the answer for full-screen agents (OpenCode, Claude Code, codex): they redraw in place, so the answer had scrolled above the old cursor line. It now compares the screen before and after, drops frames, status bars and the question shown back. A Maestro that got "read." and a status bar asked again and then improvised
+- `ask` returned as soon as the screen was quiet for 2.5 seconds, even while the program said "esc to interrupt" (waiting for a slow model). It now waits until that hint is gone
+- The first `ask` to a teammate that was still starting was lost: the program had not drawn its screen yet. `ask` now waits for the screen to settle first (up to 20 seconds)
+- Orchestration challenge: `--inject` plants a bug in `flag.py` so the review loop is really exercised; new checks for repeated messages and for figures dictated to a teammate; the report shows the Auditor's verdicts in order. A real run (Nemotron 3 Ultra as Maestro, gpt-oss-120b as teammates) passes 12 of 12 with REJECTED before APPROVED, 5 messages, none repeated
+
 ## [0.22.0] - 2026-11-03
 
 ### Added

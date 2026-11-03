@@ -23,6 +23,18 @@ async function run(core, id, line) {
   return lines.slice(echoed + 1, end).join('\n');
 }
 
+/** A daemon in a temporary folder, with its active workspace and a Maestro terminal (not started); closed and removed when the test ends. */
+async function startDaemon(t, prefix) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const app = await main({ port: 0, dataRoot: path.join(dir, 'data'), socketPath: path.join(dir, 'ipc.sock'), quiet: true });
+  t.after(async () => { await app.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const { core } = app;
+  const ws = core.store.workspaces.get(core.store.settings.activeWorkspaceId);
+  ws.dir = dir;
+  const maestro = core.store.createNode(ws, 'terminal', { name: 'Maestro', maestro: true, cwd: dir });
+  return { core, ws, dir, maestro };
+}
+
 test('a Maestro recruits workers and coordinates them in parallel', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-orch-'));
   const app = await main({ port: 0, dataRoot: path.join(dir, 'data'), socketPath: path.join(dir, 'ipc.sock'), quiet: true });
@@ -83,4 +95,28 @@ test('DeepSeek presets ship by default', async (t) => {
   const m = app.core.store.settings.presets.find((p) => p.name === 'Maestro (OpenCode + DeepSeek)');
   assert.equal(m.maestro, true);
   assert.match(m.command, /opencode -m "deepseek\//);
+});
+
+test('ask waits for a slow agent that shows "esc to interrupt" while its model thinks, instead of returning the echo', async (t) => {
+  const { core, ws, dir, maestro } = await startDaemon(t, 'om-slow-');
+  const slow = core.store.createNode(ws, 'terminal', { name: 'Slow', cwd: dir, command: `bash -c 'echo booted; read -r q; echo "> $q"; printf "  working  esc to interrupt\\r"; sleep 5; printf "\\033[2K\\rANSWER-42 is the reply\\n"; sleep 30'` });
+  core.startTerminal(ws, slow);
+  await sleep(500);
+  const t0 = Date.now();
+  const r = await core.command({ terminalId: maestro.id }, 'ask', { name: 'Slow', prompt: 'what is the answer', timeoutMs: 20000 });
+  const took = Date.now() - t0;
+  assert.ok(took >= 4500, `returned after ${took} ms, before the agent finished`);
+  assert.ok(took < 15000, `waited ${took} ms: it did not notice the agent had finished`);
+  assert.match(r.data.output, /ANSWER-42 is the reply/);
+  assert.doesNotMatch(r.data.output, /esc to interrupt/);
+});
+
+test('ask to a teammate that is still starting waits until its screen is drawn, so the prompt is not lost', async (t) => {
+  const { core, ws, dir, maestro } = await startDaemon(t, 'om-boot-');
+  // it ignores the keyboard for 3 seconds (a TUI loading), discards what was typed then, and only afterwards reads a line
+  const slow = core.store.createNode(ws, 'terminal', { name: 'Late', cwd: dir, command: `bash -c 'sleep 3; read -r -t 0.3 -N 10000 _; echo "ready now"; read -r -t 8 q; echo "got: $q"; sleep 20'` });
+  core.startTerminal(ws, slow);
+  await sleep(300);
+  const r = await core.command({ terminalId: maestro.id }, 'ask', { name: 'Late', prompt: 'hello there', timeoutMs: 20000 });
+  assert.match(r.data.output, /got: hello there/);
 });

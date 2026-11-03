@@ -23,6 +23,7 @@ import { tree as procTree, summarize as procSummary, stopProcess, ProcError } fr
 import { runHook, describeHook, checkCommand, HookError } from './hooks.js';
 import { takeSnapshot, listSnapshots, rollback as rollbackFloor, dropSnapshots } from './snapshots.js';
 import { ForgeError, detectProvider, normalizeProvider, providerInfo, listChanges, formatChanges } from './forge.js';
+import { newScreenText, looksBusy } from './screen.js';
 import { MAX_AGENTS, parseAgents, planText, reportText } from './taskrun.js';
 import { Usage, UsageError } from './usage.js';
 import { readUserEnv, TerminalError, commandAvailable, commandPath } from './terminals.js';
@@ -335,16 +336,21 @@ const HANDLERS = {
     const target = this.resolve(ws, me, name, ['terminal']);
     if (target.id === me.id) fail('an agent cannot ask itself');
     this.startTerminal(ws, target);
+    // a teammate that was just started is still drawing its screen, and what is typed meanwhile is lost: let it settle first
+    const rt = this.terminals.rt.get(target.id);
+    if (raw == null && rt && Date.now() - rt.startedAt < 60000) await this.terminals.whenReady(target.id, { busy: () => looksBusy(this.terminals.lines(target.id, 60)) });
     const since = Date.now();
     const fromLine = this.terminals.cursorLine(target.id);
+    const before = this.terminals.lines(target.id);
     if (raw != null) {
       this.terminals.write(target.id, unescapeRaw(String(raw)));
     } else {
       if (!prompt) fail('usage: ask "Agent" "prompt"');
       this.terminals.deliver(target.id, String(prompt));
     }
-    const state = await this.terminals.waitIdle(target.id, { since, timeoutMs, quietMs: quietMs ?? (raw != null ? 800 : 2500) });
-    const output = this.terminals.text(target.id, { fromLine });
+    const state = await this.terminals.waitIdle(target.id, { since, timeoutMs, quietMs: quietMs ?? (raw != null ? 800 : 2500), busy: () => looksBusy(this.terminals.lines(target.id, 60)) });
+    // a full-screen program redraws in place: what it said is what is new on the screen, not what follows the old cursor line
+    const output = newScreenText(before, this.terminals.lines(target.id), { echo: prompt }) || this.terminals.text(target.id, { fromLine });
     return { text: output || '(no output)', data: { name: target.name, state, output } };
   },
 

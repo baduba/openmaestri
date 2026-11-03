@@ -130,6 +130,7 @@ class Runtime {
     this.term = term;
     this.serializer = serializer;
     this.lastDataAt = 0;
+    this.startedAt = Date.now();
     this.bytes = 0;
     this.status = 'running';
     this.exitCode = null;
@@ -301,6 +302,22 @@ export class Terminals extends EventEmitter {
     return (fromLine == null && lastLines ? out.slice(-lastLines) : out).join('\n');
   }
 
+  /** Every row of the screen and its scrollback, wrapped rows joined, for comparing before and after a question. */
+  lines(id, max = 1000) {
+    const rt = this.rt.get(id);
+    if (!rt) return [];
+    const b = rt.term.buffer.active;
+    const out = [];
+    for (let i = Math.max(0, b.length - max); i < b.length; i++) {
+      const line = b.getLine(i);
+      if (!line) continue;
+      const s = line.translateToString(true);
+      if (line.isWrapped && out.length) out[out.length - 1] += s;
+      else out.push(s);
+    }
+    return out;
+  }
+
   status(id) {
     const rt = this.rt.get(id);
     if (!rt) return 'stopped';
@@ -323,21 +340,34 @@ export class Terminals extends EventEmitter {
     if (submit) setTimeout(() => rt.status === 'running' && rt.proc.write('\r'), bracketed ? 150 : 20);
   }
 
-  /** Resolve once output has been quiet for `quietMs`, or `timeoutMs` elapsed. */
-  waitIdle(id, { quietMs = 2000, timeoutMs = 120000, since = Date.now() } = {}) {
+  /** Poll the terminal every 100 ms until `done(rt, now)` gives a word to resolve with, it exits, or `timeoutMs` elapsed. */
+  poll(id, timeoutMs, done) {
     return new Promise((resolve) => {
       const started = Date.now();
       const tick = () => {
         const rt = this.rt.get(id);
         if (!rt || rt.status !== 'running') return resolve('exited');
-        const now = Date.now();
-        const sawOutput = rt.lastDataAt >= since;
-        if (sawOutput && now - rt.lastDataAt >= quietMs) return resolve('idle');
-        if (now - started >= timeoutMs) return resolve('timeout');
+        const word = done(rt, Date.now());
+        if (word) return resolve(word);
+        if (Date.now() - started >= timeoutMs) return resolve('timeout');
         setTimeout(tick, 100);
       };
       tick();
     });
+  }
+
+  /**
+   * A program that was just started draws its screen before it reads the keyboard; text typed earlier is lost.
+   * Resolve once the screen has something on it and has been quiet for `quietMs` (or `timeoutMs` elapsed).
+   * Returns 'ready', or 'timeout' when the program never drew anything.
+   */
+  whenReady(id, { quietMs = 1500, timeoutMs = 20000, busy = null } = {}) {
+    return this.poll(id, timeoutMs, (rt, now) => (this.lines(id, 60).some((l) => l.trim()) && now - rt.lastDataAt >= quietMs && !busy?.() ? 'ready' : ''));
+  }
+
+  /** Resolve once output has been quiet for `quietMs`, or `timeoutMs` elapsed. Quiet is not done while `busy()` says the program is waiting for its model ("esc to interrupt"). */
+  waitIdle(id, { quietMs = 2000, timeoutMs = 120000, since = Date.now(), busy = null } = {}) {
+    return this.poll(id, timeoutMs, (rt, now) => (rt.lastDataAt >= since && now - rt.lastDataAt >= quietMs && !busy?.() ? 'idle' : ''));
   }
 
   /** Stop a terminal. A persistent one is ended for good (its tmux session too) unless `detach` is set. */
