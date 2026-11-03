@@ -87,7 +87,7 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
   };
 
   /** The request target as a URL, or null when it is not one (such a request is answered, never thrown). */
-  const parseTarget = (req) => { try { return new URL(req.url, 'http://x'); } catch { return null; } };
+  const parseTarget = (req) => { try { return new URL(req.url, 'https://x'); } catch { return null; } };
 
   const server = http.createServer((req, res) => {
     for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
