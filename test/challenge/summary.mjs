@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 // A table of real challenge runs per model, from the lines `run.mjs --record FILE` appended.
-//   node test/challenge/summary.mjs runs.jsonl
+//   node test/challenge/summary.mjs < runs.jsonl
 import fs from 'node:fs';
-import path from 'node:path';
 
 /** @param {object[]} lines the parsed record lines */
 export function summarize(lines) {
@@ -25,10 +24,7 @@ export function summarize(lines) {
 }
 
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').at(-1))) {
-  // a run record file next to where you are: not a path that climbs out of the folder, not any other kind of file
-  const arg = process.argv[2];
-  const file = arg ? path.resolve(arg) : '';
-  const inside = file && !path.relative(process.cwd(), file).startsWith('..') && !path.isAbsolute(path.relative(process.cwd(), file));
-  if (!inside || !file.endsWith('.jsonl')) { console.error('usage: summary.mjs runs.jsonl (a .jsonl file inside the current folder)'); process.exit(2); }
-  console.log(summarize(fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l))));
+  // the records come on standard input, so no path from the command line is ever opened
+  if (process.stdin.isTTY) { console.error('usage: node summary.mjs < runs.jsonl'); process.exit(2); }
+  console.log(summarize(fs.readFileSync(0, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l))));
 }

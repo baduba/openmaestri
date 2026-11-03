@@ -26,7 +26,7 @@ Real runs of the [orchestration challenge](functional-test.html), with a bug pla
 ```bash
 node test/challenge/run.mjs --inject --record runs.jsonl \
   --maestro 'opencode -m openrouter/z-ai/glm-5.3-flash' --worker 'opencode -m openrouter/openai/gpt-oss-120b'
-node test/challenge/summary.mjs runs.jsonl
+node test/challenge/summary.mjs < runs.jsonl
 ```
 
 Each run costs a few cents on OpenRouter with these models.
