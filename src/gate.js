@@ -125,6 +125,7 @@ export function reportText(events) {
     `${count('forward')} handed to another teammate`,
     `${count('loop')} loop warnings`,
     `${count('nudge')} reminders to the Maestro`,
+    `${count('budget')} spending notices`,
   ];
   return `${rows.join('\n')}\n\nTotals: ${totals.join(', ')}.`;
 }

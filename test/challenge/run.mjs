@@ -49,7 +49,7 @@ export function recordLine(r, { maestro, worker, seed, inject }) {
 }
 
 /** What a run has to show. The last three only apply when a bug was planted (`inject`). */
-function buildChecks({ inject, final, answered, scriptOut, key, team, toName, reads, repeated, leaked, planted, verdicts, checksFailed, finalHash }) {
+export function buildChecks({ inject, final, answered, scriptOut, key, team, toName, reads, repeated, leaked, planted, verdicts, checksFailed, finalHash, verifyOut = null, buggyOut = null }) {
   const checks = {
     'final answer says APPROVED': /VERDICT:\s*APPROVED/i.test(final),
     'flagged regions match the answer key': sameList(answered, key),
@@ -65,6 +65,9 @@ function buildChecks({ inject, final, answered, scriptOut, key, team, toName, re
     checks['the planted bug was caught (the program\'s check failed, or the Auditor said REJECTED)'] = planted !== null && (verdicts.includes('REJECTED') || checksFailed > 0);
     checks['the Dev was asked again after the rejection'] = toName('Dev') >= 2;
     checks['flag.py was fixed, not left as planted'] = planted !== null && finalHash !== planted;
+    // the Auditor's verify.py is the oracle: if it is empty or always agrees, the program's check proved nothing
+    checks['the Auditor\'s verify.py prints the answer key'] = verifyOut !== null && sameList(verifyOut, key);
+    checks['the Auditor\'s verify.py tells the planted bug apart'] = verifyOut !== null && buggyOut !== null && !sameList(verifyOut, buggyOut);
   }
   return checks;
 }
@@ -171,7 +174,10 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
     const checksFailed = (core.events.get(ws.id) ?? []).filter((e) => e.kind === 'check' && e.ok === false).length;
     const finalHash = fileHash(path.join(dir, 'flag.py'));
     const reads = (core.terminals.text(boss.id, { lastLines: 2000 }).match(/ORD-\d{4},/g) ?? []).length;
-    const checks = buildChecks({ inject, final, answered, scriptOut, key: sc.flagged, team, toName, reads, repeated, leaked, planted, verdicts, checksFailed, finalHash });
+    const listOf = (r) => (r.status === 0 ? r.stdout.split('\n').map((x) => x.trim()).filter(Boolean).sort(byName) : null);
+    const verifyOut = inject && fs.existsSync(path.join(dir, 'verify.py')) ? listOf(spawnSync('/usr/bin/python3', ['verify.py'], { cwd: dir, encoding: 'utf8', timeout: 20000 })) : null;
+    const buggyOut = inject ? listOf(spawnSync('/usr/bin/python3', ['-c', buggyFlagScript(sc.limits)], { cwd: dir, encoding: 'utf8', timeout: 20000 })) : null;
+    const checks = buildChecks({ inject, final, answered, scriptOut, key: sc.flagged, team, toName, reads, repeated, leaked, planted, verdicts, checksFailed, finalHash, verifyOut, buggyOut });
     const result = {
       outcome, seconds: t(), passed: Object.values(checks).every(Boolean), checks, key: sc.flagged, answered, scriptOut,
       roundTrips: trace.filter((x) => x.to !== 'Maestro').length, toDev: toName('Dev'), toAuditor: toName('Auditor'),

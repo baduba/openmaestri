@@ -55,3 +55,16 @@ test('challenge: a record line names the models, and the summary counts passes p
   const table = summarize([line, { ...line, passed: false, outcome: 'provider-limit' }]);
   assert.match(table, /\| openrouter\/a\/big \| openrouter\/b\/small \| 2 \| 1 \| 1 \| 100 \| 5\.0 \| 0 \| 2 \|/);
 });
+
+test('challenge: an oracle that prints nothing, or the planted bug\'s answer, is caught by the harness', async () => {
+  const { buildChecks } = await import('./challenge/run.mjs');
+  const base = { inject: true, final: 'VERDICT: APPROVED', answered: ['A'], scriptOut: ['A'], key: ['A'], team: [{ name: 'Auditor' }, { name: 'Dev' }], toName: () => 2, reads: 0, repeated: 0, leaked: 0, planted: 'x', verdicts: ['REJECTED'], checksFailed: 1, finalHash: 'y', buggyOut: ['A', 'B'] };
+  const good = buildChecks({ ...base, verifyOut: ['A'] });
+  assert.equal(good['the Auditor\'s verify.py prints the answer key'], true);
+  assert.equal(good['the Auditor\'s verify.py tells the planted bug apart'], true);
+  const empty = buildChecks({ ...base, verifyOut: [] });
+  assert.equal(empty['the Auditor\'s verify.py prints the answer key'], false, 'a verify.py that prints nothing is not an oracle');
+  const same = buildChecks({ ...base, verifyOut: ['A', 'B'] });
+  assert.equal(same['the Auditor\'s verify.py tells the planted bug apart'], false, 'a verify.py that agrees with the bug is not an oracle');
+  assert.equal(buildChecks({ ...base, verifyOut: null })['the Auditor\'s verify.py prints the answer key'], false, 'no verify.py at all');
+});

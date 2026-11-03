@@ -24,6 +24,7 @@ import { runHook, describeHook, checkCommand, HookError } from './hooks.js';
 import { takeSnapshot, listSnapshots, rollback as rollbackFloor, dropSnapshots } from './snapshots.js';
 import { ForgeError, detectProvider, normalizeProvider, providerInfo, listChanges, formatChanges } from './forge.js';
 import { newScreenText, looksBusy } from './screen.js';
+import { screenCost, budgetLimit, budgetState, spendText, money } from './budget.js';
 import { AskLog, unresolvedChecks, unverifiedNotice, MAX_RETRIES, DEFAULT_RETRIES, REPEAT_WARN, REPEAT_STOP, VERDICT_FORMAT, parseVerdict, correction, clipLog, repeatNotice, reportText as eventsReport } from './gate.js';
 import { MAX_AGENTS, parseAgents, planText, reportText } from './taskrun.js';
 import { Usage, UsageError } from './usage.js';
@@ -70,6 +71,8 @@ export class Core extends EventEmitter {
     this.notifyLog = new Map();
     this.askLog = new AskLog();
     this.events = new Map();
+    this.spend = new Map(); // terminal id -> the most its screen has shown as session cost
+    this.budgetState = new Map(); // workspace id -> 'ok' | 'warn' | 'cut'
     this.history = new History();
     this.portals = new Portals({ dataRoot, uploadRoots: () => this.uploadRoots() });
     this.chat = new Chat({ store: this.store, allowedRoots: (wsId) => this.chatRoots(wsId) });
@@ -116,10 +119,13 @@ export class Core extends EventEmitter {
     this.usage.on('changed', () => this.emit('usage-changed'));
     this.usageTimer = setInterval(() => { for (const [id] of this.terminals.rt) if (this.terminals.status(id) === 'working') this.usage.tick(id); }, 1000);
     this.usageTimer.unref();
+    this.budgetTimer = setInterval(() => this.checkBudget(), Number(process.env.OPENMAESTRI_BUDGET_TICK_MS) || 5000);
+    this.budgetTimer.unref();
   }
 
   stop() {
     clearInterval(this.usageTimer);
+    clearInterval(this.budgetTimer);
     this.usage.close();
     this.prompts.close();
     this.portals.stop().catch(() => { /* shutting down */ });
@@ -338,7 +344,13 @@ const HANDLERS = {
   /** What happened between the Maestro and its teammates in this workspace, written from what the program saw. */
   report(ws, me, { json }) {
     const events = this.events.get(ws.id) ?? [];
-    return { text: json ? JSON.stringify(events, null, 2) : eventsReport(events), data: events };
+    const spend = spendText(this.spendOf(ws), budgetLimit());
+    return { text: json ? JSON.stringify({ events, spend }, null, 2) : `${eventsReport(events)}\n${spend}`, data: events };
+  },
+
+  /** Read only on purpose: the limit is the human's, set when the daemon starts. */
+  budget(ws) {
+    return { text: spendText(this.spendOf(ws), budgetLimit()) };
   },
 
   /**
@@ -1884,6 +1896,32 @@ Core.prototype.runCheck = function (ws, target, command) {
   const cwd = [target.cwd, ws.dir].find((d) => d && fs.existsSync(d)) ?? process.env.HOME;
   const box = target.sandbox ?? null;
   return runHook(command, { cwd, sandbox: box, docker: box ? this.dockerPath(ws) : null, extraEnv: this.floorEnv(ws, target) });
+};
+
+/** Per terminal, what its screen shows as session cost (the highest ever seen, since a screen can be cleared). */
+Core.prototype.spendOf = function (ws) {
+  return ws.nodes.filter((n) => n.kind === 'terminal').map((n) => {
+    const seen = this.terminals.rt.get(n.id) ? screenCost(this.terminals.lines(n.id, 40)) : null;
+    if (seen !== null) this.spend.set(n.id, Math.max(this.spend.get(n.id) ?? 0, seen));
+    return { name: n.name, id: n.id, cost: this.spend.get(n.id) ?? 0 };
+  });
+};
+
+/** Warn at 80% of the limit and stop every terminal of the workspace at 100%. The limit is set by the person, not by an agent. */
+Core.prototype.checkBudget = function () {
+  const limit = budgetLimit();
+  if (limit === null) return;
+  for (const ws of this.store.workspaces.values()) {
+    const per = this.spendOf(ws);
+    const total = per.reduce((a, x) => a + x.cost, 0);
+    const state = budgetState(total, limit);
+    if (state === 'ok' || this.budgetState.get(ws.id) === state || (state === 'warn' && this.budgetState.get(ws.id) === 'cut')) continue;
+    this.budgetState.set(ws.id, state);
+    const note = state === 'cut' ? `limit ${money(limit)} reached (${money(total)}): every terminal of this workspace was stopped` : `${money(total)} of the ${money(limit)} limit spent`;
+    this.noteEvent(ws, { kind: 'budget', ok: state !== 'cut', note });
+    this.emit('notify', { workspaceId: ws.id, from: 'openmaestri', message: `Spending: ${note}` });
+    if (state === 'cut') for (const n of ws.nodes) if (n.kind === 'terminal' && this.terminals.rt.get(n.id)?.status === 'running') this.terminals.kill(n.id);
+  }
 };
 
 /** What happened in a workspace, in order, for `report`. Kept in memory, newest 500, and the audit log has the commands. */
