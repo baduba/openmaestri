@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { WebSocket } from 'ws';
 import { main } from '../src/server.js';
 import { Store, safeId } from '../src/store.js';
@@ -168,7 +169,7 @@ test('a request the server cannot parse is answered, it does not crash the daemo
   }
   assert.equal(status(await send(['GET //[ HTTP/1.1', host, 'connection: close'])), 400, 'a target that is not a URL');
   // the same on the WebSocket upgrade
-  const up = await send([`GET /ws?token=${app.token} HTTP/1.1`, host, 'origin: null', 'connection: Upgrade', 'upgrade: websocket', 'sec-websocket-version: 13', 'sec-websocket-key: dGhlIHNhbXBsZSBub25jZQ==']);
+  const up = await send([`GET /ws?token=${app.token} HTTP/1.1`, host, 'origin: null', 'connection: Upgrade', 'upgrade: websocket', 'sec-websocket-version: 13', `sec-websocket-key: ${randomBytes(16).toString('base64')}`]);
   assert.match(up, /^HTTP\/1\.1 403/);
   assert.equal(status(await send([`GET /index.html?token=${app.token} HTTP/1.1`, host, 'connection: close'])), 200, 'and the server is still up');
 });
