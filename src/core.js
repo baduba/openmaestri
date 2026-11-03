@@ -8,7 +8,7 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Store, dataDir } from './store.js';
-import { GUIDE } from './prompts.js';
+import { GUIDE, NUDGE } from './prompts.js';
 import { Terminals } from './terminals.js';
 import { freePortBase, floorVars } from './ports.js';
 import { Mcp, McpError, buildServer, mcpText, planInstall } from './mcp.js';
@@ -24,6 +24,7 @@ import { runHook, describeHook, checkCommand, HookError } from './hooks.js';
 import { takeSnapshot, listSnapshots, rollback as rollbackFloor, dropSnapshots } from './snapshots.js';
 import { ForgeError, detectProvider, normalizeProvider, providerInfo, listChanges, formatChanges } from './forge.js';
 import { newScreenText, looksBusy } from './screen.js';
+import { AskLog, unresolvedChecks, unverifiedNotice, MAX_RETRIES, DEFAULT_RETRIES, REPEAT_WARN, REPEAT_STOP, VERDICT_FORMAT, parseVerdict, correction, clipLog, repeatNotice, reportText as eventsReport } from './gate.js';
 import { MAX_AGENTS, parseAgents, planText, reportText } from './taskrun.js';
 import { Usage, UsageError } from './usage.js';
 import { readUserEnv, TerminalError, commandAvailable, commandPath } from './terminals.js';
@@ -67,6 +68,8 @@ export class Core extends EventEmitter {
     this.socketPath = socketPath;
     this.startedAt = Date.now();
     this.notifyLog = new Map();
+    this.askLog = new AskLog();
+    this.events = new Map();
     this.history = new History();
     this.portals = new Portals({ dataRoot, uploadRoots: () => this.uploadRoots() });
     this.chat = new Chat({ store: this.store, allowedRoots: (wsId) => this.chatRoots(wsId) });
@@ -332,31 +335,60 @@ const HANDLERS = {
     return { text: 'sent' };
   },
 
-  async ask(ws, me, { name, prompt, raw, timeoutMs = 120000, quietMs }) {
+  /** What happened between the Maestro and its teammates in this workspace, written from what the program saw. */
+  report(ws, me, { json }) {
+    const events = this.events.get(ws.id) ?? [];
+    return { text: json ? JSON.stringify(events, null, 2) : eventsReport(events), data: events };
+  },
+
+  /**
+   * Send a prompt to a teammate and wait for its answer. With `check` (a command that must exit 0 in the teammate's folder),
+   * `verdict` (the answer must end in an exact verdict block) or `then` (another teammate to take the task if this one cannot
+   * pass), the program does the judging: a failure goes back to the teammate up to `retries` times, in a fixed wording.
+   */
+  async ask(ws, me, { name, prompt, raw, timeoutMs = 120000, quietMs, check, retries, verdict, handTo }) {
+    if (check != null) this.requireMaestro(me); // the program will run this command on the machine
     const target = this.resolve(ws, me, name, ['terminal']);
     if (target.id === me.id) fail('an agent cannot ask itself');
-    this.startTerminal(ws, target);
-    // a teammate that was just started is still drawing its screen, and what is typed meanwhile is lost: let it settle first
-    const rt = this.terminals.rt.get(target.id);
-    if (raw == null && rt && Date.now() - rt.startedAt < 60000) await this.terminals.whenReady(target.id, { busy: () => looksBusy(this.terminals.lines(target.id, 60)) });
-    const since = Date.now();
-    const fromLine = this.terminals.cursorLine(target.id);
-    const before = this.terminals.lines(target.id);
+    const gated = check != null || !!verdict || handTo != null;
     if (raw != null) {
-      this.terminals.write(target.id, unescapeRaw(String(raw)));
-    } else {
-      if (!prompt) fail('usage: ask "Agent" "prompt"');
-      this.terminals.deliver(target.id, String(prompt));
+      if (gated) fail('--raw sends keystrokes; --check, --verdict and --then go with a prompt');
+      const r = await this.askOnce(ws, target, { raw, timeoutMs, quietMs });
+      return { text: r.output || '(no output)', data: { name: target.name, state: r.state, output: r.output } };
     }
-    const state = await this.terminals.waitIdle(target.id, { since, timeoutMs, quietMs: quietMs ?? (raw != null ? 800 : 2500), busy: () => looksBusy(this.terminals.lines(target.id, 60)) });
-    // a full-screen program redraws in place: what it said is what is new on the screen, not what follows the old cursor line
-    const output = newScreenText(before, this.terminals.lines(target.id), { echo: prompt }) || this.terminals.text(target.id, { fromLine });
-    return { text: output || '(no output)', data: { name: target.name, state, output } };
+    if (!prompt) fail('usage: ask "Agent" "prompt" [--check CMD] [--verdict] [--retries N] [--then "Other"]');
+    if (check != null) checkCommand(check);
+    const other = handTo != null ? this.resolve(ws, me, handTo, ['terminal']) : null;
+    if (other && (other.id === me.id || other.id === target.id)) fail('--then names another teammate, not the one asked or yourself');
+    const repeats = this.askLog.note(ws.id, target.id, prompt);
+    if (repeats + 1 >= REPEAT_STOP) {
+      this.noteEvent(ws, { kind: 'loop', to: target.name, ok: false, note: `refused, ${repeats + 1}th similar message` });
+      fail(repeatNotice(repeats, target.name));
+    }
+    const warn = repeats + 1 >= REPEAT_WARN ? `${repeatNotice(repeats, target.name)}\n` : '';
+    if (warn) this.noteEvent(ws, { kind: 'loop', to: target.name, ok: false, note: `${repeats + 1}th similar message` });
+    if (!gated) {
+      const r = await this.askOnce(ws, target, { prompt, timeoutMs, quietMs });
+      return { text: `${warn}${r.output || '(no output)'}`, data: { name: target.name, state: r.state, output: r.output } };
+    }
+    const limit = Math.min(Math.max(Math.trunc(Number(retries ?? DEFAULT_RETRIES)) || 0, 0), MAX_RETRIES);
+    let g = await this.gateAsk(ws, target, { prompt, timeoutMs, quietMs, check, verdict: !!verdict, retries: limit });
+    let handedTo = null;
+    if (!g.ok && other) {
+      this.noteEvent(ws, { kind: 'forward', to: other.name, note: `${target.name} did not pass: ${g.why}` });
+      handedTo = other.name;
+      g = await this.gateAsk(ws, other, { prompt, timeoutMs, quietMs, check, verdict: !!verdict, retries: limit });
+    }
+    const head = g.ok
+      ? `[gate] PASSED after ${g.attempts} attempt${g.attempts === 1 ? '' : 's'}${handedTo ? ` by ${handedTo}, after ${target.name} did not pass` : ''}${g.verdict ? `. VERDICT: ${g.verdict.status}: ${g.verdict.reason}` : ''}`
+      : `[gate] FAILED after ${g.attempts} attempt${g.attempts === 1 ? '' : 's'}${handedTo ? ` (also tried ${handedTo})` : ''}: ${g.why}`;
+    return { text: `${warn}${head}\n${g.output || '(no output)'}`, data: { name: handedTo ?? target.name, state: g.state, output: g.output, gate: { ok: g.ok, attempts: g.attempts, why: g.why, verdict: g.verdict ?? null, handedTo } } };
   },
 
   /** A one-shot run of any agent CLI in its non-interactive mode: no terminal, the answer comes back as text. */
-  async 'agent.run'(ws, me, { driver, prompt, model, floor, timeoutMs, account, sandbox, noNetwork, fallback }) {
+  async 'agent.run'(ws, me, { driver, prompt, model, floor, timeoutMs, account, sandbox, noNetwork, fallback, check }) {
     this.requireMaestro(me);
+    if (check != null) checkCommand(check);
     const drivers = { ...DRIVERS, ...customDrivers(this.store.settings.drivers) };
     if (!driver) fail(`usage: agent <driver> "prompt". Drivers: ${Object.keys(drivers).join(', ')}`);
     if (this.headless.size >= MAX_HEADLESS) fail(`${this.headless.size} one-shot agents are already running (the limit is ${MAX_HEADLESS}); wait for one to finish`);
@@ -366,9 +398,16 @@ const HANDLERS = {
     const expanded = materializeMentions(String(prompt ?? ''), this.prompterCtx(ws, me)).text;
     this.audit.record('agent.run', { driver, account: account ?? '', by: me.name, folder: path.basename(cwd), model: model ?? '', promptChars: expanded.length, promptSha256: sha256(expanded) }, 'terminal');
     const box = this.sandboxFrom(sandbox, noNetwork);
-    const r = await this.execAgent({ driver, drivers, prompt: expanded, cwd, model, timeoutMs, ws, account, sandbox: box, fallback, extraEnv: this.floorEnv(ws, rec ?? floorById(ws, me.floorId)) });
+    const env = this.floorEnv(ws, rec ?? floorById(ws, me.floorId));
+    const accept = check == null ? null : async () => {
+      const res = await runHook(check, { cwd, sandbox: box, docker: box ? this.dockerPath(ws) : null, extraEnv: env });
+      this.noteEvent(ws, { kind: 'check', to: driver, ok: res.ok, secs: Math.round(res.ms / 1000), note: `${check.slice(0, 60)} ${res.ok ? 'exit 0' : res.timedOut ? 'timed out' : `exit ${res.exitCode}`}` });
+      return { ok: res.ok, why: res.timedOut ? 'timed out' : `exit ${res.exitCode ?? '?'}`, output: res.output };
+    };
+    const r = await this.execAgent({ driver, drivers, prompt: expanded, cwd, model, timeoutMs, ws, account, sandbox: box, fallback, accept, extraEnv: env });
     const secs = (r.ms / 1000).toFixed(1);
     const who = r.driver ?? driver;
+    if (r.gate && !r.gate.ok) fail(`${who} answered, but the check "${check}" failed (${r.gate.why})${r.gate.output ? `:\n${clipLog(r.gate.output, 5, 15)}` : ''}${r.tried.length ? `\nAlso tried: ${r.tried.map((t) => `${t.driver} (${t.why})`).join(', ')}` : ''}\nAnswer was:\n${r.text}`);
     if (r.timedOut) fail(`${who} did not finish in time and was stopped (${secs}s)${r.text ? `. Partial output:\n${r.text}` : ''}`);
     if (r.cancelled) fail(`${who} was stopped`);
     if (!r.ok) fail(`${who} ${r.reportedError ? 'reported an error' : `exited with ${r.exitCode ?? r.signal ?? 'an error'}`} after ${secs}s${r.stderr ? `:\n${r.stderr}` : ''}${r.text ? `\nOutput:\n${r.text}` : ''}${r.tried.length ? `\nAlso tried: ${r.tried.map((t) => `${t.driver} (${t.why})`).join(', ')}` : ''}`);
@@ -1214,6 +1253,9 @@ const HANDLERS = {
       if (f === file && !isImage && !body) body = this.readTextFile(ws, f);
       else attachments.push(this.chat.attach(ws.id, f));
     }
+    // an answer to the human over work that never passed its check says so, in words the program wrote
+    const open = !progress && me.maestro ? unresolvedChecks(this.events.get(ws.id) ?? []) : [];
+    if (open.length) { body += unverifiedNotice(open); this.noteEvent(ws, { kind: 'unverified', ok: false, note: `answered with ${open.length} failed check${open.length === 1 ? '' : 's'} open` }); }
     const msg = this.chat.append(ws.id, tid, { role: 'agent', sender: me.name, senderId: me.id, text: body, attachments, progress: !!progress });
     if (!progress) this.markAttention(ws, me.id);
     this.touchChat(ws);
@@ -1587,8 +1629,44 @@ Core.prototype.chatSend = function (ws, { thread, text, attachments = [] }) {
   const files = attachments.map((a) => ` [attached: ${a.name}, ${a.size} bytes. Get its path with: openmaestri recall attachment ${a.id}]`).join('');
   const line = `[openmaestri chat, ${title}] ${cleanText(expanded.text, 140000)}${files}\n(Answer the human with: openmaestri say "your answer". For long work, send short updates with: openmaestri say --progress "...")`;
   this.terminals.deliver(maestro.id, line);
+  this.watchMaestro(ws, maestro, tid, msg.ts);
   msg.mentions = expanded.mentions;
   return msg;
+};
+
+const NUDGE_IDLE_MS = () => Number(process.env.OPENMAESTRI_NUDGE_IDLE_MS) || 45000;
+const NUDGE_TICK_MS = () => Number(process.env.OPENMAESTRI_NUDGE_TICK_MS) || 5000;
+const MAX_NUDGES = 2;
+
+/**
+ * A weak model often goes quiet without answering: it asks the human a question the human already answered, says it
+ * "cannot run commands" without trying, or does the work itself. After the human writes, if the Maestro has not answered
+ * in the chat and its screen has been still for a while, tell it once or twice, in fixed words. Off with OPENMAESTRI_NO_NUDGE=1.
+ */
+Core.prototype.watchMaestro = function (ws, maestro, thread, sentAt) {
+  if (process.env.OPENMAESTRI_NO_NUDGE === '1') return;
+  this.nudgeTimers ??= new Map();
+  clearInterval(this.nudgeTimers.get(maestro.id));
+  let sent = 0;
+  const started = Date.now();
+  // still means the same screen, not "no bytes": a full-screen program keeps sending cursor and title codes while it waits
+  let seen = '';
+  let changedAt = Date.now();
+  const timer = setInterval(() => {
+    const rt = this.terminals.rt.get(maestro.id);
+    const answered = this.chat.history(ws.id, thread, { turns: 100 }).some((m) => m.role === 'agent' && !m.progress && m.ts >= sentAt);
+    if (!rt || rt.status !== 'running' || answered || sent >= MAX_NUDGES || Date.now() - started > 30 * 60 * 1000) { clearInterval(timer); return; }
+    const lines = this.terminals.lines(maestro.id, 80);
+    const shot = lines.join('\n');
+    if (shot !== seen) { seen = shot; changedAt = Date.now(); return; }
+    if (Date.now() - changedAt < NUDGE_IDLE_MS() || looksBusy(lines)) return;
+    try { this.terminals.deliver(maestro.id, NUDGE); } catch { clearInterval(timer); return; }
+    sent++;
+    changedAt = Date.now();
+    this.noteEvent(ws, { kind: 'nudge', to: maestro.name, note: `${sent} of ${MAX_NUDGES}: the human wrote and there was no answer` });
+  }, NUDGE_TICK_MS());
+  timer.unref?.();
+  this.nudgeTimers.set(maestro.id, timer);
 };
 Core.prototype.chatInterrupt = function (ws) {
   const maestro = this.chatMaestro(ws);
@@ -1687,7 +1765,7 @@ Core.prototype.fallbackChain = function (driver, fallback) {
  * Run one headless agent. When the account is out of quota or credit, the next driver in the chain answers instead,
  * and the one that refused is not tried again for 30 minutes. The result says who answered and who was skipped.
  */
-Core.prototype.execAgent = async function ({ driver, drivers, fallback, ...rest }) {
+Core.prototype.execAgent = async function ({ driver, drivers, fallback, accept = null, ...rest }) {
   const chain = this.fallbackChain(driver, fallback);
   const tried = [];
   this.quotaHold ??= new Map();
@@ -1706,7 +1784,15 @@ Core.prototype.execAgent = async function ({ driver, drivers, fallback, ...rest 
     }
     r.driver = name;
     last = r;
-    if (!quotaRefused(r)) { this.quotaHold.delete(name); return { ...r, tried }; }
+    if (!quotaRefused(r)) {
+      this.quotaHold.delete(name);
+      // an answer that does not pass the check is treated like a refusal: the next driver of the chain gets the task
+      const gate = accept && r.ok ? await accept(r) : null;
+      if (!gate || gate.ok) return { ...r, tried, gate };
+      tried.push({ driver: name, why: `its work failed the check (${gate.why})` });
+      last = { ...r, gate };
+      continue;
+    }
     this.quotaHold.set(name, Date.now() + QUOTA_HOLD_MS);
     tried.push({ driver: name, why: (r.stderr || r.text).split('\n')[0].slice(0, 160) });
   }
@@ -1747,6 +1833,64 @@ Core.prototype.runPostAgentHook = async function (ws, rec, beforeId, runSandbox 
   }
   this.audit.record('floor.hook', { floor: rec.name, hook: 'postAgent', ok: result.ok, ms: result.ms }, 'system');
   return { ok: result.ok, text };
+};
+
+/** One prompt to a connected terminal and its answer: what the screen shows that is new, once the program has settled. */
+Core.prototype.askOnce = async function (ws, target, { prompt, raw, timeoutMs = 120000, quietMs }) {
+  this.startTerminal(ws, target);
+  // a teammate that was just started is still drawing its screen, and what is typed meanwhile is lost: let it settle first
+  const rt = this.terminals.rt.get(target.id);
+  if (raw == null && rt && Date.now() - rt.startedAt < 60000) await this.terminals.whenReady(target.id, { busy: () => looksBusy(this.terminals.lines(target.id, 60)) });
+  const since = Date.now();
+  const fromLine = this.terminals.cursorLine(target.id);
+  const before = this.terminals.lines(target.id);
+  if (raw != null) this.terminals.write(target.id, unescapeRaw(String(raw)));
+  else this.terminals.deliver(target.id, String(prompt));
+  const state = await this.terminals.waitIdle(target.id, { since, timeoutMs, quietMs: quietMs ?? (raw != null ? 800 : 2500), busy: () => looksBusy(this.terminals.lines(target.id, 60)) });
+  // a full-screen program redraws in place: what it said is what is new on the screen, not what follows the old cursor line
+  const output = newScreenText(before, this.terminals.lines(target.id), { echo: prompt }) || this.terminals.text(target.id, { fromLine });
+  this.noteEvent(ws, { kind: 'ask', to: target.name, ok: state === 'idle', secs: Math.round((Date.now() - since) / 1000), note: state === 'idle' ? `${output.length} chars` : state });
+  return { state, output };
+};
+
+/** Ask, judge, and send the failure back until it passes or the corrections run out. Never loops more than `retries` + 1 times. */
+Core.prototype.gateAsk = async function (ws, target, { prompt, timeoutMs, quietMs, check, verdict, retries }) {
+  let text = verdict ? `${prompt}\n\n${VERDICT_FORMAT}` : String(prompt);
+  let last = { state: 'idle', output: '' };
+  let why = '';
+  for (let attempt = 1; attempt <= retries + 1; attempt++) {
+    last = await this.askOnce(ws, target, { prompt: text, timeoutMs, quietMs });
+    if (last.state !== 'idle') return { ok: false, attempts: attempt, why: `${target.name} ${last.state === 'timeout' ? 'did not finish in time' : 'ended'}`, ...last };
+    const v = verdict ? parseVerdict(last.output) : null;
+    if (verdict) this.noteEvent(ws, { kind: 'verdict', to: target.name, ok: !!v, note: v ? `${v.status} ${v.reason.slice(0, 80)}` : 'no block in the required shape' });
+    let failure = null;
+    if (verdict && !v) failure = { kind: 'format' };
+    else if (check != null) {
+      const r = await this.runCheck(ws, target, check);
+      this.noteEvent(ws, { kind: 'check', to: target.name, ok: r.ok, secs: Math.round(r.ms / 1000), note: `${check.slice(0, 60)} ${r.ok ? 'exit 0' : r.timedOut ? 'timed out' : `exit ${r.exitCode}`}` });
+      if (!r.ok) failure = { kind: 'check', command: check, exitCode: r.exitCode, timedOut: r.timedOut, output: r.output, verdict };
+    }
+    if (!failure) return { ok: true, attempts: attempt, verdict: v, ...last };
+    why = failure.kind === 'format' ? 'no verdict line in the required shape' : `the check "${check}" ${failure.timedOut ? 'timed out' : `exited with ${failure.exitCode ?? '?'}`}${failure.output ? `:\n${clipLog(failure.output, 5, 15)}` : ''}`;
+    if (attempt > retries) break;
+    this.noteEvent(ws, { kind: 'retry', to: target.name, note: failure.kind });
+    text = correction(failure);
+  }
+  return { ok: false, attempts: retries + 1, why, ...last };
+};
+
+/** A command that decides whether a teammate's work is accepted, run in the teammate's folder (and in its container) with no keys. */
+Core.prototype.runCheck = function (ws, target, command) {
+  const cwd = [target.cwd, ws.dir].find((d) => d && fs.existsSync(d)) ?? process.env.HOME;
+  const box = target.sandbox ?? null;
+  return runHook(command, { cwd, sandbox: box, docker: box ? this.dockerPath(ws) : null, extraEnv: this.floorEnv(ws, target) });
+};
+
+/** What happened in a workspace, in order, for `report`. Kept in memory, newest 500, and the audit log has the commands. */
+Core.prototype.noteEvent = function (ws, e) {
+  const list = this.events.get(ws.id) ?? [];
+  list.push({ at: new Date().toISOString(), ...e });
+  this.events.set(ws.id, list.slice(-500));
 };
 
 Core.prototype.preflightAgents = function (ws, agents, drivers, box = null) {

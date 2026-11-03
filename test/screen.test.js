@@ -53,3 +53,17 @@ test('screen diff: the question shown back by the program is not part of the ans
   const out = newScreenText([], after, { echo: q });
   assert.equal(out, 'REJECTED: Norte is flagged by mistake.');
 });
+
+test('screen diff: a second answer that repeats the delimiter lines of the first one keeps them', () => {
+  const first = ['  ┃  Review it.', '  <<<VERDICT', '  STATUS: REJECTED', '  REASON: Norte is flagged by mistake.', '  VERDICT>>>'];
+  const second = [...first, '  ┃  Review it again.', '  <<<VERDICT', '  STATUS: REJECTED', '  REASON: Still the same mistake.', '  VERDICT>>>'];
+  const out = newScreenText(first, second, { echo: 'Review it again.' });
+  assert.match(out, /<<<VERDICT\n\s*STATUS: REJECTED\n\s*REASON: Still the same mistake\.\n\s*VERDICT>>>/);
+  assert.doesNotMatch(out, /Norte is flagged/);
+});
+
+test('screen diff: a screen that scrolled keeps only the new rows, and a long screen does not break it', () => {
+  const old = Array.from({ length: 900 }, (_, i) => `row ${i}`);
+  const now = [...old.slice(50), 'the new answer line one', 'the new answer line two'];
+  assert.equal(newScreenText(old, now), 'the new answer line one\nthe new answer line two');
+});

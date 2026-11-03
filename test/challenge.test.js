@@ -43,3 +43,15 @@ test('challenge: the planted flag.py runs and gives an answer that is not the ke
   assert.equal(r.status, 0, r.stderr);
   assert.notDeepEqual(r.stdout.split('\n').filter(Boolean), sc.flagged);
 });
+
+test('challenge: a record line names the models, and the summary counts passes per pair', async () => {
+  const { recordLine } = await import('./challenge/run.mjs');
+  const { summarize } = await import('./challenge/summary.mjs');
+  const base = { outcome: 'answered', passed: true, seconds: 100, roundTrips: 5, repeated: 0, leaked: 0, gated: 2, gatesFailed: 1, verdicts: ['REJECTED', 'APPROVED'], checks: { a: true, b: false } };
+  const line = recordLine(base, { maestro: 'env PATH=/x opencode -m openrouter/a/big', worker: 'opencode -m openrouter/b/small', seed: 7, inject: true });
+  assert.equal(line.maestro, 'openrouter/a/big');
+  assert.equal(line.worker, 'openrouter/b/small');
+  assert.deepEqual(line.failed, ['b']);
+  const table = summarize([line, { ...line, passed: false, outcome: 'provider-limit' }]);
+  assert.match(table, /\| openrouter\/a\/big \| openrouter\/b\/small \| 2 \| 1 \| 1 \| 100 \| 5\.0 \| 0 \| 2 \|/);
+});

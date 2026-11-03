@@ -4,6 +4,23 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+- `ask --check CMD`, `--verdict`, `--retries N`, `--then "Other"`: the program judges a teammate's work instead of the (possibly weak) Maestro. `CMD` runs in the teammate's folder and container with no keys; a failure goes back to the teammate by itself, at most twice, with the log cut to its first 20 and last 40 lines; the verdict must be an exact block and fails closed. The answer starts with `[gate] PASSED` or `[gate] FAILED`. See docs/validation.md
+- `agent --check CMD`: an answer whose work fails the command goes to the next driver of the fallback chain
+- `report [--json]`: what was asked, checked, rejected and corrected, written by the program from what it saw
+- A loop guard on `ask`: the third nearly identical message to a teammate gets a `[loop]` warning and the fifth is refused
+- Agent terminals get `PAGER=cat`, `GIT_PAGER=cat`, `GIT_EDITOR=true`, `GIT_TERMINAL_PROMPT=0` and `DEBIAN_FRONTEND=noninteractive` unless set, so a model that runs `git commit` without `-m` fails instead of freezing the pane
+- A reviewer's verdict is one line, `VERDICT: APPROVED - reason` (the older three-line block still works); a weak model can write it, and a loose "APPROVED", "NOT APPROVED", a missing reason or a placeholder is not a verdict
+- When the Maestro answers the human while the last check on some teammate's work is a failure, the program appends `[openmaestri] Not verified: ...` to that chat message and lists it as `unverified` in the report
+- A watchdog for the Maestro: when the human wrote and the chat has no answer and the Maestro's screen has not changed for 45 seconds, a fixed reminder is typed into its terminal, at most twice (`OPENMAESTRI_NO_NUDGE=1` turns it off). The Maestro bootstrap no longer tells it to ask the human what the goal is
+- docs/models.md: which models work as Maestro, from real challenge runs
+- The Maestro guide teaches the gate and says not to ask the human what the goal is when it was already given
+- Orchestration challenge: `--record FILE` and `test/challenge/summary.mjs` build a table of runs per model (docs/models.md)
+
+### Fixed
+- `ask` dropped lines that looked like old ones, so a second answer that repeated `STATUS:` or a delimiter of the first arrived without them. Screens are now compared by alignment, in order
+- The `ps command` test waited a fixed half second for a process to appear and failed on a loaded machine
+
 ## [0.22.1] - 2026-11-03
 
 ### Fixed

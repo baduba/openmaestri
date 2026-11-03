@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 
-const BOOL = new Set(['no-check', 'no-handoff', 'ask', 'summary', 'archive', 'apply', 'trust', 'global', 'overwrite', 'progress', 'all', 'existing-branch', 'copy', 'no-git', 'copy-ground', 'delete-branch', 'keep-floor', 'no-hooks', 'clear-hooks', 'keep-branch', 'keep-folder', 'open', 'version', 'json', 'raw-flag', 'batch', 'force', 'none', 'clear', 'without-me', 'no-notify', 'disabled', 'reminder', 'agent', 'floors', 'dry-run', 'no-network', 'yes', 'verify', 'note', 'band', 'fichario', 'portal', 'help']);
+const BOOL = new Set(['no-check', 'no-handoff', 'ask', 'summary', 'archive', 'apply', 'trust', 'global', 'overwrite', 'progress', 'all', 'existing-branch', 'copy', 'no-git', 'copy-ground', 'delete-branch', 'keep-floor', 'no-hooks', 'clear-hooks', 'keep-branch', 'keep-folder', 'open', 'version', 'json', 'raw-flag', 'batch', 'force', 'none', 'clear', 'without-me', 'no-notify', 'disabled', 'reminder', 'agent', 'floors', 'dry-run', 'no-network', 'yes', 'verify', 'verdict', 'note', 'band', 'fichario', 'portal', 'help']);
 
 const HELP = `openmaestri - a spatial workspace for AI agents (open implementation)
 
@@ -21,6 +21,8 @@ Usage:
   openmaestri ps [--all] | ps stop "Terminal" PID [--force]   Processes, memory and CPU of your terminals; stop one process
   openmaestri agent claude|codex|gemini|agy|kimi|opencode|aider|goose "prompt"   One-shot run of an agent CLI, prints its answer (no terminal)
   openmaestri ask "Agent" "prompt" [--timeout 120s]  Send a prompt to a connected agent, wait until it settles, print what it produced
+  openmaestri ask "Agent" "prompt" [--check CMD] [--verdict] [--retries N] [--then "Other"]   The program judges the answer: CMD must exit 0 in the agent's folder, --verdict needs a verdict block; a failure goes back to the agent (at most 2 times), then to "Other"
+  openmaestri report [--json]                       What was asked, checked, rejected and corrected in this workspace, written by the program
   openmaestri ask --batch '{"A":"prompt","B":"prompt"}'  Ask several agents in parallel; prints a JSON array
   openmaestri ask "Agent" --raw "2\\n"                Send raw keystrokes (\\n \\t \\e \\xNN); prints the resulting terminal text
   openmaestri check "Agent" [--lines N]              Read an agent's current terminal screen
@@ -129,7 +131,7 @@ export function build({ pos, flags }) {
       need(c1, 'ask "Agent" "prompt"');
       if (flags.raw !== undefined) return { cmd: 'ask', args: { name: c1, raw: String(flags.raw === true ? rest.join(' ') : flags.raw), timeoutMs } };
       need(rest.length, 'ask "Agent" "prompt"');
-      return { cmd: 'ask', args: { name: c1, prompt: rest.join(' '), timeoutMs } };
+      return { cmd: 'ask', args: { name: c1, prompt: rest.join(' '), timeoutMs, check: optStr(flags.check), retries: flags.retries === undefined ? undefined : Number(flags.retries), verdict: !!flags.verdict, handTo: optStr(flags.then) } };
     }
     case 'run': {
       need(c1 && flags.agents, 'run "task" --agents claude,codex [--floors] [--dry-run] [--model M] [--timeout 10m] [--sandbox IMAGE [--no-network]]');
@@ -145,8 +147,8 @@ export function build({ pos, flags }) {
       return { cmd: 'ps', args: { all: !!flags.all } };
     }
     case 'agent': {
-      need(c1 && rest.length, 'agent <driver> "prompt" [--model M] [--floor NAME] [--timeout 10m] [--fallback d1,d2]');
-      return { cmd: 'agent.run', args: { driver: c1, prompt: rest.join(' '), model: flags.model === undefined ? undefined : String(flags.model), floor: flags.floor === undefined ? undefined : String(flags.floor), timeoutMs: duration(flags.timeout), account: flags.account === undefined ? undefined : String(flags.account), sandbox: optStr(flags.sandbox), noNetwork: !!flags['no-network'], fallback: flags.fallback === undefined ? undefined : String(flags.fallback).split(/[,\s]+/).filter(Boolean) } };
+      need(c1 && rest.length, 'agent <driver> "prompt" [--model M] [--floor NAME] [--timeout 10m] [--fallback d1,d2] [--check CMD]');
+      return { cmd: 'agent.run', args: { driver: c1, prompt: rest.join(' '), model: flags.model === undefined ? undefined : String(flags.model), floor: flags.floor === undefined ? undefined : String(flags.floor), timeoutMs: duration(flags.timeout), account: flags.account === undefined ? undefined : String(flags.account), sandbox: optStr(flags.sandbox), noNetwork: !!flags['no-network'], fallback: flags.fallback === undefined ? undefined : String(flags.fallback).split(/[,\s]+/).filter(Boolean) , check: optStr(flags.check)} };
     }
     case 'check': need(c1, 'check "Agent" [--lines N]'); return { cmd: 'check', args: { name: c1, lines: flags.lines ? Number(flags.lines) : undefined } };
     case 'note': {
@@ -241,6 +243,7 @@ export function build({ pos, flags }) {
       if (action === 'export') need(rest[0], 'facts export "Name" [--apply]');
       return { cmd: 'facts', args: { action, kind: flags.kind === undefined ? undefined : String(flags.kind), word: action === 'search' ? rest.join(' ') : undefined, id: action === 'rm' ? rest[0] : undefined, agent: action === 'export' ? rest[0] : undefined, apply: !!flags.apply } };
     }
+    case 'report': return { cmd: 'report', args: { json: !!flags.json } };
     case 'handoff': need(c1, 'handoff "Agent" [--ask]'); return { cmd: 'handoff', args: { name: c1, ask: !!flags.ask } };
     case 'dismiss': need(c1, 'dismiss "Name"'); return { cmd: 'dismiss', args: { name: c1 } };
     case 'connect': need(c1 && rest[0], 'connect "From" "To" [--agent|--band|--note|--fichario|--portal]'); return { cmd: 'connect', args: { from: c1, to: rest[0], kind: ['agent', 'band', 'note', 'fichario', 'portal'].find((k) => flags[k]) } };

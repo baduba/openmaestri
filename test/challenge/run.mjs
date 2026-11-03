@@ -38,8 +38,18 @@ export function leakedCount(trace, stats) {
 
 const fileHash = (file) => (fs.existsSync(file) ? crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex') : null);
 
+/** One line per run for the per-model table (`summary.mjs`): who played which part and how it went. */
+export function recordLine(r, { maestro, worker, seed, inject }) {
+  const model = (cmd) => /-m\s+(\S+)/.exec(cmd)?.[1] ?? cmd.trim().split(/\s+/).at(-1);
+  return {
+    date: new Date().toISOString().slice(0, 10), maestro: model(maestro), worker: model(worker), seed, inject: !!inject,
+    outcome: r.outcome, passed: r.passed, seconds: r.seconds, messages: r.roundTrips, repeated: r.repeated, leaked: r.leaked,
+    gated: r.gated, gatesFailed: r.gatesFailed, verdicts: r.verdicts.join(','), failed: Object.entries(r.checks).filter(([, v]) => !v).map(([k]) => k),
+  };
+}
+
 /** What a run has to show. The last three only apply when a bug was planted (`inject`). */
-function buildChecks({ inject, final, answered, scriptOut, key, team, toName, reads, repeated, leaked, planted, verdicts, finalHash }) {
+function buildChecks({ inject, final, answered, scriptOut, key, team, toName, reads, repeated, leaked, planted, verdicts, checksFailed, finalHash }) {
   const checks = {
     'final answer says APPROVED': /VERDICT:\s*APPROVED/i.test(final),
     'flagged regions match the answer key': sameList(answered, key),
@@ -52,7 +62,7 @@ function buildChecks({ inject, final, answered, scriptOut, key, team, toName, re
     'the Maestro did not dictate sales figures to a teammate': leaked === 0,
   };
   if (inject) {
-    checks['the planted bug was caught: the Auditor said REJECTED'] = planted !== null && verdicts.includes('REJECTED');
+    checks['the planted bug was caught (the program\'s check failed, or the Auditor said REJECTED)'] = planted !== null && (verdicts.includes('REJECTED') || checksFailed > 0);
     checks['the Dev was asked again after the rejection'] = toName('Dev') >= 2;
     checks['flag.py was fixed, not left as planted'] = planted !== null && finalHash !== planted;
   }
@@ -60,9 +70,9 @@ function buildChecks({ inject, final, answered, scriptOut, key, team, toName, re
 }
 
 /**
- * @param {{maestro: string, worker: string, seed?: number, timeoutMs?: number, stallMs?: number, bootMs?: number, bootstrap?: boolean, inject?: boolean, outDir?: string, log?: (s: string) => void}} o
+ * @param {{maestro: string, worker: string, seed?: number, timeoutMs?: number, stallMs?: number, bootMs?: number, bootstrap?: boolean, inject?: boolean, record?: string, outDir?: string, log?: (s: string) => void}} o
  */
-export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 * 60 * 1000, stallMs = 8 * 60 * 1000, bootMs = 15000, bootstrap = true, inject = false, outDir, log = () => {} }) {
+export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 * 60 * 1000, stallMs = 8 * 60 * 1000, bootMs = 15000, bootstrap = true, inject = false, record, outDir, log = () => {} }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'om-challenge-'));
   const dir = path.join(root, 'work');
   fs.mkdirSync(dir);
@@ -92,15 +102,6 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
       return orig(id, text, opts);
     };
 
-    // how long each wait for an answer took and how much text came back: an ask that returns in a blink with nothing is the failure to look for
-    const origWait = core.terminals.waitIdle.bind(core.terminals);
-    core.terminals.waitIdle = async (id, o) => {
-      const t0 = Date.now();
-      const state = await origWait(id, o);
-      asks.push({ at: t(), to: ws.nodes.find((n) => n.id === id)?.name ?? id, state, secs: Math.round((Date.now() - t0) / 1000) });
-      return state;
-    };
-
     // fault injection: the moment the Dev hands over flag.py, before the Maestro can run it, swap in one with the classic mistake;
     // the review has to catch it and the Dev has to fix it
     const flagPath = path.join(dir, 'flag.py');
@@ -113,13 +114,23 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
       log(`[${t()}s] harness planted a bug in flag.py`);
     };
 
+    // how long each wait for an answer took and how much text came back: an ask that returns in a blink with nothing is the failure to look for
+    const origWait = core.terminals.waitIdle.bind(core.terminals);
+    core.terminals.waitIdle = async (id, o) => {
+      const t0 = Date.now();
+      const state = await origWait(id, o);
+      // the Dev has just stopped: swap in the buggy flag.py before the program checks it
+      if (state === 'idle' && ws.nodes.find((n) => n.id === id)?.name === 'Dev') { devAnswered = true; plant(); }
+      asks.push({ at: t(), to: ws.nodes.find((n) => n.id === id)?.name ?? id, state, secs: Math.round((Date.now() - t0) / 1000) });
+      return state;
+    };
+
     // what ask handed back to the Maestro, per teammate: the evidence of who said what (a TUI redraws, so the screen alone loses it)
     const answers = [];
     const origCommand = core.command.bind(core);
     core.command = async (ctx, cmd, a) => {
       const r = await origCommand(ctx, cmd, a);
-      if (cmd === 'ask' && a?.name === 'Dev') { devAnswered = true; plant(); }
-      if (cmd === 'ask' && a?.name && r?.data) answers.push({ at: t(), from: r.data.name, output: String(r.data.output ?? '') });
+      if (cmd === 'ask' && a?.name && r?.data) answers.push({ at: t(), from: r.data.name, output: String(r.data.output ?? ''), verdict: r.data.gate?.verdict?.status ?? null, gate: r.data.gate ?? null });
       return r;
     };
 
@@ -154,14 +165,15 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
     const toName = (n) => trace.filter((x) => x.to === n).length;
     const repeated = repeatedCount(trace);
     const leaked = leakedCount(trace, sc.stats);
-    const verdicts = answers.filter((a) => a.from === 'Auditor').map((a) => verdictOf(a.output));
+    const verdicts = answers.filter((a) => a.from === 'Auditor').map((a) => a.verdict ?? verdictOf(a.output));
+    const checksFailed = (core.events.get(ws.id) ?? []).filter((e) => e.kind === 'check' && e.ok === false).length;
     const finalHash = fileHash(path.join(dir, 'flag.py'));
     const reads = (core.terminals.text(boss.id, { lastLines: 2000 }).match(/ORD-\d{4},/g) ?? []).length;
-    const checks = buildChecks({ inject, final, answered, scriptOut, key: sc.flagged, team, toName, reads, repeated, leaked, planted, verdicts, finalHash });
+    const checks = buildChecks({ inject, final, answered, scriptOut, key: sc.flagged, team, toName, reads, repeated, leaked, planted, verdicts, checksFailed, finalHash });
     const result = {
       outcome, seconds: t(), passed: Object.values(checks).every(Boolean), checks, key: sc.flagged, answered, scriptOut,
       roundTrips: trace.filter((x) => x.to !== 'Maestro').length, toDev: toName('Dev'), toAuditor: toName('Auditor'),
-      finalAnswer: final, trace, events, asks, answers, verdicts, repeated, leaked,
+      finalAnswer: final, trace, events, asks, answers, verdicts, repeated, leaked, checksFailed, nudges: (core.events.get(ws.id) ?? []).filter((e) => e.kind === 'nudge').length, gated: answers.filter((a) => a.gate).length, gatesFailed: answers.filter((a) => a.gate && !a.gate.ok).length,
       screens: Object.fromEntries(ws.nodes.filter((n) => n.kind === 'terminal').map((n) => [n.name, core.terminals.text(n.id, { lastLines: 60 })])),
     };
     const out = outDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'om-challenge-report-'));
@@ -170,6 +182,7 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
     fs.writeFileSync(path.join(out, 'report.md'), report(result, { maestro, worker, seed }));
     for (const f of ['flag.py']) if (fs.existsSync(path.join(dir, f))) fs.copyFileSync(path.join(dir, f), path.join(out, f));
     result.reportDir = out;
+    if (record) fs.appendFileSync(record, `${JSON.stringify(recordLine(result, { maestro, worker, seed, inject }))}\n`);
     return result;
   } finally {
     await app.close();
@@ -191,6 +204,7 @@ ${rows}
 
 Answer key: ${r.key.join(', ')}. Maestro answered: ${r.answered.join(', ') || '(nothing)'}.
 Messages sent to teammates: ${r.roundTrips} (Dev ${r.toDev}, Auditor ${r.toAuditor}). Repeated: ${r.repeated}. With sales figures in them: ${r.leaked}.
+Asks judged by the program (--check, --verdict): ${r.gated}, failed: ${r.gatesFailed}. Checks that failed: ${r.checksFailed}. Reminders sent to the Maestro: ${r.nudges}.
 Auditor verdicts in order (from what ask returned): ${r.verdicts.join(', ') || '(none)'}.
 Waits for an answer: ${r.asks.map((a) => `${a.to} ${a.state} ${a.secs}s`).join(', ') || '(none)'}.
 Harness events: ${r.events.map((e) => `${e.at}s ${e.text}`).join('; ') || '(none)'}.
@@ -220,6 +234,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     bootMs: Number(get('boot', scripted ? 1500 : 15)) * (scripted ? 1 : 1000),
     bootstrap: !scripted,
     inject: args.includes('--inject'),
+    record: get('record'),
     outDir: get('out'),
     log: (s) => console.error(s),
   });

@@ -16,6 +16,9 @@ Everyday commands
   openmaestri agent <driver> "prompt"      one-shot run of claude, codex, gemini, agy, kimi, opencode, aider or goose (--model, --floor, --timeout); prints the answer
   openmaestri ask "Name" "prompt"          give another agent work; waits until it settles and prints its screen
   openmaestri ask --batch '{"A":"...","B":"..."}'   ask several agents in parallel
+  openmaestri ask "Name" "prompt" --check "CMD" [--retries 1] [--then "Other"]   the program runs CMD in the teammate's folder: exit 0 means accepted. A failure goes back to the teammate by itself (at most 2 times), then to "Other"
+  openmaestri ask "Name" "prompt" --verdict   for a reviewer: the reply must end in one VERDICT line, and you get VERDICT: APPROVED or REJECTED with the reason
+  openmaestri report                       what was asked, checked, rejected and corrected so far, written by the program
   openmaestri check "Name"                 read another agent's current screen without interrupting it
   openmaestri note create "text" --name N  write a shared note; note read/write/edit "N" ...
   openmaestri notify "message"             tell the human something (they get a desktop notification)
@@ -41,8 +44,19 @@ How to orchestrate well
   6. Report progress with floor status and finish with notify.
   7. If openmaestri mcp lists context7, use it to read current library documentation before you write code against a library; do not guess APIs.
   8. Read openmaestri facts before you plan: earlier agents and the human left decisions and traps there. Save yours with openmaestri remember.
+  9. Do not judge a teammate's work by reading its reply. Give ask a --check that proves it (a test, a script, grep) and use --verdict for reviews. The answer starts with [gate] PASSED or [gate] FAILED and you act on that. If you see [loop], stop sending the same message: say it differently with the exact error, or use --then to give the task to another teammate.
+  When there is no test to run, have a reviewer teammate write an independent verify script first, then make the author's --check compare the two outputs (for example: python3 flag.py > a.out && python3 verify.py > b.out && diff a.out b.out). A reviewer's "APPROVED" alone proves nothing.
+  10. When the human has already given the goal and the files, do not ask them to clarify: recruit and start. Use a question tool only when the goal itself is missing.
 `;
 
 export const MAESTRO_BOOTSTRAP =
   'You are the Maestro of this openmaestri workspace: you coordinate other agents. ' +
-  'Run `openmaestri guide` now and follow it. Ask the human what the goal is, then plan, recruit teammates and coordinate them.';
+  'Run `openmaestri guide` now and follow it. You can run shell commands, and openmaestri is on your PATH. ' +
+  'The human writes the goal in the openmaestri chat, as a message that starts with [openmaestri chat, ...]. ' +
+  'Do not ask them anything with a question tool before that message arrives: wait for it, then plan, recruit teammates and coordinate them.';
+
+/** What the Maestro is told, in fixed words, when the human wrote and it went quiet without answering. */
+export const NUDGE =
+  '[openmaestri] The human wrote to you and you have not answered yet. Do not ask them to clarify: their goal is in their message. ' +
+  'You can run shell commands, and openmaestri is on your PATH: run `openmaestri guide` if you have not, recruit teammates with `openmaestri recruit`, ' +
+  'give them work with `openmaestri ask`, and answer the human with `openmaestri say "your answer"`.';

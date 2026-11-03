@@ -9,14 +9,33 @@ const HINT = /(ctrl\+[a-z] (?:commands|to)|esc (?:to )?(?:interrupt|cancel)|\? f
 const FRAME_EDGE = /^[\s┃│▌▐]+/u;
 const squash = (s) => s.replace(/\s+/g, ' ');
 
-/** How many times each non-blank row was on the screen. */
-function countRows(lines) {
-  const seen = new Map();
-  for (const l of lines) {
-    const k = l.trim();
-    if (k) seen.set(k, (seen.get(k) ?? 0) + 1);
+/** At most this many non-blank rows of each screen are compared (the newest ones); the table is rows x rows. */
+const MAX_ROWS = 700;
+
+/**
+ * Which rows of `after` were already there in `before`: the longest common run of rows in the same order (what scrolled up
+ * and stayed the same). A row that only looks like an old one, such as the `<<<VERDICT` line of a second answer, is new text.
+ * @returns {Set<number>} indexes into `after`
+ */
+function unchangedRows(before, after) {
+  const a = before.map((l) => l.trim()).filter(Boolean).slice(-MAX_ROWS);
+  const index = [];
+  const b = [];
+  after.forEach((l, i) => { const k = l.trim(); if (k) { b.push(k); index.push(i); } });
+  const keep = b.length > MAX_ROWS ? b.length - MAX_ROWS : 0;
+  const n = a.length;
+  const m = b.length - keep;
+  const w = m + 1;
+  const dp = new Uint16Array((n + 1) * w);
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) dp[i * w + j] = a[i] === b[keep + j] ? dp[(i + 1) * w + j + 1] + 1 : Math.max(dp[(i + 1) * w + j], dp[i * w + j + 1]);
   }
-  return seen;
+  // rows older than the window are far above the new text: they were there before
+  const same = new Set(index.slice(0, keep));
+  for (let i = 0, j = 0; i < n && j < m;) {
+    if (a[i] === b[keep + j]) { same.add(index[keep + j]); i++; j++; } else if (dp[(i + 1) * w + j] >= dp[i * w + j + 1]) i++; else j++;
+  }
+  return same;
 }
 
 /** A row that is the question shown back by the program (long enough not to match ordinary words). */
@@ -28,18 +47,16 @@ const isEcho = (row, sent) => {
 /** The rows of `after` that were not on the screen before, in order, without frames, status bars, the question shown back (`echo`) and blank runs. */
 export function newScreenText(before, after, { echo = '' } = {}) {
   const sent = squash(String(echo));
-  const seen = countRows(before);
+  const old = unchangedRows(before, after);
   const out = [];
-  for (const raw of after) {
+  after.forEach((raw, i) => {
     const k = raw.trim();
     if (!k) {
       if (out.length && out.at(-1) !== '') out.push('');
-      continue;
+    } else if (!old.has(i) && !DECORATION.test(k) && !HINT.test(k) && !isEcho(raw, sent)) {
+      out.push(raw.replace(FRAME_EDGE, '').trimEnd());
     }
-    const n = seen.get(k) ?? 0;
-    if (n > 0) seen.set(k, n - 1);
-    else if (!DECORATION.test(k) && !HINT.test(k) && !isEcho(raw, sent)) out.push(raw.replace(FRAME_EDGE, '').trimEnd());
-  }
+  });
   while (out.at(-1) === '') out.pop();
   return out.join('\n').trim();
 }
