@@ -25,8 +25,10 @@ export function newScreenText(before, after) {
   return out.join('\n').trim();
 }
 
+const BUSY_HINTS = ['esc to interrupt', 'esc interrupt', 'esc to cancel', 'esc cancel'];
+
 /** True when the bottom of the screen says the program is still working (opencode, Claude Code and codex show "esc to interrupt", Gemini "esc to cancel"). */
 export function looksBusy(lines, rows = 8) {
   const tail = lines.filter((l) => l.trim()).slice(-rows);
-  return tail.some((l) => /\besc\s+(?:to\s+)?(?:interrupt|cancel)\b/i.test(l));
+  return tail.some((l) => { const x = l.toLowerCase().replace(/\s+/g, ' '); return BUSY_HINTS.some((h) => x.includes(h)); });
 }
