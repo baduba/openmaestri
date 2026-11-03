@@ -19,7 +19,19 @@ test('clipLog keeps the start and the end of a long log', () => {
   assert.equal(clipLog('short'), 'short');
 });
 
-test('parseVerdict: only an exact block counts, the last one wins, loose words are not a verdict', () => {
+test('parseVerdict: the one-line form, with markdown around it, and only an exact status', () => {
+  assert.deepEqual(parseVerdict('I checked.\nVERDICT: REJECTED - Norte is flagged by mistake'), { status: 'REJECTED', reason: 'Norte is flagged by mistake' });
+  assert.deepEqual(parseVerdict('**VERDICT: APPROVED** - the output matches the rules'), { status: 'APPROVED', reason: 'the output matches the rules' });
+  assert.deepEqual(parseVerdict('  ┃  VERDICT: APPROVED: all three regions check out'.replace('┃', '')), { status: 'APPROVED', reason: 'all three regions check out' });
+  assert.equal(parseVerdict('VERDICT: APPROVED'), null, 'a reason is required');
+  assert.equal(parseVerdict('VERDICT: NOT APPROVED - no'), null);
+  assert.equal(parseVerdict('VERDICT: <APPROVED or REJECTED> - <what you found>'), null, 'the template is not a verdict');
+  assert.equal(parseVerdict('VERDICT: APPROVED - <reason>'), null, 'a placeholder is not a reason');
+  assert.equal(parseVerdict('VERDICT: MAYBE - unsure'), null);
+  assert.equal(parseVerdict('VERDICT: APPROVED - first\nVERDICT: REJECTED - second').status, 'REJECTED', 'the last one wins');
+});
+
+test('parseVerdict: the older block still counts, the last one wins, loose words are not a verdict', () => {
   assert.deepEqual(parseVerdict(`I looked.\n${BLOCK('REJECTED', 'Norte is flagged by mistake')}`), { status: 'REJECTED', reason: 'Norte is flagged by mistake' });
   assert.equal(parseVerdict('APPROVED, looks fine'), null);
   assert.equal(parseVerdict(BLOCK('MAYBE', 'x')), null, 'STATUS is one of two words');
@@ -35,7 +47,7 @@ test('correction: the failure goes back in a fixed wording with the shortened ou
   assert.match(c, /Command: python3 flag.py/);
   assert.match(c, /exited with code 1/);
   assert.match(c, /lines left out/);
-  assert.match(correction({ kind: 'format' }), /<<<VERDICT/);
+  assert.match(correction({ kind: 'format' }), /VERDICT: <APPROVED or REJECTED>/);
   assert.match(correction({ kind: 'check', command: 'x', timedOut: true, output: '' }), /timed out/);
 });
 
@@ -119,7 +131,7 @@ test('ask --verdict: a reply without the block is sent back once and then accept
 test('ask --verdict fails closed: a teammate that never writes the block is reported as FAILED', async (t) => {
   const { ask } = await setup(t, { Auditor: 'echo "APPROVED"' });
   const r = await ask({ name: 'Auditor', prompt: 'review the output against the rules', verdict: true, retries: 1 });
-  assert.match(r.text, /^\[gate\] FAILED after 2 attempts: no verdict block in the required shape/);
+  assert.match(r.text, /^\[gate\] FAILED after 2 attempts: no verdict line in the required shape/);
   assert.equal(r.data.gate.verdict, null);
 });
 
@@ -189,4 +201,18 @@ test('a Maestro that answered the human is left alone', async (t) => {
   core.chat.append(ws.id, msg.threadId, { role: 'agent', sender: 'Maestro', text: 'hi, here is the plan' });
   await sleep(2000);
   assert.equal(count(core.terminals.text(boss.id), 'GOT: [openmaestri] The human wrote'), 0);
+});
+
+test('an answer to the human over a failed check carries the notice; once the check passes it does not', async (t) => {
+  const { core, ws, boss } = await quietMaestro(t);
+  core.noteEvent(ws, { kind: 'check', to: 'Dev', ok: false, note: 'python3 flag.py exit 1' });
+  await core.command({ terminalId: boss.id }, 'say', { text: 'VERDICT: APPROVED' });
+  const first = core.chat.history(ws.id, core.chat.active(ws.id)).filter((m) => m.role === 'agent').at(-1).text;
+  assert.match(first, /VERDICT: APPROVED\n\n\[openmaestri\] Not verified: a check on the work of Dev: python3 flag\.py exit 1 failed/);
+  assert.ok(core.events.get(ws.id).some((e) => e.kind === 'unverified'));
+  core.noteEvent(ws, { kind: 'check', to: 'Dev', ok: true, note: 'python3 flag.py exit 0' });
+  await core.command({ terminalId: boss.id }, 'say', { text: 'second answer' });
+  const second = core.chat.history(ws.id, core.chat.active(ws.id)).filter((m) => m.role === 'agent').at(-1).text;
+  assert.equal(second, 'second answer');
+  await core.command({ terminalId: boss.id }, 'say', { text: 'progress only', progress: true });
 });

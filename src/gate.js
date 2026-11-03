@@ -1,6 +1,6 @@
 // The acceptance gate of `ask`: what turns "the teammate answered" into "the teammate's work is accepted".
 // A weak model should not be the one that decides whether another model's answer is good. The checks here are
-// done by the program: a command that must exit 0, and a verdict block that must have an exact shape. When one
+// done by the program: a command that must exit 0, and a verdict line that must have an exact shape. When one
 // fails, the failure goes back to the teammate in a short, fixed wording, a limited number of times.
 
 /** More than two corrections in a row rarely help; a model that cannot fix it in two tries usually circles. */
@@ -21,34 +21,53 @@ export function clipLog(text, head = 20, tail = 40) {
 }
 
 export const VERDICT_FORMAT = [
-  'End your reply with a block in exactly this shape, each line on its own line.',
-  'STATUS must be the single word APPROVED or REJECTED. REASON is one or two sentences about what you checked.',
-  '<<<VERDICT',
-  'STATUS: <APPROVED or REJECTED>',
-  'REASON: <what you checked and found>',
-  'VERDICT>>>',
+  'End your reply with exactly one line, and put nothing else on it:',
+  'VERDICT: <APPROVED or REJECTED> - <what you checked and found, in one sentence>',
+  'For example: VERDICT: REJECTED - Norte is listed but its revenue is under the limit.',
 ].join('\n');
 
-/** The last well-formed verdict block in the text, or null. Anything else (a loose "APPROVED", a missing reason) is not a verdict. */
-export function parseVerdict(text) {
-  const src = String(text ?? '');
+const STATUS = new Set(['APPROVED', 'REJECTED']);
+const PLACEHOLDER = /^[<[{]/;
+
+/** "VERDICT: APPROVED - reason" on one line (markdown marks around it are ignored); null when the status is not exactly one of the two words or the reason is missing. */
+function verdictLine(line) {
+  const t = line.trim().replace(/^[\s>*_`#-]+/, '').replace(/[*_`]+/g, '');
+  if (!t.startsWith('VERDICT:')) return null;
+  const rest = t.slice('VERDICT:'.length).trim();
+  const space = rest.search(/[\s:,;-]/);
+  const status = space < 0 ? rest : rest.slice(0, space);
+  const reason = (space < 0 ? '' : rest.slice(space)).replace(/^[\s:,;–—-]+/, '').trim();
+  return STATUS.has(status) && reason.length >= 3 && !PLACEHOLDER.test(reason) ? { status, reason } : null;
+}
+
+/** The old three-line block, still accepted: <<<VERDICT / STATUS: X / REASON: y / VERDICT>>>. */
+function verdictBlock(src) {
   const open = src.lastIndexOf('<<<VERDICT');
   if (open < 0) return null;
   const close = src.indexOf('VERDICT>>>', open);
   if (close < 0) return null;
   const body = src.slice(open + '<<<VERDICT'.length, close).split('\n').map((l) => l.trim()).filter(Boolean);
-  const statusLine = body.find((l) => l.startsWith('STATUS:'));
+  const status = body.find((l) => l.startsWith('STATUS:'))?.slice('STATUS:'.length).trim();
   const reasonAt = body.findIndex((l) => l.startsWith('REASON:'));
-  const status = statusLine?.slice('STATUS:'.length).trim();
-  if (status !== 'APPROVED' && status !== 'REJECTED') return null;
-  if (reasonAt < 0) return null;
+  if (!STATUS.has(status) || reasonAt < 0) return null;
   const reason = [body[reasonAt].slice('REASON:'.length), ...body.slice(reasonAt + 1)].join(' ').replace(/\s+/g, ' ').trim();
   return reason ? { status, reason } : null;
 }
 
+/** The last verdict in the text, or null. Anything else (a loose "APPROVED", "NOT APPROVED", a missing reason) is not a verdict. */
+export function parseVerdict(text) {
+  const src = String(text ?? '');
+  const lines = src.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const v = verdictLine(lines[i]);
+    if (v) return v;
+  }
+  return verdictBlock(src);
+}
+
 /** The message that goes back to the teammate when its work was not accepted. */
 export function correction({ kind, command, exitCode, timedOut, output, verdict }) {
-  if (kind === 'format') return `Your last reply was not accepted: it has no verdict block in the required shape.\n${VERDICT_FORMAT}\nLook at the data again and answer with the block.`;
+  if (kind === 'format') return `Your last reply was not accepted: it has no verdict line in the required shape.\n${VERDICT_FORMAT}\nLook at the data again and answer with that line.`;
   const how = timedOut ? 'timed out' : `exited with code ${exitCode ?? '?'}`;
   const tail = verdict ? `\n${VERDICT_FORMAT}` : '';
   return `An automatic check of your work failed, so it is not accepted yet.\nCommand: ${command}\nResult: ${how}\nOutput (shortened):\n${clipLog(output)}\nFix the cause, then say what you changed.${tail}`;
@@ -101,4 +120,17 @@ export function reportText(events) {
     `${count('nudge')} reminders to the Maestro`,
   ];
   return `${rows.join('\n')}\n\nTotals: ${totals.join(', ')}.`;
+}
+
+/** Checks whose last result, per teammate, was a failure: work that was never accepted. */
+export function unresolvedChecks(events) {
+  const last = new Map();
+  for (const e of events) if (e.kind === 'check') last.set(e.to, e);
+  return [...last.values()].filter((e) => e.ok === false);
+}
+
+/** What is appended to the Maestro's answer to the human when it answers with work that never passed its check. */
+export function unverifiedNotice(open) {
+  const what = open.map((e) => `${e.to}: ${e.note}`).join('; ');
+  return `\n\n[openmaestri] Not verified: a check on the work of ${what} failed and was not fixed afterwards. This answer was given anyway; do not trust it until that check passes.`;
 }

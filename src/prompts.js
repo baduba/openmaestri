@@ -17,7 +17,7 @@ Everyday commands
   openmaestri ask "Name" "prompt"          give another agent work; waits until it settles and prints its screen
   openmaestri ask --batch '{"A":"...","B":"..."}'   ask several agents in parallel
   openmaestri ask "Name" "prompt" --check "CMD" [--retries 1] [--then "Other"]   the program runs CMD in the teammate's folder: exit 0 means accepted. A failure goes back to the teammate by itself (at most 2 times), then to "Other"
-  openmaestri ask "Name" "prompt" --verdict   for a reviewer: the reply must end in a verdict block, and you get VERDICT: APPROVED or REJECTED with the reason
+  openmaestri ask "Name" "prompt" --verdict   for a reviewer: the reply must end in one VERDICT line, and you get VERDICT: APPROVED or REJECTED with the reason
   openmaestri report                       what was asked, checked, rejected and corrected so far, written by the program
   openmaestri check "Name"                 read another agent's current screen without interrupting it
   openmaestri note create "text" --name N  write a shared note; note read/write/edit "N" ...

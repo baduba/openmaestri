@@ -31,16 +31,20 @@ Traceback ...
 openmaestri ask "Auditor" "Judge this output against data/rules.md: Centro Leste Litoral Norte" --verdict
 ```
 
-The reply must end in this block, and nothing else counts:
+The reply must end in one line, and nothing else counts:
 
 ```
-<<<VERDICT
-STATUS: APPROVED or REJECTED
-REASON: what was checked and found
-VERDICT>>>
+VERDICT: APPROVED - what was checked and found
+VERDICT: REJECTED - Norte is listed but its revenue is under the limit
 ```
 
-A loose "APPROVED", "NOT APPROVED", a missing reason or an unclosed block is not a verdict. The program sends the reply back once with the exact shape, and if it still does not fit, the answer is `[gate] FAILED ... no verdict block in the required shape`: the check fails closed. A valid `REJECTED` is a good answer, not a failure: `[gate] PASSED ... VERDICT: REJECTED: reason`.
+The older three-line block (`<<<VERDICT`, `STATUS: ...`, `REASON: ...`, `VERDICT>>>`) is still accepted. The single line is what weak models manage to write.
+
+A loose "APPROVED", "NOT APPROVED", a missing reason or a placeholder such as `<reason>` is not a verdict. The program sends the reply back with the exact shape (as many times as `--retries` allows), and if it still does not fit, the answer is `[gate] FAILED ... no verdict line in the required shape`: the check fails closed. A valid `REJECTED` is a good answer, not a failure: `[gate] PASSED ... VERDICT: REJECTED: reason`.
+
+## When a check failed and the Maestro answered anyway
+
+If the Maestro answers the human while the last check on some teammate's work is a failure, the program adds a line to that chat message: `[openmaestri] Not verified: a check on the work of Dev: ... failed and was not fixed afterwards`. The human is not told "approved" about work that never passed, whatever the Maestro wrote. The report lists it as `unverified`.
 
 ## Loops
 
@@ -53,6 +57,10 @@ If the Maestro sends a teammate nearly the same message a third time within 15 m
 ```bash
 openmaestri agent codex "Fix the failing test" --fallback opencode,kimi --check "npm test"
 ```
+
+## Reminders to the Maestro
+
+A weak Maestro often goes quiet after the human wrote: it asks a question the human already answered, says it "cannot run commands" without trying, or does the work itself. If the chat has no answer and its screen has not changed for 45 seconds, the program types a fixed reminder into its terminal, at most twice (`OPENMAESTRI_NO_NUDGE=1` turns it off). The report counts them.
 
 ## The report
 

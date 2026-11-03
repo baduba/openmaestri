@@ -24,7 +24,7 @@ import { runHook, describeHook, checkCommand, HookError } from './hooks.js';
 import { takeSnapshot, listSnapshots, rollback as rollbackFloor, dropSnapshots } from './snapshots.js';
 import { ForgeError, detectProvider, normalizeProvider, providerInfo, listChanges, formatChanges } from './forge.js';
 import { newScreenText, looksBusy } from './screen.js';
-import { AskLog, MAX_RETRIES, DEFAULT_RETRIES, REPEAT_WARN, REPEAT_STOP, VERDICT_FORMAT, parseVerdict, correction, clipLog, repeatNotice, reportText as eventsReport } from './gate.js';
+import { AskLog, unresolvedChecks, unverifiedNotice, MAX_RETRIES, DEFAULT_RETRIES, REPEAT_WARN, REPEAT_STOP, VERDICT_FORMAT, parseVerdict, correction, clipLog, repeatNotice, reportText as eventsReport } from './gate.js';
 import { MAX_AGENTS, parseAgents, planText, reportText } from './taskrun.js';
 import { Usage, UsageError } from './usage.js';
 import { readUserEnv, TerminalError, commandAvailable, commandPath } from './terminals.js';
@@ -1253,6 +1253,9 @@ const HANDLERS = {
       if (f === file && !isImage && !body) body = this.readTextFile(ws, f);
       else attachments.push(this.chat.attach(ws.id, f));
     }
+    // an answer to the human over work that never passed its check says so, in words the program wrote
+    const open = !progress && me.maestro ? unresolvedChecks(this.events.get(ws.id) ?? []) : [];
+    if (open.length) { body += unverifiedNotice(open); this.noteEvent(ws, { kind: 'unverified', ok: false, note: `answered with ${open.length} failed check${open.length === 1 ? '' : 's'} open` }); }
     const msg = this.chat.append(ws.id, tid, { role: 'agent', sender: me.name, senderId: me.id, text: body, attachments, progress: !!progress });
     if (!progress) this.markAttention(ws, me.id);
     this.touchChat(ws);
@@ -1868,7 +1871,7 @@ Core.prototype.gateAsk = async function (ws, target, { prompt, timeoutMs, quietM
       if (!r.ok) failure = { kind: 'check', command: check, exitCode: r.exitCode, timedOut: r.timedOut, output: r.output, verdict };
     }
     if (!failure) return { ok: true, attempts: attempt, verdict: v, ...last };
-    why = failure.kind === 'format' ? 'no verdict block in the required shape' : `the check "${check}" ${failure.timedOut ? 'timed out' : `exited with ${failure.exitCode ?? '?'}`}${failure.output ? `:\n${clipLog(failure.output, 5, 15)}` : ''}`;
+    why = failure.kind === 'format' ? 'no verdict line in the required shape' : `the check "${check}" ${failure.timedOut ? 'timed out' : `exited with ${failure.exitCode ?? '?'}`}${failure.output ? `:\n${clipLog(failure.output, 5, 15)}` : ''}`;
     if (attempt > retries) break;
     this.noteEvent(ws, { kind: 'retry', to: target.name, note: failure.kind });
     text = correction(failure);
