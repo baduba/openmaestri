@@ -130,6 +130,7 @@ class Runtime {
     this.term = term;
     this.serializer = serializer;
     this.lastDataAt = 0;
+    this.startedAt = Date.now();
     this.bytes = 0;
     this.status = 'running';
     this.exitCode = null;
@@ -337,6 +338,27 @@ export class Terminals extends EventEmitter {
     const body = bracketed ? `\x1b[200~${text}\x1b[201~` : text.replace(/\r?\n/g, '\r');
     rt.proc.write(body);
     if (submit) setTimeout(() => rt.status === 'running' && rt.proc.write('\r'), bracketed ? 150 : 20);
+  }
+
+  /**
+   * A program that was just started draws its screen before it reads the keyboard; text typed earlier is lost.
+   * Resolve once the screen has something on it and has been quiet for `quietMs` (or `timeoutMs` elapsed).
+   * Returns 'ready', or 'timeout' when the program never drew anything.
+   */
+  whenReady(id, { quietMs = 1500, timeoutMs = 20000, busy = null } = {}) {
+    return new Promise((resolve) => {
+      const started = Date.now();
+      const tick = () => {
+        const rt = this.rt.get(id);
+        if (!rt || rt.status !== 'running') return resolve('exited');
+        const now = Date.now();
+        const drawn = this.lines(id, 60).some((l) => l.trim());
+        if (drawn && now - rt.lastDataAt >= quietMs && !(busy && busy())) return resolve('ready');
+        if (now - started >= timeoutMs) return resolve('timeout');
+        setTimeout(tick, 100);
+      };
+      tick();
+    });
   }
 
   /** Resolve once output has been quiet for `quietMs`, or `timeoutMs` elapsed. */

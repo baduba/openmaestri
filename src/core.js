@@ -336,6 +336,9 @@ const HANDLERS = {
     const target = this.resolve(ws, me, name, ['terminal']);
     if (target.id === me.id) fail('an agent cannot ask itself');
     this.startTerminal(ws, target);
+    // a teammate that was just started is still drawing its screen, and what is typed meanwhile is lost: let it settle first
+    const rt = this.terminals.rt.get(target.id);
+    if (raw == null && rt && Date.now() - rt.startedAt < 60000) await this.terminals.whenReady(target.id, { busy: () => looksBusy(this.terminals.lines(target.id, 60)) });
     const since = Date.now();
     const fromLine = this.terminals.cursorLine(target.id);
     const before = this.terminals.lines(target.id);

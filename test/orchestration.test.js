@@ -93,7 +93,7 @@ test('ask waits for a slow agent that shows "esc to interrupt" while its model t
   const ws = core.store.workspaces.get(core.store.settings.activeWorkspaceId);
   ws.dir = dir;
   const maestro = core.store.createNode(ws, 'terminal', { name: 'Maestro', maestro: true, cwd: dir });
-  const slow = core.store.createNode(ws, 'terminal', { name: 'Slow', cwd: dir, command: `bash -c 'read -r q; echo "> $q"; printf "  working  esc to interrupt\\r"; sleep 5; printf "\\033[2K\\rANSWER-42 is the reply\\n"; sleep 30'` });
+  const slow = core.store.createNode(ws, 'terminal', { name: 'Slow', cwd: dir, command: `bash -c 'echo booted; read -r q; echo "> $q"; printf "  working  esc to interrupt\\r"; sleep 5; printf "\\033[2K\\rANSWER-42 is the reply\\n"; sleep 30'` });
   core.startTerminal(ws, slow);
   await sleep(500);
   const t0 = Date.now();
@@ -103,4 +103,20 @@ test('ask waits for a slow agent that shows "esc to interrupt" while its model t
   assert.ok(took < 15000, `waited ${took} ms: it did not notice the agent had finished`);
   assert.match(r.data.output, /ANSWER-42 is the reply/);
   assert.doesNotMatch(r.data.output, /esc to interrupt/);
+});
+
+test('ask to a teammate that is still starting waits until its screen is drawn, so the prompt is not lost', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-boot-'));
+  const app = await main({ port: 0, dataRoot: path.join(dir, 'data'), socketPath: path.join(dir, 'ipc.sock'), quiet: true });
+  t.after(async () => { await app.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const { core } = app;
+  const ws = core.store.workspaces.get(core.store.settings.activeWorkspaceId);
+  ws.dir = dir;
+  const maestro = core.store.createNode(ws, 'terminal', { name: 'Maestro', maestro: true, cwd: dir });
+  // it ignores the keyboard for 3 seconds (a TUI loading), discards what was typed then, and only afterwards reads a line
+  const slow = core.store.createNode(ws, 'terminal', { name: 'Late', cwd: dir, command: `bash -c 'sleep 3; read -r -t 0.3 -N 10000 _; echo "ready now"; read -r -t 8 q; echo "got: $q"; sleep 20'` });
+  core.startTerminal(ws, slow);
+  await sleep(300);
+  const r = await core.command({ terminalId: maestro.id }, 'ask', { name: 'Late', prompt: 'hello there', timeoutMs: 20000 });
+  assert.match(r.data.output, /got: hello there/);
 });
