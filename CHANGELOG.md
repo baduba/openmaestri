@@ -4,6 +4,8 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-03
+
 ### Added
 - `scripts/dast.sh` and `test/dast.mjs`: dynamic security tests against a running daemon (72 checks) and an OWASP ZAP baseline or active scan. See docs/security-scanning.md
 - Ports per floor: every floor gets a block of 100 ports, and terminals, hooks and one-shot agents started in it see `OPENMAESTRI_PORT_BASE`, `PORT` and `COMPOSE_PROJECT_NAME` (the ground floor only the first), so two agents' dev servers and compose stacks do not collide
