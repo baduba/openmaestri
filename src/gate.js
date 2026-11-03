@@ -98,6 +98,7 @@ export function reportText(events) {
     `${count('retry')} corrections sent`,
     `${count('forward')} handed to another teammate`,
     `${count('loop')} loop warnings`,
+    `${count('nudge')} reminders to the Maestro`,
   ];
   return `${rows.join('\n')}\n\nTotals: ${totals.join(', ')}.`;
 }

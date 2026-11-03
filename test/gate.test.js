@@ -75,12 +75,12 @@ async function setup(t, mates) {
   for (const [name, body] of Object.entries(mates)) {
     const sub = path.join(dir, name);
     fs.mkdirSync(sub);
-    const script = `echo ready; n=0; while read -r q; do while read -r -t 0.4 more; do q="$q $more"; done; n=$((n+1)); ${body}; done`;
+    const script = `echo ready; n=0; while read -r q; do while read -r -t 0.15 more; do q="$q $more"; done; n=$((n+1)); ${body}; done`;
     const node = core.store.createNode(ws, 'terminal', { name, cwd: sub, command: `bash -c '${script.replaceAll("'", "'\\''")}'` });
     core.startTerminal(ws, node);
   }
   await sleep(500);
-  const ask = (args) => core.command({ terminalId: maestro.id }, 'ask', { quietMs: 400, timeoutMs: 20000, ...args });
+  const ask = (args) => core.command({ terminalId: maestro.id }, 'ask', { quietMs: 900, timeoutMs: 20000, ...args });
   return { core, ws, dir, maestro, ask };
 }
 
@@ -150,4 +150,43 @@ test('report: written from what happened, and only a Maestro can make the progra
   assert.match(rep.text, /1 checks \(0 failed\)/);
   const worker = core.store.createNode(ws, 'terminal', { name: 'Worker', cwd: ws.dir, command: 'cat' });
   await assert.rejects(core.command({ terminalId: worker.id }, 'ask', { name: 'Dev', prompt: 'x', check: 'true' }), /only available to Maestro/);
+});
+
+/** A stand-in Maestro that reads what it is typed and never answers the human. */
+async function quietMaestro(t) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-nudge-'));
+  const app = await main({ port: 0, dataRoot: path.join(dir, 'data'), socketPath: path.join(dir, 'ipc.sock'), quiet: true });
+  const saved = { idle: process.env.OPENMAESTRI_NUDGE_IDLE_MS, tick: process.env.OPENMAESTRI_NUDGE_TICK_MS };
+  process.env.OPENMAESTRI_NUDGE_IDLE_MS = '400';
+  process.env.OPENMAESTRI_NUDGE_TICK_MS = '100';
+  t.after(async () => {
+    for (const [k, v] of [['OPENMAESTRI_NUDGE_IDLE_MS', saved.idle], ['OPENMAESTRI_NUDGE_TICK_MS', saved.tick]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    await app.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  const { core } = app;
+  const ws = core.store.workspaces.get(core.store.settings.activeWorkspaceId);
+  ws.dir = dir;
+  const boss = core.store.createNode(ws, 'terminal', { name: 'Maestro', maestro: true, cwd: dir, command: `bash -c 'echo ready; while IFS= read -r l; do echo "GOT: $l"; done'` });
+  core.startTerminal(ws, boss);
+  await sleep(600);
+  return { core, ws, boss };
+}
+const count = (text, needle) => text.split(needle).length - 1;
+
+test('a Maestro that goes quiet after the human wrote is reminded twice, in fixed words, and no more', async (t) => {
+  const { core, ws, boss } = await quietMaestro(t);
+  core.chatSend(ws, { thread: '1', text: 'please plan the release' });
+  await sleep(3500);
+  assert.equal(count(core.terminals.text(boss.id), 'GOT: [openmaestri] The human wrote'), 2, 'the stand-in prints back each line it was typed');
+  assert.equal(core.events.get(ws.id).filter((e) => e.kind === 'nudge').length, 2);
+  assert.match(reportText(core.events.get(ws.id)), /2 reminders to the Maestro/);
+});
+
+test('a Maestro that answered the human is left alone', async (t) => {
+  const { core, ws, boss } = await quietMaestro(t);
+  const msg = core.chatSend(ws, { thread: '1', text: 'hello' });
+  core.chat.append(ws.id, msg.threadId, { role: 'agent', sender: 'Maestro', text: 'hi, here is the plan' });
+  await sleep(2000);
+  assert.equal(count(core.terminals.text(boss.id), 'GOT: [openmaestri] The human wrote'), 0);
 });

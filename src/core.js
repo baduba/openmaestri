@@ -8,7 +8,7 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Store, dataDir } from './store.js';
-import { GUIDE } from './prompts.js';
+import { GUIDE, NUDGE } from './prompts.js';
 import { Terminals } from './terminals.js';
 import { freePortBase, floorVars } from './ports.js';
 import { Mcp, McpError, buildServer, mcpText, planInstall } from './mcp.js';
@@ -1626,8 +1626,38 @@ Core.prototype.chatSend = function (ws, { thread, text, attachments = [] }) {
   const files = attachments.map((a) => ` [attached: ${a.name}, ${a.size} bytes. Get its path with: openmaestri recall attachment ${a.id}]`).join('');
   const line = `[openmaestri chat, ${title}] ${cleanText(expanded.text, 140000)}${files}\n(Answer the human with: openmaestri say "your answer". For long work, send short updates with: openmaestri say --progress "...")`;
   this.terminals.deliver(maestro.id, line);
+  this.watchMaestro(ws, maestro, tid, msg.ts);
   msg.mentions = expanded.mentions;
   return msg;
+};
+
+const NUDGE_IDLE_MS = () => Number(process.env.OPENMAESTRI_NUDGE_IDLE_MS) || 45000;
+const NUDGE_TICK_MS = () => Number(process.env.OPENMAESTRI_NUDGE_TICK_MS) || 5000;
+const MAX_NUDGES = 2;
+
+/**
+ * A weak model often goes quiet without answering: it asks the human a question the human already answered, says it
+ * "cannot run commands" without trying, or does the work itself. After the human writes, if the Maestro has not answered
+ * in the chat and its screen has been still for a while, tell it once or twice, in fixed words. Off with OPENMAESTRI_NO_NUDGE=1.
+ */
+Core.prototype.watchMaestro = function (ws, maestro, thread, sentAt) {
+  if (process.env.OPENMAESTRI_NO_NUDGE === '1') return;
+  this.nudgeTimers ??= new Map();
+  clearInterval(this.nudgeTimers.get(maestro.id));
+  let sent = 0;
+  const started = Date.now();
+  const timer = setInterval(() => {
+    const rt = this.terminals.rt.get(maestro.id);
+    const answered = this.chat.history(ws.id, thread, { turns: 100 }).some((m) => m.role === 'agent' && !m.progress && m.ts >= sentAt);
+    if (!rt || rt.status !== 'running' || answered || sent >= MAX_NUDGES || Date.now() - started > 30 * 60 * 1000) { clearInterval(timer); return; }
+    const still = Date.now() - rt.lastDataAt >= NUDGE_IDLE_MS() && !looksBusy(this.terminals.lines(maestro.id, 60));
+    if (!still) return;
+    try { this.terminals.deliver(maestro.id, NUDGE); } catch { clearInterval(timer); return; }
+    sent++;
+    this.noteEvent(ws, { kind: 'nudge', to: maestro.name, note: `${sent} of ${MAX_NUDGES}: the human wrote and there was no answer` });
+  }, NUDGE_TICK_MS());
+  timer.unref?.();
+  this.nudgeTimers.set(maestro.id, timer);
 };
 Core.prototype.chatInterrupt = function (ws) {
   const maestro = this.chatMaestro(ws);
