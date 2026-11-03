@@ -4,6 +4,8 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-11-03
+
 ### Fixed
 - `ask` returned the footer of the screen instead of the answer for full-screen agents (OpenCode, Claude Code, codex): they redraw in place, so the answer had scrolled above the old cursor line. It now compares the screen before and after, drops frames, status bars and the question shown back. A Maestro that got "read." and a status bar asked again and then improvised
 - `ask` returned as soon as the screen was quiet for 2.5 seconds, even while the program said "esc to interrupt" (waiting for a slow model). It now waits until that hint is gone
