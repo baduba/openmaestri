@@ -26,6 +26,13 @@ export const VERDICT_FORMAT = [
   'For example: VERDICT: REJECTED - Norte is listed but its revenue is under the limit.',
 ].join('\n');
 
+/** Drop the spaces and the separator (: , ; - and the long dashes) between the status word and the reason. */
+const trimLeadSeparators = (text) => {
+  let i = 0;
+  while (i < text.length && ' \t:,;-\u2013\u2014'.includes(text[i])) i++;
+  return text.slice(i).trim();
+};
+
 const STATUS = new Set(['APPROVED', 'REJECTED']);
 const PLACEHOLDER = /^[<[{]/;
 
@@ -36,7 +43,7 @@ function verdictLine(line) {
   const rest = t.slice('VERDICT:'.length).trim();
   const space = rest.search(/[\s:,;-]/);
   const status = space < 0 ? rest : rest.slice(0, space);
-  const reason = (space < 0 ? '' : rest.slice(space)).replace(/^[\s:,;–—-]+/, '').trim();
+  const reason = trimLeadSeparators(space < 0 ? '' : rest.slice(space));
   return STATUS.has(status) && reason.length >= 3 && !PLACEHOLDER.test(reason) ? { status, reason } : null;
 }
 

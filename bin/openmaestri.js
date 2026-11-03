@@ -131,7 +131,7 @@ export function build({ pos, flags }) {
       need(c1, 'ask "Agent" "prompt"');
       if (flags.raw !== undefined) return { cmd: 'ask', args: { name: c1, raw: String(flags.raw === true ? rest.join(' ') : flags.raw), timeoutMs } };
       need(rest.length, 'ask "Agent" "prompt"');
-      return { cmd: 'ask', args: { name: c1, prompt: rest.join(' '), timeoutMs, check: optStr(flags.check), retries: flags.retries === undefined ? undefined : Number(flags.retries), verdict: !!flags.verdict, then: optStr(flags.then) } };
+      return { cmd: 'ask', args: { name: c1, prompt: rest.join(' '), timeoutMs, check: optStr(flags.check), retries: flags.retries === undefined ? undefined : Number(flags.retries), verdict: !!flags.verdict, handTo: optStr(flags.then) } };
     }
     case 'run': {
       need(c1 && flags.agents, 'run "task" --agents claude,codex [--floors] [--dry-run] [--model M] [--timeout 10m] [--sandbox IMAGE [--no-network]]');

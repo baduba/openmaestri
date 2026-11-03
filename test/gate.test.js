@@ -137,7 +137,7 @@ test('ask --verdict fails closed: a teammate that never writes the block is repo
 
 test('ask --then: when one teammate cannot pass, the task goes to another and the answer says so', async (t) => {
   const { ask, core, ws } = await setup(t, { Weak: 'echo bad > status.txt; echo "done"', Strong: 'echo ok > status.txt; echo "done"' });
-  const r = await ask({ name: 'Weak', prompt: 'write ok into status.txt', check: 'grep -q ok status.txt', retries: 0, then: 'Strong' });
+  const r = await ask({ name: 'Weak', prompt: 'write ok into status.txt', check: 'grep -q ok status.txt', retries: 0, handTo: 'Strong' });
   assert.match(r.text, /^\[gate\] PASSED after 1 attempt by Strong, after Weak did not pass/);
   assert.equal(r.data.gate.handedTo, 'Strong');
   assert.ok(core.events.get(ws.id).some((e) => e.kind === 'forward' && e.to === 'Strong'));

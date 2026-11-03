@@ -346,11 +346,11 @@ const HANDLERS = {
    * `verdict` (the answer must end in an exact verdict block) or `then` (another teammate to take the task if this one cannot
    * pass), the program does the judging: a failure goes back to the teammate up to `retries` times, in a fixed wording.
    */
-  async ask(ws, me, { name, prompt, raw, timeoutMs = 120000, quietMs, check, retries, verdict, then }) {
+  async ask(ws, me, { name, prompt, raw, timeoutMs = 120000, quietMs, check, retries, verdict, handTo }) {
     if (check != null) this.requireMaestro(me); // the program will run this command on the machine
     const target = this.resolve(ws, me, name, ['terminal']);
     if (target.id === me.id) fail('an agent cannot ask itself');
-    const gated = check != null || !!verdict || then != null;
+    const gated = check != null || !!verdict || handTo != null;
     if (raw != null) {
       if (gated) fail('--raw sends keystrokes; --check, --verdict and --then go with a prompt');
       const r = await this.askOnce(ws, target, { raw, timeoutMs, quietMs });
@@ -358,7 +358,7 @@ const HANDLERS = {
     }
     if (!prompt) fail('usage: ask "Agent" "prompt" [--check CMD] [--verdict] [--retries N] [--then "Other"]');
     if (check != null) checkCommand(check);
-    const other = then != null ? this.resolve(ws, me, then, ['terminal']) : null;
+    const other = handTo != null ? this.resolve(ws, me, handTo, ['terminal']) : null;
     if (other && (other.id === me.id || other.id === target.id)) fail('--then names another teammate, not the one asked or yourself');
     const repeats = this.askLog.note(ws.id, target.id, prompt);
     if (repeats + 1 >= REPEAT_STOP) {
