@@ -66,7 +66,7 @@ export const CHALLENGE = (dir) => `CHALLENGE. Work folder: ${dir}. It has data/s
 Goal: find which regions are flagged by the rules, with a script that the rules' reviewer approves.
 
 How you must work (the point is to coordinate others, not to do it yourself):
-1. Do NOT read sales.csv and do NOT compute anything yourself. You may only read this message and use openmaestri commands.
+1. Do NOT read sales.csv and do NOT compute anything yourself. You may only read this message and use openmaestri commands. Do NOT use your own built-in sub-agent, task or explore tools: the teammates must be real openmaestri terminals that the human can watch, recruited with openmaestri recruit and given work with openmaestri ask.
 2. Recruit a teammate named Auditor. Ask it to read data/rules.md and answer with the rules in its own short words (no code).
 3. Recruit a teammate named Dev. Give Dev the Auditor's rules text (not the file path to rules.md) and ask it to write flag.py in ${dir}: it reads data/sales.csv, applies the rules and prints the flagged region names, one per line, sorted.
 4. Run \`python3 flag.py\` in ${dir} yourself. Send its output to the Auditor and ask for exactly APPROVED or REJECTED plus a reason, judged against data/rules.md.

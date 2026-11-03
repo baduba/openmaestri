@@ -33,7 +33,7 @@ Maestro-only commands
   openmaestri preset list                  agent presets you can recruit with
 
 How to orchestrate well
-  1. Split the goal into independent pieces. Recruit one teammate per piece, each with a clear scope.
+  1. Split the goal into independent pieces. Recruit one teammate per piece, each with a clear scope. Use openmaestri recruit and ask for this, not your own built-in sub-agent or task tools: the human sees and steers openmaestri teammates on the canvas, and cannot see yours.
   2. Put shared context (goal, decisions, interfaces) in a note so every teammate reads the same facts.
   3. Use ask --batch for parallel work. Read results with check before assuming something is done.
   4. Never dismiss a teammate or delete a note unless the human asked for it.
