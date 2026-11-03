@@ -19,6 +19,46 @@ const byName = (a, b) => a.localeCompare(b);
 export const PROVIDER_LIMIT = /rate limit exceeded|free usage limit reached|free-models-per-day|insufficient (?:credits|balance)|quota exceeded/i;
 const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 
+/** The word an Auditor answered with (a reply that has both words counts as a rejection), or ? when it gave neither. */
+export function verdictOf(text) {
+  if (/\bREJECTED\b/.test(text)) return 'REJECTED';
+  return /\bAPPROVED\b/.test(text) ? 'APPROVED' : '?';
+}
+
+/** Messages to a teammate that were sent more than once, word for word. */
+export function repeatedCount(trace) {
+  return trace.filter((x, i) => x.to !== 'Maestro' && trace.findIndex((y) => y.to === x.to && y.text === x.text) !== i).length;
+}
+
+/** Messages to a teammate that carry two or more of the true per-region revenues: the Maestro dictating what the teammate should compute. */
+export function leakedCount(trace, stats) {
+  const figures = new Set(Object.values(stats).map((r) => String(r.revenue)));
+  return trace.filter((x) => x.to !== 'Maestro' && (x.text.match(/\d+/g) ?? []).filter((d) => figures.has(d)).length >= 2).length;
+}
+
+const fileHash = (file) => (fs.existsSync(file) ? crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex') : null);
+
+/** What a run has to show. The last three only apply when a bug was planted (`inject`). */
+function buildChecks({ inject, final, answered, scriptOut, key, team, toName, reads, repeated, leaked, planted, verdicts, finalHash }) {
+  const checks = {
+    'final answer says APPROVED': /VERDICT:\s*APPROVED/i.test(final),
+    'flagged regions match the answer key': sameList(answered, key),
+    'flag.py exists and prints the answer key': scriptOut !== null && sameList(scriptOut, key),
+    'Auditor and Dev were recruited': ['Auditor', 'Dev'].every((n) => team.some((x) => x.name === n)),
+    'Auditor was asked at least twice (rules, then review)': toName('Auditor') >= 2,
+    'Dev was asked at least once': toName('Dev') >= 1,
+    'the Maestro did not read the data itself': reads < 5,
+    'no message to a teammate was sent twice': repeated === 0,
+    'the Maestro did not dictate sales figures to a teammate': leaked === 0,
+  };
+  if (inject) {
+    checks['the planted bug was caught: the Auditor said REJECTED'] = planted !== null && verdicts.includes('REJECTED');
+    checks['the Dev was asked again after the rejection'] = toName('Dev') >= 2;
+    checks['flag.py was fixed, not left as planted'] = planted !== null && finalHash !== planted;
+  }
+  return checks;
+}
+
 /**
  * @param {{maestro: string, worker: string, seed?: number, timeoutMs?: number, stallMs?: number, bootMs?: number, bootstrap?: boolean, inject?: boolean, outDir?: string, log?: (s: string) => void}} o
  */
@@ -68,7 +108,7 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
     const plant = () => {
       if (!inject || planted || !devAnswered || !fs.existsSync(flagPath)) return;
       fs.writeFileSync(flagPath, buggyFlagScript(sc.limits));
-      planted = crypto.createHash('sha256').update(fs.readFileSync(flagPath)).digest('hex');
+      planted = fileHash(flagPath);
       events.push({ at: t(), text: 'harness planted a bug in flag.py (every row counts)' });
       log(`[${t()}s] harness planted a bug in flag.py`);
     };
@@ -112,28 +152,12 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
     const scriptOut = fs.existsSync(path.join(dir, 'flag.py')) && ran.status === 0 ? ran.stdout.split('\n').map((x) => x.trim()).filter(Boolean).sort(byName) : null;
     const team = ws.nodes.filter((n) => n.kind === 'terminal' && !n.maestro);
     const toName = (n) => trace.filter((x) => x.to === n).length;
-    const repeated = trace.filter((x, i) => trace.findIndex((y) => y.to === x.to && y.text === x.text) !== i && x.to !== 'Maestro').length;
-    const figures = Object.values(sc.stats).map((s) => String(s.revenue));
-    const leaked = trace.filter((x) => x.to !== 'Maestro' && (x.text.match(/\d+/g) ?? []).filter((d) => figures.includes(d)).length >= 2).length;
-    const verdicts = answers.filter((a) => a.from === 'Auditor').map((a) => (/\bREJECTED\b/.test(a.output) ? 'REJECTED' : /\bAPPROVED\b/.test(a.output) ? 'APPROVED' : '?'));
-    const finalHash = fs.existsSync(path.join(dir, 'flag.py')) ? crypto.createHash('sha256').update(fs.readFileSync(path.join(dir, 'flag.py'))).digest('hex') : null;
+    const repeated = repeatedCount(trace);
+    const leaked = leakedCount(trace, sc.stats);
+    const verdicts = answers.filter((a) => a.from === 'Auditor').map((a) => verdictOf(a.output));
+    const finalHash = fileHash(path.join(dir, 'flag.py'));
     const reads = (core.terminals.text(boss.id, { lastLines: 2000 }).match(/ORD-\d{4},/g) ?? []).length;
-    const checks = {
-      'final answer says APPROVED': /VERDICT:\s*APPROVED/i.test(final),
-      'flagged regions match the answer key': sameList(answered, sc.flagged),
-      'flag.py exists and prints the answer key': scriptOut !== null && sameList(scriptOut, sc.flagged),
-      'Auditor and Dev were recruited': ['Auditor', 'Dev'].every((n) => team.some((x) => x.name === n)),
-      'Auditor was asked at least twice (rules, then review)': toName('Auditor') >= 2,
-      'Dev was asked at least once': toName('Dev') >= 1,
-      'the Maestro did not read the data itself': reads < 5,
-      'no message to a teammate was sent twice': repeated === 0,
-      'the Maestro did not dictate sales figures to a teammate': leaked === 0,
-      ...(inject ? {
-        'the planted bug was caught: the Auditor said REJECTED': planted !== null && verdicts.includes('REJECTED'),
-        'the Dev was asked again after the rejection': toName('Dev') >= 2,
-        'flag.py was fixed, not left as planted': planted !== null && finalHash !== planted,
-      } : {}),
-    };
+    const checks = buildChecks({ inject, final, answered, scriptOut, key: sc.flagged, team, toName, reads, repeated, leaked, planted, verdicts, finalHash });
     const result = {
       outcome, seconds: t(), passed: Object.values(checks).every(Boolean), checks, key: sc.flagged, answered, scriptOut,
       roundTrips: trace.filter((x) => x.to !== 'Maestro').length, toDev: toName('Dev'), toAuditor: toName('Auditor'),

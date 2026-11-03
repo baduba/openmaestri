@@ -23,6 +23,18 @@ async function run(core, id, line) {
   return lines.slice(echoed + 1, end).join('\n');
 }
 
+/** A daemon in a temporary folder, with its active workspace and a Maestro terminal (not started); closed and removed when the test ends. */
+async function startDaemon(t, prefix) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const app = await main({ port: 0, dataRoot: path.join(dir, 'data'), socketPath: path.join(dir, 'ipc.sock'), quiet: true });
+  t.after(async () => { await app.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const { core } = app;
+  const ws = core.store.workspaces.get(core.store.settings.activeWorkspaceId);
+  ws.dir = dir;
+  const maestro = core.store.createNode(ws, 'terminal', { name: 'Maestro', maestro: true, cwd: dir });
+  return { core, ws, dir, maestro };
+}
+
 test('a Maestro recruits workers and coordinates them in parallel', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-orch-'));
   const app = await main({ port: 0, dataRoot: path.join(dir, 'data'), socketPath: path.join(dir, 'ipc.sock'), quiet: true });
@@ -86,13 +98,7 @@ test('DeepSeek presets ship by default', async (t) => {
 });
 
 test('ask waits for a slow agent that shows "esc to interrupt" while its model thinks, instead of returning the echo', async (t) => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-slow-'));
-  const app = await main({ port: 0, dataRoot: path.join(dir, 'data'), socketPath: path.join(dir, 'ipc.sock'), quiet: true });
-  t.after(async () => { await app.close(); fs.rmSync(dir, { recursive: true, force: true }); });
-  const { core } = app;
-  const ws = core.store.workspaces.get(core.store.settings.activeWorkspaceId);
-  ws.dir = dir;
-  const maestro = core.store.createNode(ws, 'terminal', { name: 'Maestro', maestro: true, cwd: dir });
+  const { core, ws, dir, maestro } = await startDaemon(t, 'om-slow-');
   const slow = core.store.createNode(ws, 'terminal', { name: 'Slow', cwd: dir, command: `bash -c 'echo booted; read -r q; echo "> $q"; printf "  working  esc to interrupt\\r"; sleep 5; printf "\\033[2K\\rANSWER-42 is the reply\\n"; sleep 30'` });
   core.startTerminal(ws, slow);
   await sleep(500);
@@ -106,13 +112,7 @@ test('ask waits for a slow agent that shows "esc to interrupt" while its model t
 });
 
 test('ask to a teammate that is still starting waits until its screen is drawn, so the prompt is not lost', async (t) => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-boot-'));
-  const app = await main({ port: 0, dataRoot: path.join(dir, 'data'), socketPath: path.join(dir, 'ipc.sock'), quiet: true });
-  t.after(async () => { await app.close(); fs.rmSync(dir, { recursive: true, force: true }); });
-  const { core } = app;
-  const ws = core.store.workspaces.get(core.store.settings.activeWorkspaceId);
-  ws.dir = dir;
-  const maestro = core.store.createNode(ws, 'terminal', { name: 'Maestro', maestro: true, cwd: dir });
+  const { core, ws, dir, maestro } = await startDaemon(t, 'om-boot-');
   // it ignores the keyboard for 3 seconds (a TUI loading), discards what was typed then, and only afterwards reads a line
   const slow = core.store.createNode(ws, 'terminal', { name: 'Late', cwd: dir, command: `bash -c 'sleep 3; read -r -t 0.3 -N 10000 _; echo "ready now"; read -r -t 8 q; echo "got: $q"; sleep 20'` });
   core.startTerminal(ws, slow);
