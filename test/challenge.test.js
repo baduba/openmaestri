@@ -4,7 +4,9 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { runChallenge, PROVIDER_LIMIT } from './challenge/run.mjs';
-import { buildScenario, evaluate } from './challenge/scenario.mjs';
+import os from 'node:os';
+import { spawnSync } from 'node:child_process';
+import { buildScenario, evaluate, writeScenario, buggyFlagScript } from './challenge/scenario.mjs';
 
 const AGENTS = path.join(path.dirname(fileURLToPath(import.meta.url)), 'challenge', 'agents');
 
@@ -29,4 +31,15 @@ test('challenge: scripted Maestro, Auditor and Dev go back and forth until the r
 test('challenge: the lines agents print when a free tier ends are recognised', () => {
   for (const line of ['Rate limit exceeded: free-models-per-day. Add 10 credits', 'AI_APICallError: Free usage limit reached.', 'Error: insufficient credits', 'quota exceeded for this key']) assert.match(line, PROVIDER_LIMIT);
   for (const line of ['Created flag.py', 'The rules state a rate of 9%']) assert.doesNotMatch(line, PROVIDER_LIMIT);
+});
+
+test('challenge: the planted flag.py runs and gives an answer that is not the key', (t) => {
+  const sc = buildScenario(7);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-bug-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  writeScenario(dir, sc);
+  fs.writeFileSync(path.join(dir, 'flag.py'), buggyFlagScript(sc.limits));
+  const r = spawnSync('python3', ['flag.py'], { cwd: dir, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.notDeepEqual(r.stdout.split('\n').filter(Boolean), sc.flagged);
 });

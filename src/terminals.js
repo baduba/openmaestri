@@ -301,6 +301,22 @@ export class Terminals extends EventEmitter {
     return (fromLine == null && lastLines ? out.slice(-lastLines) : out).join('\n');
   }
 
+  /** Every row of the screen and its scrollback, wrapped rows joined, for comparing before and after a question. */
+  lines(id, max = 1000) {
+    const rt = this.rt.get(id);
+    if (!rt) return [];
+    const b = rt.term.buffer.active;
+    const out = [];
+    for (let i = Math.max(0, b.length - max); i < b.length; i++) {
+      const line = b.getLine(i);
+      if (!line) continue;
+      const s = line.translateToString(true);
+      if (line.isWrapped && out.length) out[out.length - 1] += s;
+      else out.push(s);
+    }
+    return out;
+  }
+
   status(id) {
     const rt = this.rt.get(id);
     if (!rt) return 'stopped';

@@ -62,6 +62,21 @@ A region is **flagged** when its revenue is greater than ${sc.limits.revenue} **
 `);
 }
 
+/** A flag.py with the classic mistake (every row counts), planted by the harness so the review has something real to catch. */
+export function buggyFlagScript(limits) {
+  return `import csv, collections
+rows = list(csv.DictReader(open('data/sales.csv')))
+rev = collections.defaultdict(int)
+n = collections.Counter()
+for r in rows:
+    n[r['region']] += 1
+    rev[r['region']] += abs(int(r['units'])) * int(r['unit_price'])
+for g in sorted(n):
+    if rev[g] > ${limits.revenue}:
+        print(g)
+`;
+}
+
 export const CHALLENGE = (dir) => `CHALLENGE. Work folder: ${dir}. It has data/sales.csv and data/rules.md.
 Goal: find which regions are flagged by the rules, with a script that the rules' reviewer approves.
 
@@ -71,6 +86,7 @@ How you must work (the point is to coordinate others, not to do it yourself):
 3. Recruit a teammate named Dev. Give Dev the Auditor's rules text (not the file path to rules.md) and ask it to write flag.py in ${dir}: it reads data/sales.csv, applies the rules and prints the flagged region names, one per line, sorted.
 4. Run \`python3 flag.py\` in ${dir} yourself. Send its output to the Auditor and ask for exactly APPROVED or REJECTED plus a reason, judged against data/rules.md.
 5. If REJECTED, send the reason to Dev, ask for a fixed flag.py, and go back to step 4. At most 5 rounds.
+Rules for every message: never put sales figures or the answer in a message to a teammate (they must read the files and compute for themselves, so their verdict means something). Read the reply in the output of ask; do not send the same message again because the reply looked short or messy.
 6. When APPROVED, answer the human with openmaestri say, in exactly this shape:
 VERDICT: APPROVED
 FLAGGED: Name1,Name2

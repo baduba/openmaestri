@@ -9,7 +9,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { main } from '../../src/server.js';
 import { MAESTRO_BOOTSTRAP } from '../../src/prompts.js';
-import { buildScenario, writeScenario, CHALLENGE } from './scenario.mjs';
+import crypto from 'node:crypto';
+import { buildScenario, writeScenario, CHALLENGE, buggyFlagScript } from './scenario.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -19,9 +20,9 @@ export const PROVIDER_LIMIT = /rate limit exceeded|free usage limit reached|free
 const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 /**
- * @param {{maestro: string, worker: string, seed?: number, timeoutMs?: number, stallMs?: number, bootMs?: number, bootstrap?: boolean, outDir?: string, log?: (s: string) => void}} o
+ * @param {{maestro: string, worker: string, seed?: number, timeoutMs?: number, stallMs?: number, bootMs?: number, bootstrap?: boolean, inject?: boolean, outDir?: string, log?: (s: string) => void}} o
  */
-export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 * 60 * 1000, stallMs = 8 * 60 * 1000, bootMs = 15000, bootstrap = true, outDir, log = () => {} }) {
+export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 * 60 * 1000, stallMs = 8 * 60 * 1000, bootMs = 15000, bootstrap = true, inject = false, outDir, log = () => {} }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'om-challenge-'));
   const dir = path.join(root, 'work');
   fs.mkdirSync(dir);
@@ -32,6 +33,9 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
   const started = Date.now();
   const t = () => Math.round((Date.now() - started) / 1000);
   const trace = [];
+  const events = [];
+  const asks = [];
+  let planted = null;
   let lastActivity = Date.now();
   try {
     const ws = core.store.workspaces.get(core.store.settings.activeWorkspaceId);
@@ -48,6 +52,15 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
       return orig(id, text, opts);
     };
 
+    // how long each wait for an answer took and how much text came back: an ask that returns in a blink with nothing is the failure to look for
+    const origWait = core.terminals.waitIdle.bind(core.terminals);
+    core.terminals.waitIdle = async (id, o) => {
+      const t0 = Date.now();
+      const state = await origWait(id, o);
+      asks.push({ at: t(), to: ws.nodes.find((n) => n.id === id)?.name ?? id, state, secs: Math.round((Date.now() - t0) / 1000) });
+      return state;
+    };
+
     const boss = core.store.createNode(ws, 'terminal', { name: 'Maestro', maestro: true, cwd: dir, command: maestro });
     core.startTerminal(ws, boss);
     await sleep(bootMs);
@@ -60,6 +73,14 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
     while (Date.now() - started < timeoutMs) {
       await sleep(2000);
       if (said().some((m) => /VERDICT:/i.test(m.text))) { outcome = 'answered'; break; }
+      // fault injection: once the Dev's flag.py has settled, swap in one with the classic mistake; the review has to catch it and the Dev has to fix it
+      const flagPath = path.join(dir, 'flag.py');
+      if (inject && !planted && fs.existsSync(flagPath) && Date.now() - fs.statSync(flagPath).mtimeMs > 5000) {
+        fs.writeFileSync(flagPath, buggyFlagScript(sc.limits));
+        planted = crypto.createHash('sha256').update(fs.readFileSync(flagPath)).digest('hex');
+        events.push({ at: t(), text: 'harness planted a bug in flag.py (every row counts)' });
+        log(`[${t()}s] harness planted a bug in flag.py`);
+      }
       const len = ws.nodes.reduce((n, x) => n + (x.kind === 'terminal' ? core.terminals.text(x.id, { lastLines: 400 }).length : 0), 0);
       if (len !== screenLen) { screenLen = len; lastActivity = Date.now(); }
       // a provider that says "no more today" will not change its mind in the next minutes: stop and say so
@@ -75,6 +96,11 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
     const scriptOut = fs.existsSync(path.join(dir, 'flag.py')) && ran.status === 0 ? ran.stdout.split('\n').map((x) => x.trim()).filter(Boolean).sort(byName) : null;
     const team = ws.nodes.filter((n) => n.kind === 'terminal' && !n.maestro);
     const toName = (n) => trace.filter((x) => x.to === n).length;
+    const repeated = trace.filter((x, i) => trace.findIndex((y) => y.to === x.to && y.text === x.text) !== i && x.to !== 'Maestro').length;
+    const figures = Object.values(sc.stats).map((s) => String(s.revenue));
+    const leaked = trace.filter((x) => x.to !== 'Maestro' && (x.text.match(/\d+/g) ?? []).filter((d) => figures.includes(d)).length >= 2).length;
+    const auditorScreen = team.filter((x) => x.name === 'Auditor').map((x) => core.terminals.text(x.id, { lastLines: 3000 })).join('\n');
+    const finalHash = fs.existsSync(path.join(dir, 'flag.py')) ? crypto.createHash('sha256').update(fs.readFileSync(path.join(dir, 'flag.py'))).digest('hex') : null;
     const reads = (core.terminals.text(boss.id, { lastLines: 2000 }).match(/ORD-\d{4},/g) ?? []).length;
     const checks = {
       'final answer says APPROVED': /VERDICT:\s*APPROVED/i.test(final),
@@ -84,11 +110,18 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
       'Auditor was asked at least twice (rules, then review)': toName('Auditor') >= 2,
       'Dev was asked at least once': toName('Dev') >= 1,
       'the Maestro did not read the data itself': reads < 5,
+      'no message to a teammate was sent twice': repeated === 0,
+      'the Maestro did not dictate sales figures to a teammate': leaked === 0,
+      ...(inject ? {
+        'the planted bug was caught: the Auditor said REJECTED': planted !== null && /REJECTED/.test(auditorScreen),
+        'the Dev was asked again after the rejection': toName('Dev') >= 2,
+        'flag.py was fixed, not left as planted': planted !== null && finalHash !== planted,
+      } : {}),
     };
     const result = {
       outcome, seconds: t(), passed: Object.values(checks).every(Boolean), checks, key: sc.flagged, answered, scriptOut,
       roundTrips: trace.filter((x) => x.to !== 'Maestro').length, toDev: toName('Dev'), toAuditor: toName('Auditor'),
-      finalAnswer: final, trace,
+      finalAnswer: final, trace, events, asks, repeated, leaked,
       screens: Object.fromEntries(ws.nodes.filter((n) => n.kind === 'terminal').map((n) => [n.name, core.terminals.text(n.id, { lastLines: 60 })])),
     };
     const out = outDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'om-challenge-report-'));
@@ -117,7 +150,9 @@ Maestro: \`${maestro}\`  Workers: \`${worker}\`  Seed: ${seed}  Outcome: ${r.out
 ${rows}
 
 Answer key: ${r.key.join(', ')}. Maestro answered: ${r.answered.join(', ') || '(nothing)'}.
-Messages sent to teammates: ${r.roundTrips} (Dev ${r.toDev}, Auditor ${r.toAuditor}).
+Messages sent to teammates: ${r.roundTrips} (Dev ${r.toDev}, Auditor ${r.toAuditor}). Repeated: ${r.repeated}. With sales figures in them: ${r.leaked}.
+Waits for an answer: ${r.asks.map((a) => `${a.to} ${a.state} ${a.secs}s`).join(', ') || '(none)'}.
+Harness events: ${r.events.map((e) => `${e.at}s ${e.text}`).join('; ') || '(none)'}.
 
 ## Final answer
 ${r.finalAnswer || '(none)'}
@@ -143,6 +178,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     stallMs: Number(get('stall', 8)) * 60 * 1000,
     bootMs: Number(get('boot', scripted ? 1500 : 15)) * (scripted ? 1 : 1000),
     bootstrap: !scripted,
+    inject: args.includes('--inject'),
     outDir: get('out'),
     log: (s) => console.error(s),
   });
