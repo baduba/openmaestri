@@ -23,6 +23,7 @@ What is done, what is next, and what is deliberately left out. The order follows
 | 0.19 | Process list, workspace groups and unload, notes with pictures, editor tabs/search/colours, chat export and agent-written summaries |
 | 0.20 | Persistent terminals (tmux), Docker sandbox for one-shot agents, optional desktop window, preferences |
 | 0.21 | Hooks in containers, `persist list/stop`, a fuller `doctor`, clearer Docker errors |
+| next (merged, not released) | Fallback to the next driver when an account is out of quota, handoff notes when an agent is replaced, project memory (`remember`, `facts`), MCP servers per workspace (Context7 preset), ports and compose project per floor, boxed terminal teammates, the orchestration challenge, dynamic security tests (DAST) |
 
 ## Next
 
