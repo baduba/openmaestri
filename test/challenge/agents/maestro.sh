@@ -21,7 +21,7 @@ while [[ $round -lt 5 ]]; do
     *) ;; esac
   openmaestri ask Dev "REJECTED: $verdict. Fix flag.py in $dir and tell me when done" --timeout 30s >/dev/null
 done
-flagged=$(echo $out | tr ' ' ',')
+flagged=$(printf '%s' "$out" | xargs | tr ' ' ',')
 openmaestri say "VERDICT: APPROVED
 FLAGGED: $flagged
 ROUNDS: $round"

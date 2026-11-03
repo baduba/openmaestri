@@ -76,14 +76,23 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
   const authed = (req, url) => {
     if (!allowedHost(req.headers.host)) return false;
     const origin = req.headers.origin;
-    if (origin && !allowedHost(new URL(origin).host)) return false;
+    if (origin) {
+      // "Origin: null" (sandboxed frames, data: pages) and junk are not URLs; they are refused, not a reason to crash
+      let host;
+      try { host = new URL(origin).host; } catch { return false; }
+      if (!allowedHost(host)) return false;
+    }
     const t = url.searchParams.get('token') || cookieToken(req);
     return !!t && safeEq(t, token);
   };
 
+  /** The request target as a URL, or null when it is not one (such a request is answered, never thrown). */
+  const parseTarget = (req) => { try { return new URL(req.url, 'http://x'); } catch { return null; } };
+
   const server = http.createServer((req, res) => {
     for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
-    const url = new URL(req.url, 'http://x');
+    const url = parseTarget(req);
+    if (!url) { res.writeHead(400, { 'content-type': 'text/plain' }); return res.end('bad request'); }
     if (!authed(req, url)) {
       res.writeHead(403, { 'content-type': 'text/plain' });
       return res.end('forbidden: open the URL printed by openmaestri (it carries the token)');
@@ -159,8 +168,8 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
 
   const wss = new WebSocketServer({ noServer: true, maxPayload: 8 * 1024 * 1024 });
   server.on('upgrade', (req, socket, head) => {
-    const url = new URL(req.url, 'http://x');
-    if (!authed(req, url)) { socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); return socket.destroy(); }
+    const url = parseTarget(req);
+    if (!url || !authed(req, url)) { socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); return socket.destroy(); }
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
   });
 
@@ -187,6 +196,8 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
   core.on('term-status', (id, status, code) => broadcast({ t: 'term.status', id, status, code }));
 
   wss.on('connection', (ws) => {
+    // a frame over the size limit, a bad close code or a reset raises 'error' on the socket; with no listener that ends the process
+    ws.on('error', () => { try { ws.terminate(); } catch { /* already gone */ } });
     ws.attached = new Set();
     ws.portalViews = new Set();
     send(ws, { t: 'summary', ...core.summary() });
@@ -196,6 +207,8 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
     ws.on('message', async (raw) => {
       let m;
       try { m = JSON.parse(raw); } catch { return; }
+      // a message is an object: JSON "null" or a number is not one, and used to throw out of this handler and end the process
+      if (!m || typeof m !== 'object' || Array.isArray(m)) return;
       try { await handleUi(ws, m); } catch (e) {
         send(ws, { t: 'error', message: e.message, reqId: m.reqId });
       }
