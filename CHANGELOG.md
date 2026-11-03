@@ -4,6 +4,8 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-11-03
+
 ### Added
 - `ask --check CMD`, `--verdict`, `--retries N`, `--then "Other"`: the program judges a teammate's work instead of the (possibly weak) Maestro. `CMD` runs in the teammate's folder and container with no keys; a failure goes back to the teammate by itself, at most twice, with the log cut to its first 20 and last 40 lines; the verdict must be an exact block and fails closed. The answer starts with `[gate] PASSED` or `[gate] FAILED`. See docs/validation.md
 - `agent --check CMD`: an answer whose work fails the command goes to the next driver of the fallback chain
