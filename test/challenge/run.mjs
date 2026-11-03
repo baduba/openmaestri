@@ -61,11 +61,24 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
       return state;
     };
 
+    // fault injection: the moment the Dev hands over flag.py, before the Maestro can run it, swap in one with the classic mistake;
+    // the review has to catch it and the Dev has to fix it
+    const flagPath = path.join(dir, 'flag.py');
+    let devAnswered = false;
+    const plant = () => {
+      if (!inject || planted || !devAnswered || !fs.existsSync(flagPath)) return;
+      fs.writeFileSync(flagPath, buggyFlagScript(sc.limits));
+      planted = crypto.createHash('sha256').update(fs.readFileSync(flagPath)).digest('hex');
+      events.push({ at: t(), text: 'harness planted a bug in flag.py (every row counts)' });
+      log(`[${t()}s] harness planted a bug in flag.py`);
+    };
+
     // what ask handed back to the Maestro, per teammate: the evidence of who said what (a TUI redraws, so the screen alone loses it)
     const answers = [];
     const origCommand = core.command.bind(core);
     core.command = async (ctx, cmd, a) => {
       const r = await origCommand(ctx, cmd, a);
+      if (cmd === 'ask' && a?.name === 'Dev') { devAnswered = true; plant(); }
       if (cmd === 'ask' && a?.name && r?.data) answers.push({ at: t(), from: r.data.name, output: String(r.data.output ?? '') });
       return r;
     };
@@ -82,14 +95,8 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
     while (Date.now() - started < timeoutMs) {
       await sleep(2000);
       if (said().some((m) => /VERDICT:/i.test(m.text))) { outcome = 'answered'; break; }
-      // fault injection: once the Dev's flag.py has settled, swap in one with the classic mistake; the review has to catch it and the Dev has to fix it
-      const flagPath = path.join(dir, 'flag.py');
-      if (inject && !planted && fs.existsSync(flagPath) && Date.now() - fs.statSync(flagPath).mtimeMs > 5000) {
-        fs.writeFileSync(flagPath, buggyFlagScript(sc.limits));
-        planted = crypto.createHash('sha256').update(fs.readFileSync(flagPath)).digest('hex');
-        events.push({ at: t(), text: 'harness planted a bug in flag.py (every row counts)' });
-        log(`[${t()}s] harness planted a bug in flag.py`);
-      }
+      // fault injection that did not fit when the Dev answered (no flag.py yet) is done here, as soon as the file is there
+      plant();
       const len = ws.nodes.reduce((n, x) => n + (x.kind === 'terminal' ? core.terminals.text(x.id, { lastLines: 400 }).length : 0), 0);
       if (len !== screenLen) { screenLen = len; lastActivity = Date.now(); }
       // a provider that says "no more today" will not change its mind in the next minutes: stop and say so
