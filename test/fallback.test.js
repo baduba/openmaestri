@@ -60,3 +60,16 @@ test('run --agents never swaps one agent for another', async (t) => {
   await core.command({ terminalId: boss.id }, 'fallback.set', { driver: 'opencode', list: 'kimi' });
   await assert.rejects(core.command({ terminalId: boss.id }, 'run', { task: 'hello', agents: 'opencode' }), (e) => /opencode: failed/.test(e.message) && !/kimi answers/.test(e.message));
 });
+
+test('agent --check: an answer whose work fails the check goes to the next driver of the chain, and a failing last driver is reported with the output', async (t) => {
+  const { core, boss, dir, bin } = await app(t);
+  const script = (name, body) => fs.writeFileSync(path.join(bin, name), `#!/usr/bin/env bash\n${body}\n`, { mode: 0o755 });
+  script('codex', 'echo bad > out.txt; echo "codex says done"');
+  script('kimi', 'echo ok > out.txt; echo "kimi says done"');
+  const run = (args) => core.command({ terminalId: boss.id }, 'agent.run', { prompt: 'write ok', check: 'grep -q ok out.txt', ...args });
+  const r = await run({ driver: 'codex', fallback: ['kimi'] });
+  assert.match(r.text, /kimi says done[\s\S]*skipped codex \(its work failed the check \(exit 1\)\)/);
+  assert.equal(fs.readFileSync(path.join(dir, 'out.txt'), 'utf8').trim(), 'ok');
+  await assert.rejects(run({ driver: 'codex' }), /codex answered, but the check "grep -q ok out.txt" failed \(exit 1\)[\s\S]*codex says done/);
+  await assert.rejects(core.command({ terminalId: boss.id }, 'agent.run', { driver: 'kimi', prompt: 'x', check: '' }), /hook is a command/);
+});

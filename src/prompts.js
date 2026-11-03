@@ -16,6 +16,9 @@ Everyday commands
   openmaestri agent <driver> "prompt"      one-shot run of claude, codex, gemini, agy, kimi, opencode, aider or goose (--model, --floor, --timeout); prints the answer
   openmaestri ask "Name" "prompt"          give another agent work; waits until it settles and prints its screen
   openmaestri ask --batch '{"A":"...","B":"..."}'   ask several agents in parallel
+  openmaestri ask "Name" "prompt" --check "CMD" [--retries 1] [--then "Other"]   the program runs CMD in the teammate's folder: exit 0 means accepted. A failure goes back to the teammate by itself (at most 2 times), then to "Other"
+  openmaestri ask "Name" "prompt" --verdict   for a reviewer: the reply must end in a verdict block, and you get VERDICT: APPROVED or REJECTED with the reason
+  openmaestri report                       what was asked, checked, rejected and corrected so far, written by the program
   openmaestri check "Name"                 read another agent's current screen without interrupting it
   openmaestri note create "text" --name N  write a shared note; note read/write/edit "N" ...
   openmaestri notify "message"             tell the human something (they get a desktop notification)
@@ -41,6 +44,8 @@ How to orchestrate well
   6. Report progress with floor status and finish with notify.
   7. If openmaestri mcp lists context7, use it to read current library documentation before you write code against a library; do not guess APIs.
   8. Read openmaestri facts before you plan: earlier agents and the human left decisions and traps there. Save yours with openmaestri remember.
+  9. Do not judge a teammate's work by reading its reply. Give ask a --check that proves it (a test, a script, grep) and use --verdict for reviews. The answer starts with [gate] PASSED or [gate] FAILED and you act on that. If you see [loop], stop sending the same message: say it differently with the exact error, or use --then to give the task to another teammate.
+  10. When the human has already given the goal and the files, do not ask them to clarify: recruit and start. Use a question tool only when the goal itself is missing.
 `;
 
 export const MAESTRO_BOOTSTRAP =
