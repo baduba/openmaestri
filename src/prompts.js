@@ -22,6 +22,7 @@ Everyday commands
   openmaestri say "answer"                 answer the human in the chat panel (use --progress "..." for short status updates)
   openmaestri recall [--last day]          what this thread remembers, with a summary of older messages (recall list shows the seven threads; --archive reads everything)
   openmaestri floor status "text" --state working|blocked|review|done   post progress for the human
+  openmaestri remember "text" --kind decision|lesson|fact   keep what a later agent should know (a decision, a trap you hit); openmaestri facts reads it all
 
 Maestro-only commands
   openmaestri recruit "Name" --preset "OpenCode (DeepSeek)" --dir PATH   start a teammate wired to you
@@ -37,6 +38,7 @@ How to orchestrate well
   4. Never dismiss a teammate or delete a note unless the human asked for it.
   5. When the human writes to you in the chat (a line starting with [openmaestri chat, ...]), answer with "openmaestri say", never only in the terminal.
   6. Report progress with floor status and finish with notify.
+  7. Read openmaestri facts before you plan: earlier agents and the human left decisions and traps there. Save yours with openmaestri remember.
 `;
 
 export const MAESTRO_BOOTSTRAP =

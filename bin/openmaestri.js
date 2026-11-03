@@ -39,6 +39,8 @@ Usage:
   openmaestri recruit "Name" [--preset P] [--role R] [--dir PATH] [--command C] [--color C]
   openmaestri recruit "Name" --preset "OpenCode (DeepSeek)" --model deepseek-v4-pro [--no-check]   (checks the agent is installed)
   openmaestri recruit "New" --preset P --replace "Old" [--handoff ask | --no-handoff]   (the old agent leaves a handoff note; with ask it also writes its own)
+  openmaestri remember "text" [--kind decision|lesson|fact]   Leave project memory for the agents that come later
+  openmaestri facts [list] [--kind K] | search WORD | rm ID | export "Agent" [--apply]   Read it, search it, forget one (Maestro), write it into an agent's AGENTS.md or CLAUDE.md
   openmaestri handoff "Agent" [--ask]               Leave a note with the state of an agent for whoever works next
   openmaestri dismiss "Name"
   openmaestri connect "From" "To" [--agent|--band|--note|--fichario|--portal]   |   disconnect "From" "To"
@@ -221,6 +223,15 @@ export function build({ pos, flags }) {
       }
     }
     case 'recruit': return { cmd: 'recruit', args: { name: c1, preset: flags.preset, role: flags.role, dir: flags.dir, command: flags.command, color: flags.color, icon: flags.icon, replace: flags.replace, account: flags.account, floor: flags.floor, model: flags.model, noCheck: !!flags['no-check'], noHandoff: !!flags['no-handoff'], handoff: flags.handoff === undefined ? undefined : String(flags.handoff) } };
+    case 'remember': need(c1, 'remember "text" [--kind decision|lesson|fact]'); return { cmd: 'remember', args: { text: [c1, ...rest].join(' '), kind: flags.kind === undefined ? undefined : String(flags.kind) } };
+    case 'facts': {
+      const action = !c1 || ['list', 'search', 'rm', 'export'].includes(c1) ? c1 ?? 'list' : null;
+      if (!action) throw new Error('usage: facts [list] [--kind K] | facts search WORD | facts rm ID | facts export "Name" [--apply]');
+      if (action === 'search') need(rest[0], 'facts search WORD');
+      if (action === 'rm') need(rest[0], 'facts rm ID');
+      if (action === 'export') need(rest[0], 'facts export "Name" [--apply]');
+      return { cmd: 'facts', args: { action, kind: flags.kind === undefined ? undefined : String(flags.kind), word: action === 'search' ? rest.join(' ') : undefined, id: action === 'rm' ? rest[0] : undefined, agent: action === 'export' ? rest[0] : undefined, apply: !!flags.apply } };
+    }
     case 'handoff': need(c1, 'handoff "Agent" [--ask]'); return { cmd: 'handoff', args: { name: c1, ask: !!flags.ask } };
     case 'dismiss': need(c1, 'dismiss "Name"'); return { cmd: 'dismiss', args: { name: c1 } };
     case 'connect': need(c1 && rest[0], 'connect "From" "To" [--agent|--band|--note|--fichario|--portal]'); return { cmd: 'connect', args: { from: c1, to: rest[0], kind: ['agent', 'band', 'note', 'fichario', 'portal'].find((k) => flags[k]) } };

@@ -278,7 +278,7 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
         if (node.kind === 'terminal') {
           core.startTerminal(w, node);
           // a Maestro running a real agent gets told what it is once the agent has booted
-          if (node.maestro && node.command) setTimeout(() => { try { core.terminals.deliver(node.id, MAESTRO_BOOTSTRAP); } catch {} }, 5000).unref?.();
+          if (node.maestro && node.command) setTimeout(() => { try { core.terminals.deliver(node.id, [MAESTRO_BOOTSTRAP, core.factsBrief(w)].filter(Boolean).join('\n\n')); } catch {} }, 5000).unref?.();
         }
         core.touch(w);
         break;
