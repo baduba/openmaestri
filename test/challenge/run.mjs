@@ -137,7 +137,9 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
     const boss = core.store.createNode(ws, 'terminal', { name: 'Maestro', maestro: true, cwd: dir, command: maestro });
     core.startTerminal(ws, boss);
     await sleep(bootMs);
-    if (bootstrap) { core.terminals.deliver(boss.id, MAESTRO_BOOTSTRAP); await sleep(Math.min(bootMs, 20000)); }
+    // CHALLENGE_BOOTSTRAP replaces the first message (experiments); {CLI} is the absolute path of the openmaestri command
+    const first = (process.env.CHALLENGE_BOOTSTRAP || MAESTRO_BOOTSTRAP).replaceAll('{CLI}', core.terminals.env.cliBin ?? 'openmaestri');
+    if (bootstrap) { core.terminals.deliver(boss.id, first); await sleep(Math.min(bootMs, 20000)); }
     core.chatSend(ws, { text: `${CHALLENGE(dir)}\nUse the preset named Worker for both teammates.` });
 
     const said = () => core.chat.history(ws.id, core.chat.active(ws.id), { turns: 200 }).filter((m) => m.role === 'agent' && !m.progress);
@@ -181,6 +183,8 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
     fs.writeFileSync(path.join(out, 'result.json'), JSON.stringify(result, null, 2));
     fs.writeFileSync(path.join(out, 'report.md'), report(result, { maestro, worker, seed }));
     for (const f of ['flag.py']) if (fs.existsSync(path.join(dir, f))) fs.copyFileSync(path.join(dir, f), path.join(out, f));
+    // the whole session of every terminal, for reading what a model actually did
+    for (const n of ws.nodes.filter((x) => x.kind === 'terminal')) fs.writeFileSync(path.join(out, `${n.name}.txt`), core.terminals.text(n.id, { lastLines: 4000 }));
     result.reportDir = out;
     if (record) fs.appendFileSync(record, `${JSON.stringify(recordLine(result, { maestro, worker, seed, inject }))}\n`);
     return result;
