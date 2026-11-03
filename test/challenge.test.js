@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { runChallenge } from './challenge/run.mjs';
+import { runChallenge, PROVIDER_LIMIT } from './challenge/run.mjs';
 import { buildScenario, evaluate } from './challenge/scenario.mjs';
 
 const AGENTS = path.join(path.dirname(fileURLToPath(import.meta.url)), 'challenge', 'agents');
@@ -24,4 +24,9 @@ test('challenge: scripted Maestro, Auditor and Dev go back and forth until the r
   assert.ok(r.toDev >= 2, 'Dev got feedback and a second try');
   assert.ok(r.toAuditor >= 3, 'Auditor was asked for the rules and reviewed twice');
   assert.match(fs.readFileSync(path.join(r.reportDir, 'report.md'), 'utf8'), /Orchestration challenge: PASSED/);
+});
+
+test('challenge: the lines agents print when a free tier ends are recognised', () => {
+  for (const line of ['Rate limit exceeded: free-models-per-day. Add 10 credits', 'AI_APICallError: Free usage limit reached.', 'Error: insufficient credits', 'quota exceeded for this key']) assert.match(line, PROVIDER_LIMIT);
+  for (const line of ['Created flag.py', 'The rules state a rate of 9%']) assert.doesNotMatch(line, PROVIDER_LIMIT);
 });

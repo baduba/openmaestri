@@ -14,6 +14,8 @@ import { buildScenario, writeScenario, CHALLENGE } from './scenario.mjs';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const byName = (a, b) => a.localeCompare(b);
+/** What agent programs print when the account is out of quota (free tiers end). */
+export const PROVIDER_LIMIT = /rate limit exceeded|free usage limit reached|free-models-per-day|insufficient (?:credits|balance)|quota exceeded/i;
 const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 /**
@@ -60,6 +62,9 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
       if (said().some((m) => /VERDICT:/i.test(m.text))) { outcome = 'answered'; break; }
       const len = ws.nodes.reduce((n, x) => n + (x.kind === 'terminal' ? core.terminals.text(x.id, { lastLines: 400 }).length : 0), 0);
       if (len !== screenLen) { screenLen = len; lastActivity = Date.now(); }
+      // a provider that says "no more today" will not change its mind in the next minutes: stop and say so
+      const limited = ws.nodes.some((x) => x.kind === 'terminal' && PROVIDER_LIMIT.test(core.terminals.text(x.id, { lastLines: 40 })));
+      if (limited) { outcome = 'provider-limit'; break; }
       if (Date.now() - lastActivity > stallMs) { outcome = 'stalled'; break; }
     }
 

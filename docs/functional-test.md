@@ -51,4 +51,6 @@ The report also counts messages sent to each teammate, so a run that only needed
 
 ## Free models
 
+A run that hits a provider's limit stops at once with the outcome `provider-limit` (it looks for the messages agents print when a free tier ends), instead of waiting for the stall timeout. OpenRouter's free models allow 50 requests a day (1000 after a 10 dollar top-up), which one real run of the challenge can use up.
+
 OpenCode has free models (`opencode models`), but they stop with "Free usage limit reached" when the quota is used up. Since 0.21.4 openmaestri reports that at once instead of waiting for the timeout. Run the challenge when a probe such as `opencode run -m opencode/big-pickle "Reply OK"` answers.
