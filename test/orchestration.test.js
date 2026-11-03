@@ -84,3 +84,23 @@ test('DeepSeek presets ship by default', async (t) => {
   assert.equal(m.maestro, true);
   assert.match(m.command, /opencode -m "deepseek\//);
 });
+
+test('ask waits for a slow agent that shows "esc to interrupt" while its model thinks, instead of returning the echo', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-slow-'));
+  const app = await main({ port: 0, dataRoot: path.join(dir, 'data'), socketPath: path.join(dir, 'ipc.sock'), quiet: true });
+  t.after(async () => { await app.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const { core } = app;
+  const ws = core.store.workspaces.get(core.store.settings.activeWorkspaceId);
+  ws.dir = dir;
+  const maestro = core.store.createNode(ws, 'terminal', { name: 'Maestro', maestro: true, cwd: dir });
+  const slow = core.store.createNode(ws, 'terminal', { name: 'Slow', cwd: dir, command: `bash -c 'read -r q; echo "> $q"; printf "  working  esc to interrupt\\r"; sleep 5; printf "\\033[2K\\rANSWER-42 is the reply\\n"; sleep 30'` });
+  core.startTerminal(ws, slow);
+  await sleep(500);
+  const t0 = Date.now();
+  const r = await core.command({ terminalId: maestro.id }, 'ask', { name: 'Slow', prompt: 'what is the answer', timeoutMs: 20000 });
+  const took = Date.now() - t0;
+  assert.ok(took >= 4500, `returned after ${took} ms, before the agent finished`);
+  assert.ok(took < 15000, `waited ${took} ms: it did not notice the agent had finished`);
+  assert.match(r.data.output, /ANSWER-42 is the reply/);
+  assert.doesNotMatch(r.data.output, /esc to interrupt/);
+});

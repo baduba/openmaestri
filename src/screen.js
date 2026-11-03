@@ -24,3 +24,9 @@ export function newScreenText(before, after) {
   while (out.length && out[out.length - 1] === '') out.pop();
   return out.join('\n').trim();
 }
+
+/** True when the bottom of the screen says the program is still working (opencode, Claude Code and codex show "esc to interrupt", Gemini "esc to cancel"). */
+export function looksBusy(lines, rows = 8) {
+  const tail = lines.filter((l) => l.trim()).slice(-rows);
+  return tail.some((l) => /\besc\s+(?:to\s+)?(?:interrupt|cancel)\b/i.test(l));
+}

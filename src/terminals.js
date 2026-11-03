@@ -340,7 +340,7 @@ export class Terminals extends EventEmitter {
   }
 
   /** Resolve once output has been quiet for `quietMs`, or `timeoutMs` elapsed. */
-  waitIdle(id, { quietMs = 2000, timeoutMs = 120000, since = Date.now() } = {}) {
+  waitIdle(id, { quietMs = 2000, timeoutMs = 120000, since = Date.now(), busy = null } = {}) {
     return new Promise((resolve) => {
       const started = Date.now();
       const tick = () => {
@@ -348,7 +348,8 @@ export class Terminals extends EventEmitter {
         if (!rt || rt.status !== 'running') return resolve('exited');
         const now = Date.now();
         const sawOutput = rt.lastDataAt >= since;
-        if (sawOutput && now - rt.lastDataAt >= quietMs) return resolve('idle');
+        // quiet is not done: a program waiting for its model says so on screen ("esc to interrupt")
+        if (sawOutput && now - rt.lastDataAt >= quietMs && !(busy && busy())) return resolve('idle');
         if (now - started >= timeoutMs) return resolve('timeout');
         setTimeout(tick, 100);
       };

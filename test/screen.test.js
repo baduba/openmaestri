@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { newScreenText } from '../src/screen.js';
+import { newScreenText, looksBusy } from '../src/screen.js';
 
 const before = [
   '  ┃  Build · GPT OSS 120B',
@@ -37,4 +37,12 @@ test('screen diff: nothing new gives an empty answer so the caller can fall back
 
 test('screen diff: spinner rows and "esc interrupt" hints are not an answer', () => {
   assert.equal(newScreenText([], ['  ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt   34.9K (3%)  ctrl+p commands']), '');
+});
+
+test('looksBusy: the working hint at the bottom of the screen, not words in an answer', () => {
+  assert.equal(looksBusy(['answer', '  ⬝⬝⬝⬝  esc interrupt   34.9K (3%)']), true);
+  assert.equal(looksBusy(['  Working (12s • esc to interrupt)']), true);
+  assert.equal(looksBusy(['  ⠋ Thinking... (esc to cancel)']), true);
+  assert.equal(looksBusy(['press esc to interrupt is mentioned here', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'done']), false);
+  assert.equal(looksBusy(['all done', '/work 6.9K (5%) · $0.00  ctrl+p commands']), false);
 });
