@@ -57,6 +57,9 @@ Portals are real browsers you and your agents share: `snapshot`, `click`, `fill`
 | `recruit "Name" [--preset P] [--role R] [--dir PATH] [--command C]` | Start a teammate wired to you |
 | `recruit "New" --preset P --replace "Old" [--handoff ask \| --no-handoff]` | Swap what runs in a teammate, keeping connections. The old agent first leaves a handoff note (screen, git state, notes it saw; with `ask` also its own account of goal, done, next, gotchas) and the new one is told to read it |
 | `handoff "Agent" [--ask]` | Leave that handoff note without replacing anyone |
+| `mcp [list]` | The MCP servers of the workspace (any agent) |
+| `mcp add NAME [--command "npx -y pkg" \| --url URL] [--env K=V] [--header K=V] [--key VAR]`, `mcp rm NAME` | Add one (preset: `context7`) or remove one (Maestro) |
+| `mcp install "Agent" [--apply] [--remove]` | Write the list into that agent's project config, dry run first (Maestro). See [MCP](mcp.html) |
 | `remember "text" [--kind decision\|lesson\|fact]` | Leave project memory for agents that come later (any agent) |
 | `facts [list] [--kind K]`, `facts search WORD` | Read project memory (any agent) |
 | `facts rm ID`, `facts export "Agent" [--apply]` | Forget one entry; write the decisions into that agent's `AGENTS.md` or `CLAUDE.md` between markers, dry run first (Maestro) |
