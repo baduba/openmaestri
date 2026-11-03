@@ -15,6 +15,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 - Orchestration challenge (`test/challenge/`, docs/functional-test.md): a Maestro coordinates an Auditor and a Dev through several round trips, and the result is checked against an answer key. Scripted agents run it in `npm test`; real agents run it with `node test/challenge/run.mjs`
 
 ### Fixed
+- `codex` driver: codex 0.166 `exec` ignores `OPENAI_API_KEY` and `OPENAI_BASE_URL`, so it never reached a custom provider. The driver now also gives it `CODEX_API_KEY` (copied from `OPENAI_API_KEY`) and passes the endpoint as `-c openai_base_url=...`. Checked with a real answer through OpenRouter
 - Three ways to stop the daemon, found by the new dynamic tests: a request with `Origin: null` (which any web page can make the browser send to 127.0.0.1), a WebSocket message that is JSON `null` or another non-object, and a WebSocket frame over the 8 MB limit. Each now gets a refusal or is ignored; regression tests in `test/security.test.js`
 - opencode no longer sits silent until the timeout when the model refuses the call (free quota used up, bad key): the run stops at once and says why
 

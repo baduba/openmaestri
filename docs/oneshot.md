@@ -49,7 +49,7 @@ Status of each driver, checked against the real program (2026-11-02, the last fo
 | --- | --- |
 | `claude`, `kimi`, `agy` | run end to end: the answer comes back, the exit code and time are reported |
 | `gemini` | flags match `gemini --help`; the run needs a Gemini account that is still supported (Google ended the CLI for individual accounts and points to Antigravity, so use `agy`) |
-| `codex`, `opencode`, `goose`, `aider` | checked with the real programs (codex 0.166, opencode 1.19, goose 1.57, aider 0.86): the flags are accepted, the tool reaches its provider and a refused call comes back as a failure. A full answer needs a real API key, which was not used |
+| `codex`, `opencode`, `goose`, `aider` | checked with the real programs (codex 0.166, opencode 1.19, goose 1.57, aider 0.86): all four give a full answer through OpenRouter (`openai/gpt-oss-120b`, 2026-11-03). For codex set `OPENAI_API_KEY` and `OPENAI_BASE_URL` (openmaestri passes the key as `CODEX_API_KEY` and the endpoint as `-c openai_base_url`); for goose use `--model openrouter/openai/gpt-oss-120b` |
 
 What the real programs taught the drivers: `codex` refuses to start outside a git repository without `--skip-git-repo-check`; `goose` aborts without a model; `aider` exits 0 when the provider refuses the call (openmaestri now reports that as a failure) and writes history files into the folder (now sent to `/dev/null`); `opencode` prints colour codes even with `NO_COLOR` (removed from reports).
 
