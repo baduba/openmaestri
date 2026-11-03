@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { tidyKimi, geminiHint, gooseModel, aiderFailure, opencodeFatal, runHeadless, stripAnsi, DRIVERS } from '../src/headless.js';
+import { tidyKimi, geminiHint, gooseModel, aiderFailure, opencodeFatal, runHeadless, stripAnsi, DRIVERS, codexBase } from '../src/headless.js';
 
 test('kimi: the bullet and the version and resume lines are not part of the answer', () => {
   const r = tidyKimi({ text: '• OK\n• keep this bullet', stderr: 'kimi version 2.4.0\n• User wants just OK.\n\nTo resume this session: kimi -r session_abc' });
@@ -73,4 +73,14 @@ test('opencode: a run that never exits after a refusal is stopped at once and re
   assert.equal(r.reportedError, true);
   assert.ok(r.ms < 10000, `stopped in ${r.ms} ms`);
   assert.match(r.stderr, /opencode stopped: Free usage limit reached/);
+});
+
+test('codex: the endpoint goes as a config override and the key is also given as CODEX_API_KEY', () => {
+  assert.deepEqual(codexBase('https://openrouter.ai/api/v1'), ['-c', 'openai_base_url="https://openrouter.ai/api/v1"']);
+  assert.deepEqual(codexBase('file:///etc/passwd'), []);
+  assert.deepEqual(codexBase('not a url'), []);
+  assert.deepEqual(codexBase(undefined), []);
+  assert.ok(DRIVERS.codex.args('hi', { env: { OPENAI_BASE_URL: 'https://x.example/v1' } }).includes('-c'));
+  assert.ok(DRIVERS.codex.keys.includes('CODEX_API_KEY'));
+  assert.equal(DRIVERS.codex.alias.CODEX_API_KEY, 'OPENAI_API_KEY');
 });

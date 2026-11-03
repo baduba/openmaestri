@@ -53,6 +53,16 @@ export function gooseModel(model) {
   return i > 0 ? ['--provider', model.slice(0, i), '--model', model.slice(i + 1)] : ['--model', model];
 }
 
+/** codex takes a custom endpoint as `-c openai_base_url="..."`; anything that is not an http(s) URL is dropped rather than passed on. */
+export function codexBase(url) {
+  if (!url) return [];
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return [];
+    return ['-c', `openai_base_url=${JSON.stringify(u.href)}`];
+  } catch { return []; }
+}
+
 // aider in one shot: no .gitignore edit, no analytics or update check, and its chat and input history go nowhere instead of into your folder
 const AIDER_ONE_SHOT = ['--yes-always', '--no-auto-commits', '--no-pretty', '--no-gitignore', '--no-analytics', '--no-check-update', '--no-show-release-notes', '--chat-history-file', '/dev/null', '--input-history-file', '/dev/null'];
 
@@ -84,7 +94,8 @@ const OPENCODE_RUN = ['run', '--print-logs', '--log-level', 'ERROR'];
 
 export const DRIVERS = {
   claude: { bin: 'claude', keys: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL'], args: (p, o) => ['-p', p, ...withModel('--model', o.model)] },
-  codex: { bin: 'codex', keys: ['OPENAI_API_KEY', 'OPENAI_BASE_URL'], args: (p, o) => ['exec', '--skip-git-repo-check', ...withModel('--model', o.model), p] },
+  // codex 0.166 `exec` ignores OPENAI_API_KEY and OPENAI_BASE_URL: it wants CODEX_API_KEY and the base URL as a config override (checked against OpenRouter)
+  codex: { bin: 'codex', keys: ['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'CODEX_API_KEY'], alias: { CODEX_API_KEY: 'OPENAI_API_KEY' }, args: (p, o) => ['exec', '--skip-git-repo-check', ...codexBase(o.env?.OPENAI_BASE_URL), ...withModel('--model', o.model), p] },
   gemini: { bin: 'gemini', keys: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'], args: (p, o) => [...withModel('--model', o.model), '-p', p], hint: geminiHint },
   opencode: { bin: 'opencode', keys: PROVIDER_KEYS, args: (p, o) => [...OPENCODE_RUN, ...withModel('-m', o.model), p], fatal: opencodeFatal },
   aider: { bin: 'aider', keys: PROVIDER_KEYS, args: (p, o) => ['--message', p, ...AIDER_ONE_SHOT, ...withModel('--model', o.model)], failure: aiderFailure },
@@ -147,6 +158,8 @@ export async function runHeadless({ driver, drivers = DRIVERS, prompt, cwd, env,
   if (text.length > MAX_PROMPT) fail(`the prompt is over ${MAX_PROMPT / 1024} KB`);
   if (model !== undefined && (!/^[\w./:@-]{1,80}$/.test(String(model)) || String(model).includes('..'))) fail('model names use letters, digits and . _ / : @ -');
   const box = sandbox ?? d.sandbox ?? null;
+  // a driver may want a key under another name (codex reads CODEX_API_KEY, the user has OPENAI_API_KEY)
+  for (const [to, from] of Object.entries(d.alias || {})) if (!env?.[to] && env?.[from]) env = { ...env, [to]: env[from] };
   let bin;
   let argv = d.args(text, { model, env });
   let containerName = null;
