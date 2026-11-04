@@ -4,6 +4,8 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-11-04
+
 ### Added
 - `OPENMAESTRI_BUDGET_USD` and `budget`: a spending limit read from the session cost agents print on their screens (OpenCode). Warning at 80%, every terminal of the workspace stopped at 100%; `report` shows the spend. Only the person can set it
 - `OPENMAESTRI_DEFAULT_SANDBOX`, `recruit --no-sandbox` and `sandbox`: a box as the default for new teammates (never the Maestro or a shell), and a note at `recruit` naming the keys a teammate on this machine can read
