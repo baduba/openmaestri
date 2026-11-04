@@ -4,6 +4,9 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Changed
+- The CI and Security GitHub workflows are disabled to save runner minutes. `scripts/check.sh` runs the same checks locally (syntax, lint, tests, SAST, `.deb` build and smoke test, DAST, Node 22 and 24 matrix, release check). See `docs/local-ci.md`.
+
 ### Added
 - `ask "Agent" "prompt" --relay "Other"`: the program attaches Other's last reply word for word, so a reviewer's rejection reaches the Dev as written and not retold by the Maestro
 - A failed check names the folder it ran in
