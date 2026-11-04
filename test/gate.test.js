@@ -327,5 +327,5 @@ test('ask --relay: the other teammate\'s last reply reaches the target word for 
 test('ask --check: the failure says which folder the check ran in', async (t) => {
   const { ask, dir } = await setup(t, { Dev: 'echo done' });
   const r = await ask({ name: 'Dev', prompt: 'write verify.py in the shared folder', check: 'python3 verify.py', retries: 0 });
-  assert.match(r.text, new RegExp(`it ran in ${path.join(dir, 'Dev').replaceAll('/', '\\/')}`));
+  assert.ok(r.text.includes(`it ran in ${path.join(dir, 'Dev')}`), r.text);
 });
