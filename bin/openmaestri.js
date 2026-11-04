@@ -22,6 +22,7 @@ Usage:
   openmaestri agent claude|codex|gemini|agy|kimi|opencode|aider|goose "prompt"   One-shot run of an agent CLI, prints its answer (no terminal)
   openmaestri ask "Agent" "prompt" [--timeout 120s]  Send a prompt to a connected agent, wait until it settles, print what it produced
   openmaestri ask "Agent" "prompt" [--check CMD] [--verdict] [--retries N] [--then "Other"]   The program judges the answer: CMD must exit 0 in the agent's folder, --verdict needs a verdict block; a failure goes back to the agent (at most 2 times), then to "Other"
+  openmaestri resume                                What happened in this workspace before you started (asks, checks, verdicts, spending) and what is still open; it survives restarts
   openmaestri sandbox                               Where each teammate runs (a box or this machine) and which keys the ones on this machine can read; read only
   openmaestri budget                                What the agents' screens say was spent, against the limit the person set (OPENMAESTRI_BUDGET_USD); read only
   openmaestri report [--json]                       What was asked, checked, rejected and corrected in this workspace, written by the program
@@ -245,6 +246,7 @@ export function build({ pos, flags }) {
       if (action === 'export') need(rest[0], 'facts export "Name" [--apply]');
       return { cmd: 'facts', args: { action, kind: flags.kind === undefined ? undefined : String(flags.kind), word: action === 'search' ? rest.join(' ') : undefined, id: action === 'rm' ? rest[0] : undefined, agent: action === 'export' ? rest[0] : undefined, apply: !!flags.apply } };
     }
+    case 'resume': return { cmd: 'resume', args: {} };
     case 'sandbox': return { cmd: 'sandbox', args: {} };
     case 'budget': return { cmd: 'budget', args: {} };
     case 'report': return { cmd: 'report', args: { json: !!flags.json } };

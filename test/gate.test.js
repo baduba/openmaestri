@@ -216,3 +216,41 @@ test('an answer to the human over a failed check carries the notice; once the ch
   assert.equal(second, 'second answer');
   await core.command({ terminalId: boss.id }, 'say', { text: 'progress only', progress: true });
 });
+
+test('resume: what was asked and checked survives a restart, and a Maestro that joins late is told what is still open', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-resume-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const start = () => main({ port: 0, dataRoot: path.join(dir, 'data'), socketPath: path.join(dir, 'ipc.sock'), quiet: true });
+  const first = await start();
+  const ws1 = first.core.store.workspaces.get(first.core.store.settings.activeWorkspaceId);
+  const boss = first.core.store.createNode(ws1, 'terminal', { name: 'Maestro', maestro: true, cwd: dir });
+  first.core.noteEvent(ws1, { kind: 'ask', to: 'Dev', ok: true, secs: 30, note: '300 chars' });
+  first.core.noteEvent(ws1, { kind: 'check', to: 'Dev', ok: false, secs: 1, note: 'python3 flag.py exit 1' });
+  first.core.noteEvent(ws1, { kind: 'check', to: 'Auditor', ok: true, secs: 1, note: 'python3 verify.py exit 0' });
+  await first.close();
+
+  const second = await start();
+  t.after(() => second.close());
+  const ws2 = second.core.store.workspaces.get(ws1.id);
+  assert.equal(second.core.eventsFor(ws2.id).length, 3, 'the events are back after the restart');
+  const r = await second.core.command({ terminalId: boss.id }, 'resume', {});
+  assert.match(r.text, /3 recorded events/);
+  assert.match(r.text, /Still open[\s\S]*Dev: python3 flag\.py exit 1/);
+  assert.doesNotMatch(r.text, /Still open[\s\S]*Auditor: python3 verify/, 'a check that passed is not open');
+  assert.match(second.core.resumeBrief(ws2), /Continue from here; do not redo what already passed/);
+});
+
+test('resume: a workspace with nothing recorded says so, and a damaged events file is ignored', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-resume2-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const app = await main({ port: 0, dataRoot: path.join(dir, 'data'), socketPath: path.join(dir, 'ipc.sock'), quiet: true });
+  const ws = app.core.store.workspaces.get(app.core.store.settings.activeWorkspaceId);
+  const boss = app.core.store.createNode(ws, 'terminal', { name: 'Maestro', maestro: true, cwd: dir });
+  assert.match((await app.core.command({ terminalId: boss.id }, 'resume', {})).text, /Nothing has happened/);
+  fs.mkdirSync(app.core.store.wsDir(ws.id), { recursive: true });
+  fs.writeFileSync(path.join(app.core.store.wsDir(ws.id), 'events.json'), '{not json');
+  await app.close();
+  const again = await main({ port: 0, dataRoot: path.join(dir, 'data'), socketPath: path.join(dir, 'ipc.sock'), quiet: true });
+  t.after(() => again.close());
+  assert.equal(again.core.eventsFor(ws.id).length, 0);
+});

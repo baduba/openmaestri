@@ -7,7 +7,7 @@ import { Accounts, AccountError } from './accounts.js';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
-import { Store, dataDir } from './store.js';
+import { Store, dataDir, atomicWrite } from './store.js';
 import { GUIDE, NUDGE } from './prompts.js';
 import { Terminals } from './terminals.js';
 import { freePortBase, floorVars } from './ports.js';
@@ -25,7 +25,7 @@ import { takeSnapshot, listSnapshots, rollback as rollbackFloor, dropSnapshots }
 import { ForgeError, detectProvider, normalizeProvider, providerInfo, listChanges, formatChanges } from './forge.js';
 import { newScreenText, looksBusy } from './screen.js';
 import { screenCost, budgetLimit, budgetState, spendText, money } from './budget.js';
-import { AskLog, unresolvedChecks, unverifiedNotice, MAX_RETRIES, DEFAULT_RETRIES, REPEAT_WARN, REPEAT_STOP, VERDICT_FORMAT, parseVerdict, correction, clipLog, repeatNotice, reportText as eventsReport } from './gate.js';
+import { AskLog, unresolvedChecks, unverifiedNotice, resumeText, MAX_RETRIES, DEFAULT_RETRIES, REPEAT_WARN, REPEAT_STOP, VERDICT_FORMAT, parseVerdict, correction, clipLog, repeatNotice, reportText as eventsReport } from './gate.js';
 import { MAX_AGENTS, parseAgents, planText, reportText } from './taskrun.js';
 import { Usage, UsageError } from './usage.js';
 import { readUserEnv, TerminalError, commandAvailable, commandPath } from './terminals.js';
@@ -124,6 +124,7 @@ export class Core extends EventEmitter {
   }
 
   stop() {
+    this.saveEvents();
     clearInterval(this.usageTimer);
     clearInterval(this.budgetTimer);
     this.usage.close();
@@ -343,9 +344,14 @@ const HANDLERS = {
 
   /** What happened between the Maestro and its teammates in this workspace, written from what the program saw. */
   report(ws, me, { json }) {
-    const events = this.events.get(ws.id) ?? [];
+    const events = this.eventsFor(ws.id);
     const spend = spendText(this.spendOf(ws), budgetLimit());
     return { text: json ? JSON.stringify({ events, spend }, null, 2) : `${eventsReport(events)}\n${spend}`, data: events };
+  },
+
+  /** `resume`: what happened here before this agent started, and what is still open. Read it when you take over after a restart or a crash. */
+  resume(ws) {
+    return { text: this.resumeBrief(ws) };
   },
 
   /** Read only on purpose: the limit is the human's, set when the daemon starts. */
@@ -1283,7 +1289,7 @@ const HANDLERS = {
       else attachments.push(this.chat.attach(ws.id, f));
     }
     // an answer to the human over work that never passed its check says so, in words the program wrote
-    const open = !progress && me.maestro ? unresolvedChecks(this.events.get(ws.id) ?? []) : [];
+    const open = !progress && me.maestro ? unresolvedChecks(this.eventsFor(ws.id)) : [];
     if (open.length) { body += unverifiedNotice(open); this.noteEvent(ws, { kind: 'unverified', ok: false, note: `answered with ${open.length} failed check${open.length === 1 ? '' : 's'} open` }); }
     const msg = this.chat.append(ws.id, tid, { role: 'agent', sender: me.name, senderId: me.id, text: body, attachments, progress: !!progress });
     if (!progress) this.markAttention(ws, me.id);
@@ -1956,9 +1962,45 @@ Core.prototype.checkBudget = function () {
 
 /** What happened in a workspace, in order, for `report`. Kept in memory, newest 500, and the audit log has the commands. */
 Core.prototype.noteEvent = function (ws, e) {
-  const list = this.events.get(ws.id) ?? [];
+  const list = this.eventsFor(ws.id);
   list.push({ at: new Date().toISOString(), ...e });
   this.events.set(ws.id, list.slice(-500));
+  this.eventsDirty ??= new Set();
+  this.eventsDirty.add(ws.id);
+  clearTimeout(this.eventsTimer);
+  this.eventsTimer = setTimeout(() => this.saveEvents(), 1000);
+  this.eventsTimer.unref?.();
+};
+
+const eventsFile = (core, wsId) => path.join(core.store.wsDir(wsId), 'events.json');
+
+/** The events of a workspace, read from disk the first time they are needed: a restart or a crash does not erase what was asked, checked and rejected. */
+Core.prototype.eventsFor = function (id) {
+  if (!this.events.has(id)) {
+    let list = [];
+    try {
+      const raw = JSON.parse(fs.readFileSync(eventsFile(this, id), 'utf8'));
+      if (Array.isArray(raw)) list = raw.filter((e) => e && typeof e.kind === 'string' && typeof e.at === 'string').slice(-500);
+    } catch { /* no file yet, or not readable: start empty */ }
+    this.events.set(id, list);
+  }
+  return this.events.get(id);
+};
+
+Core.prototype.saveEvents = function () {
+  clearTimeout(this.eventsTimer);
+  for (const id of this.eventsDirty ?? []) {
+    try {
+      fs.mkdirSync(this.store.wsDir(id), { recursive: true });
+      atomicWrite(eventsFile(this, id), JSON.stringify(this.events.get(id) ?? []));
+    } catch { /* a full disk must not stop the work */ }
+  }
+  this.eventsDirty?.clear();
+};
+
+/** The text a Maestro gets when it joins late: see `resume`. */
+Core.prototype.resumeBrief = function (ws) {
+  return resumeText(this.eventsFor(ws.id), unresolvedChecks(this.eventsFor(ws.id)), spendText(this.spendOf(ws), budgetLimit()));
 };
 
 Core.prototype.preflightAgents = function (ws, agents, drivers, box = null) {
