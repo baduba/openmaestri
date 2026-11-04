@@ -4,6 +4,9 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+- Challenge: `--record` keeps the cost the agents' screens show, and the per-model table has a "Median cost per pass" column (cost and quality are different things: in a public comparison of coding harnesses the cost of one pass varied 17 times)
+
 ## [0.24.0] - 2026-11-04
 
 ### Added
