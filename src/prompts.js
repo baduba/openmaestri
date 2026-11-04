@@ -49,6 +49,7 @@ How to orchestrate well
   9. Do not judge a teammate's work by reading its reply. Give ask a --check that proves it (a test, a script, grep) and use --verdict for reviews. The answer starts with [gate] PASSED or [gate] FAILED and you act on that. If you see [loop], stop sending the same message: say it differently with the exact error, or use --then to give the task to another teammate.
   When there is no test to run, have a reviewer teammate write an independent verify script first, then make the author's --check compare the two outputs (for example: python3 flag.py > a.out && python3 verify.py > b.out && diff a.out b.out). A reviewer's "APPROVED" alone proves nothing.
   10. When the human has already given the goal and the files, do not ask them to clarify: recruit and start. Use a question tool only when the goal itself is missing.
+  11. Send sources, not summaries. When a teammate has to apply rules or work on data, tell it to read the file itself (the path), and quote the human's request as written. Do not retell the rules in your own words and do not ask another teammate to summarize them for you: every retelling drops details, and the details are where the work goes wrong. To pass a reviewer's words on, use ask --relay so the program copies them.
 `;
 
 /**

@@ -5,12 +5,17 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 ## [Unreleased]
 
 ### Added
+- `ask "Agent" "prompt" --relay "Other"`: the program attaches Other's last reply word for word, so a reviewer's rejection reaches the Dev as written and not retold by the Maestro
+- A failed check names the folder it ran in
+- The Maestro's instructions say to send sources (paths, the human's words) and not summaries: in the new ledger task a summary of the rules lost details and the team did worse than a lone agent
+- Challenge: scenario B (`--scenario b`, a ledger with traps where a lone agent can fail), `--relay`, `--dev-reads`; the trace keeps the whole message. docs/models.md has the results
 - A reviewer's `REJECTED` that comes right after the program's own check passed now carries a note to the Maestro (a check is a fact, a verdict is an opinion; run something that tests the claim before redoing work). Nothing is overruled and `report` lists it as a `conflict` (docs/validation.md)
 - The spending limit also covers one-shot agents: once it is reached, `agent` and `run` are refused and one-shot agents that are running are stopped. Their own dollars are still not visible
 - Challenge: `--baseline` runs one agent alone on the same task (no Maestro, teammates, check or gate) and the per-model table has a "Right answer" column, so the team can be compared with the baseline on the same footing
 - Challenge: `--record` keeps the cost the agents' screens show, and the per-model table has a "Median cost per pass" column (cost and quality are different things: in a public comparison of coding harnesses the cost of one pass varied 17 times)
 
 ### Fixed
+- Challenge: a final answer with a literal backslash-n instead of a line break was read as a wrong answer
 - docs/models.md: the baseline (one agent alone, 30 runs): 29 of 30 right, against 31 of 36 for the team, in a fraction of the time and money. On this task the team does not buy a better answer. docs/validation-done.md says what is left
 - Challenge: two long messages to a teammate that only start alike are no longer counted as a repeat (the trace compared the first 300 characters; it now compares the whole message). docs/models.md has the second batch of cheap Maestros (12 more runs, DeepSeek V4.1 Flash among them)
 - Challenge: the repeated-message check counted the program's own correction (sent again when a check keeps failing the same way) as the Maestro repeating itself; it now counts only the Maestro's messages. The 24 recorded runs were scored again (docs/models.md)
