@@ -24,6 +24,12 @@ const byName = (a, b) => a.localeCompare(b);
 export const PROVIDER_LIMIT = /rate limit exceeded|free usage limit reached|free-models-per-day|insufficient (?:credits|balance)|quota exceeded/i;
 const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 
+/** The names on the FLAGGED line of a final answer. A model that quoted its answer badly sends a literal \\n instead of a line break; that is still the same answer, so the line ends there too. */
+export function answeredNames(final) {
+  const line = /FLAGGED:\s*(.*)/i.exec(final)?.[1] ?? '';
+  return line.split('\\n')[0].split(/[,\s]+/).map((x) => x.trim()).filter(Boolean).sort(byName);
+}
+
 /** The word an Auditor answered with (a reply that has both words counts as a rejection), or ? when it gave neither. */
 export function verdictOf(text) {
   if (/\bREJECTED\b/.test(text)) return 'REJECTED';
@@ -50,7 +56,7 @@ export function recordLine(r, { maestro, worker, seed, inject }) {
   return {
     date: new Date().toISOString().slice(0, 10), maestro: model(maestro), worker: model(worker), seed, inject: !!inject,
     outcome: r.outcome, passed: r.passed, seconds: r.seconds, messages: r.roundTrips, repeated: r.repeated, leaked: r.leaked,
-    mode: r.baseline ? 'solo' : r.relay ? 'team-relay' : 'team', scenario: r.scenario ?? 'a', correct: r.correct,
+    mode: r.baseline ? 'solo' : r.devReads ? 'team-reads' : r.relay ? 'team-relay' : 'team', scenario: r.scenario ?? 'a', correct: r.correct,
     gated: r.gated, gatesFailed: r.gatesFailed, cost: r.cost ?? null, verdicts: r.verdicts.join(','), failed: Object.entries(r.checks).filter(([, v]) => !v).map(([k]) => k),
   };
 }
@@ -94,9 +100,9 @@ export function buildChecks({ inject, final, answered, scriptOut, key, team, toN
 }
 
 /**
- * @param {{maestro: string, worker: string, seed?: number, timeoutMs?: number, stallMs?: number, bootMs?: number, bootstrap?: boolean, inject?: boolean, baseline?: boolean, relay?: boolean, scenario?: 'a' | 'b', record?: string, outDir?: string, log?: (s: string) => void}} o
+ * @param {{maestro: string, worker: string, seed?: number, timeoutMs?: number, stallMs?: number, bootMs?: number, bootstrap?: boolean, inject?: boolean, baseline?: boolean, relay?: boolean, devReads?: boolean, scenario?: 'a' | 'b', record?: string, outDir?: string, log?: (s: string) => void}} o
  */
-export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 * 60 * 1000, stallMs = 8 * 60 * 1000, bootMs = 15000, bootstrap = true, inject = false, baseline = false, relay = false, scenario = 'a', record, outDir, log = () => {} }) {
+export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 * 60 * 1000, stallMs = 8 * 60 * 1000, bootMs = 15000, bootstrap = true, inject = false, baseline = false, relay = false, devReads = false, scenario = 'a', record, outDir, log = () => {} }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'om-challenge-'));
   const dir = path.join(root, 'work');
   fs.mkdirSync(dir);
@@ -123,7 +129,7 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
       const node = ws.nodes.find((n) => n.id === id);
       const whole = String(text).replace(/\s+/g, ' ');
       // `text` is what the report shows; `whole` is what two messages are compared by, so a long message that only starts like another is not a repeat
-      trace.push({ at: t(), to: node?.name ?? id, text: whole.slice(0, 300), whole: crypto.createHash('sha256').update(whole).digest('hex') });
+      trace.push({ at: t(), to: node?.name ?? id, text: whole.slice(0, 300), full: whole.slice(0, 6000), whole: crypto.createHash('sha256').update(whole).digest('hex') });
       lastActivity = Date.now();
       log(`[${t()}s] -> ${node?.name}: ${String(text).replace(/\s+/g, ' ').slice(0, 100)}`);
       return orig(id, text, opts);
@@ -172,7 +178,7 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
       // CHALLENGE_BOOTSTRAP replaces the first message (experiments); {CLI} is the absolute path of the openmaestri command
       const first = (process.env.CHALLENGE_BOOTSTRAP || maestroBootstrap('{CLI}')).replaceAll('{CLI}', core.terminals.env.cliBin ?? 'openmaestri');
       if (bootstrap) { core.terminals.deliver(boss.id, first); await sleep(Math.min(bootMs, 20000)); }
-      core.chatSend(ws, { text: `${CHALLENGE(dir, { relay })}\nUse the preset named Worker for both teammates.` });
+      core.chatSend(ws, { text: `${CHALLENGE(dir, { relay, devReads })}\nUse the preset named Worker for both teammates.` });
     }
 
     const said = () => core.chat.history(ws.id, core.chat.active(ws.id), { turns: 200 }).filter((m) => m.role === 'agent' && !m.progress);
@@ -192,8 +198,7 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
     }
 
     const final = baseline ? solved() : said().findLast((m) => /VERDICT:/i.test(m.text))?.text ?? '';
-    const flaggedLine = /FLAGGED:\s*(.*)/i.exec(final)?.[1] ?? '';
-    const answered = flaggedLine.split(/[,\s]+/).map((x) => x.trim()).filter(Boolean).sort(byName);
+    const answered = answeredNames(final);
     const ran = spawnSync('/usr/bin/python3', ['flag.py'], { cwd: dir, encoding: 'utf8', timeout: 20000 });
     const scriptOut = fs.existsSync(path.join(dir, 'flag.py')) && ran.status === 0 ? ran.stdout.split('\n').map((x) => x.trim()).filter(Boolean).sort(byName) : null;
     const team = ws.nodes.filter((n) => n.kind === 'terminal' && !n.maestro);
@@ -209,7 +214,7 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
     const buggyOut = inject ? listOf(spawnSync('/usr/bin/python3', ['-c', kit.buggy(sc.limits)], { cwd: dir, encoding: 'utf8', timeout: 20000 })) : null;
     const checks = baseline ? soloChecks({ final, answered, scriptOut, key: sc.flagged }) : buildChecks({ inject, final, answered, scriptOut, key: sc.flagged, team, toName, reads, repeated, leaked, planted, verdicts, checksFailed, finalHash, verifyOut, buggyOut });
     const result = {
-      outcome, seconds: t(), baseline, relay, scenario, passed: Object.values(checks).every(Boolean), correct: isCorrect(checks), checks, key: sc.flagged, answered, scriptOut,
+      outcome, seconds: t(), baseline, relay, devReads, scenario, passed: Object.values(checks).every(Boolean), correct: isCorrect(checks), checks, key: sc.flagged, answered, scriptOut,
       roundTrips: trace.filter((x) => x.to !== 'Maestro').length, toDev: toName('Dev'), toAuditor: toName('Auditor'),
       finalAnswer: final, trace, events, asks, answers, verdicts, repeated, leaked, checksFailed, nudges: (core.events.get(ws.id) ?? []).filter((e) => e.kind === 'nudge').length, gated: answers.filter((a) => a.gate).length, gatesFailed: answers.filter((a) => a.gate && !a.gate.ok).length,
       // what the agents' screens show as spent (OpenCode prints it); null when none of them shows a cost
@@ -278,6 +283,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     inject: args.includes('--inject'),
     baseline: args.includes('--baseline'),
     relay: args.includes('--relay'),
+    devReads: args.includes('--dev-reads'),
     scenario: get('scenario', 'a'),
     record: get('record'),
     outDir: get('out'),

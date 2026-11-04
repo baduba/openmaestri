@@ -142,3 +142,10 @@ print('\\n'.join(sorted(a for a in sales if rev[a] > lim or chg[a] / sales[a] * 
   assert.equal(bug.status, 0, bug.stderr);
   assert.notDeepEqual(bug.stdout.split('\n').filter(Boolean), sc.flagged);
 });
+
+test('challenge: a final answer with a literal backslash-n instead of a line break still names the same regions', async () => {
+  const { answeredNames } = await import('./challenge/run.mjs');
+  assert.deepEqual(answeredNames('VERDICT: APPROVED\nFLAGGED: Sul,Leste,Oeste\nROUNDS: 1'), ['Leste', 'Oeste', 'Sul']);
+  assert.deepEqual(answeredNames('VERDICT: APPROVED\\nFLAGGED: Leste,Oeste,Sul\\nROUNDS: 1'), ['Leste', 'Oeste', 'Sul'], 'a literal \\n ends the line');
+  assert.deepEqual(answeredNames('VERDICT: FAILED'), []);
+});
