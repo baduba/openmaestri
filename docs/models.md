@@ -4,31 +4,35 @@ title: Which models work as Maestro
 
 # Which models work as Maestro
 
-Real runs of the [orchestration challenge](functional-test.html), with a bug planted in the Dev's script (`--inject`), on 2026-11-04: three runs per Maestro, twelve in all. The teammates were `gpt-oss-120b` in every run; only the Maestro changed. OpenCode, through OpenRouter. Three runs are enough to see that a model is unreliable, not to rank two models against each other.
+Real runs of the [orchestration challenge](functional-test.html), with a bug planted in the Dev's script (`--inject`), on 2026-11-04: three runs per Maestro, 24 in all. The teammates were `gpt-oss-120b` in every run; only the Maestro changed. OpenCode, through OpenRouter. Three runs are enough to see that a model is unreliable, not to rank two close models.
 
-| Maestro | Teammates | Runs | Passed | Stopped by a limit | Avg seconds | Avg messages | Repeated messages | Runs with a REJECTED |
-|---|---|---|---|---|---|---|---|---|
-| openrouter/z-ai/glm-5.3-flash | openrouter/openai/gpt-oss-120b | 3 | 2 | 0 | 433 | 5.3 | 1 | 0 |
-| openrouter/openai/gpt-oss-120b | openrouter/openai/gpt-oss-120b | 3 | 1 | 0 | 431 | 6.0 | 3 | 0 |
-| openrouter/qwen/qwen3.7-flash | openrouter/openai/gpt-oss-120b | 3 | 1 | 0 | 454 | 9.7 | 5 | 1 |
-| openrouter/nvidia/nemotron-3-ultra-550b-a55b:free | openrouter/openai/gpt-oss-120b | 3 | 0 | 0 | 374 | 2.0 | 1 | 0 |
+| Maestro | Teammates | Runs | Passed | Stopped by a limit | Avg seconds | Avg messages | Repeated messages | Runs with a REJECTED | Median cost per pass |
+|---|---|---|---|---|---|---|---|---|---|
+| openrouter/anthropic/claude-haiku-5.5 | openrouter/openai/gpt-oss-120b | 3 | 3 | 0 | 180 | 5.7 | 0 | 0 | $0.030 |
+| openrouter/google/gemini-3.8-flash | openrouter/openai/gpt-oss-120b | 3 | 3 | 0 | 448 | 5.0 | 0 | 0 | $0.310 |
+| openrouter/moonshotai/kimi-k2.7-code | openrouter/openai/gpt-oss-120b | 3 | 3 | 0 | 229 | 5.0 | 0 | 0 | $0.070 |
+| openrouter/openai/gpt-5.6-luna | openrouter/openai/gpt-oss-120b | 3 | 2 | 0 | 236 | 8.3 | 0 | 1 | $0.030 |
+| openrouter/z-ai/glm-5.3-flash | openrouter/openai/gpt-oss-120b | 3 | 2 | 0 | 433 | 5.3 | 1 | 0 | - |
+| openrouter/nvidia/nemotron-3-ultra-550b-a55b:free | openrouter/openai/gpt-oss-120b | 3 | 1 | 0 | 374 | 2.0 | 0 | 0 | - |
+| openrouter/openai/gpt-oss-120b | openrouter/openai/gpt-oss-120b | 3 | 1 | 0 | 431 | 6.0 | 1 | 0 | - |
+| openrouter/qwen/qwen3.7-flash | openrouter/openai/gpt-oss-120b | 3 | 1 | 0 | 454 | 9.7 | 3 | 1 | - |
 
-"Runs with a REJECTED" counts runs where the Auditor refused the planted bug at least once. A run passes when all 12 checks hold: the answer matches the key computed from the data, the script is right, the Maestro delegated instead of computing, nothing was sent twice, no figures were dictated to a teammate, and the planted bug was caught and fixed.
+"Runs with a REJECTED" counts runs where the Auditor refused the planted bug at least once (otherwise the program's own check caught it). A run passes when all 12 checks hold: the answer matches the key computed from the data, the script is right, the Maestro delegated instead of computing, the Maestro sent nothing twice, no figures were dictated to a teammate, and the planted bug was caught and fixed. "Median cost per pass" is what the agents' screens show as spent, over the runs that passed; it is empty for the cheap runs made before the column existed and for free models.
 
-With three runs, a model that passed 2 of 3 could have a true rate anywhere from about 20% to 95%; 1 of 3 is anywhere from 6% to 80%; 0 of 3 up to 56%.
+With three runs, 3 of 3 means anywhere from about 40% to 100%, 2 of 3 from about 20% to 95%, 1 of 3 from about 6% to 80%.
 
 ## What we saw
 
-- **No model is reliable as Maestro yet.** Best result: GLM 5.3 Flash, 2 of 3. The first single runs (all but gpt-oss passed) were one draw each, which is why we ran three.
-- **Many failures are one check: the same message sent twice.** GLM, gpt-oss, Nemotron and Qwen each failed one run on that check alone (the work itself was right). Counting only the work, GLM got 3 of 3, gpt-oss 2 of 3, Qwen 2 of 3 and Nemotron 1 of 3 (two of its runs never started, see below). The loop guard exists for this, and the repeated message is what it warns about.
-- **Qwen 3.7 Flash is the chattiest.** It sent the most messages (9.7 on average, up to 13), and in one run the check failed three times and `flag.py` was never fixed.
-- **gpt-oss-120b as Maestro now works sometimes.** The bootstrap that names the full path of the program and says to use the shell tool took it from 0 messages to 4, 8 and 6 messages, and one pass. One run stalled after 4 messages with one gate, never reaching a verdict. The earlier "the command does not exist" answer did not come back.
-- **Nemotron 3 Ultra (free) is inconclusive.** Two of its three runs never started: the first prompt stayed QUEUED in OpenCode for the whole run, with 0 messages. That is the free model not answering, not a decision of the model. The third run did the work and repeated one message.
+- **The slightly better models were steady.** Haiku 5.5, Gemini 3.8 Flash and Kimi K2.7 Code passed 3 of 3, gpt-5.6-luna 2 of 3: 11 of 12 against 5 of 12 for the cheapest group. They all took the same path: about 5 messages, 3 program checks, no message twice, never asking the human.
+- **More money did not buy more.** Gemini 3.8 Flash cost about ten times what Haiku 5.5 and gpt-5.6-luna cost per pass ($0.31 against $0.03) and was twice as slow. Haiku 5.5 and gpt-5.6-luna are the cheap end of the group that works.
+- **A repeated-message failure was partly the harness.** When a check kept failing the same way, the program sent its own correction to the Dev twice, and the harness counted that as the Maestro repeating itself. It no longer does, and the 24 runs were scored again: Nemotron 3 Ultra and Haiku 5.5 each gained a pass.
+- **What is left of the repetition is real**, and only in the cheap group: the Maestro asks the same thing again 30 to 120 seconds after the answer arrived (GLM once, gpt-oss once, Qwen up to 3 times). Qwen 3.7 Flash is also the chattiest, 9.7 messages on average.
+- **gpt-5.6-luna lost a run to a weak reviewer.** The Auditor (gpt-oss) refused a script the program's check accepted, and the Maestro spent 5 rounds and 13 messages before ending with `VERDICT: FAILED`. Failing closed was right; the loop was avoidable.
+- **gpt-oss-120b as Maestro works sometimes** since the bootstrap names the program path (it delegated in all three runs; it passed once).
+- **Nemotron 3 Ultra (free) is inconclusive.** Two of its runs never started: the first prompt stayed QUEUED in OpenCode.
 - A reviewer's `APPROVED` is cheap: in one run the Auditor approved a wrong list. What stopped it was the program comparing the Dev's script with an independent `verify.py` the Auditor wrote, not the Auditor's opinion. See [checking work](validation.html).
 
-What to do with this: pick GLM 5.3 Flash first, keep the loop guard and the reminder on, and do not rely on a free model for the Maestro. A paid model from another family is the next experiment.
-
-The 12 runs above were recorded before the table had a cost column, so it is empty for them. New runs fill it with the median cost of the runs that passed (a dash when the agent shows no cost, as the free models do).
+What to do with this: use Haiku 5.5 or gpt-5.6-luna first; use a free or very cheap model as Maestro only with the loop guard on and a person watching. The gap between the groups is real; the order inside a group is not settled.
 
 What the table still lacks, and a public comparison of coding harnesses points to the same gap: a baseline. One strong model alone on the same task, with no Maestro, no Auditor and no gate, tells whether the orchestration pays for itself. Until that run exists, the table says which Maestro is better than another, not that having a Maestro is better than not having one.
 
@@ -36,8 +40,8 @@ What the table still lacks, and a public comparison of coding harnesses points t
 
 ```bash
 node test/challenge/run.mjs --inject --record runs.jsonl \
-  --maestro 'opencode -m openrouter/z-ai/glm-5.3-flash' --worker 'opencode -m openrouter/openai/gpt-oss-120b'
+  --maestro 'opencode -m openrouter/anthropic/claude-haiku-5.5' --worker 'opencode -m openrouter/openai/gpt-oss-120b'
 node test/challenge/summary.mjs < runs.jsonl
 ```
 
-Each run costs a few cents on OpenRouter with these models.
+Each run costs from one cent to thirty cents on OpenRouter with these models.

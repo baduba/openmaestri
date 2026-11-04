@@ -72,12 +72,18 @@ export function parseVerdict(text) {
   return verdictBlock(src);
 }
 
+const CHECK_FAILED = 'An automatic check of your work failed, so it is not accepted yet.';
+const FORMAT_FAILED = 'Your last reply was not accepted: it has no verdict line in the required shape.';
+
+/** True for a message the program itself sends back to a teammate (see `correction`), as opposed to one the Maestro wrote. */
+export const isCorrection = (text) => String(text).startsWith(CHECK_FAILED) || String(text).startsWith(FORMAT_FAILED);
+
 /** The message that goes back to the teammate when its work was not accepted. */
 export function correction({ kind, command, exitCode, timedOut, output, verdict }) {
-  if (kind === 'format') return `Your last reply was not accepted: it has no verdict line in the required shape.\n${VERDICT_FORMAT}\nLook at the data again and answer with that line.`;
+  if (kind === 'format') return `${FORMAT_FAILED}\n${VERDICT_FORMAT}\nLook at the data again and answer with that line.`;
   const how = timedOut ? 'timed out' : `exited with code ${exitCode ?? '?'}`;
   const tail = verdict ? `\n${VERDICT_FORMAT}` : '';
-  return `An automatic check of your work failed, so it is not accepted yet.\nCommand: ${command}\nResult: ${how}\nOutput (shortened):\n${clipLog(output)}\nFix the cause, then say what you changed.${tail}`;
+  return `${CHECK_FAILED}\nCommand: ${command}\nResult: ${how}\nOutput (shortened):\n${clipLog(output)}\nFix the cause, then say what you changed.${tail}`;
 }
 
 const words = (s) => new Set((String(s).toLowerCase().match(/[\p{L}\p{N}_./-]{3,}/gu) ?? []).map((w) => w.replace(/[./-]+$/, '')));
