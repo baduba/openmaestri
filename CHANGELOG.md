@@ -4,6 +4,17 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+- `OPENMAESTRI_BUDGET_USD` and `budget`: a spending limit read from the session cost agents print on their screens (OpenCode). Warning at 80%, every terminal of the workspace stopped at 100%; `report` shows the spend. Only the person can set it
+- `OPENMAESTRI_DEFAULT_SANDBOX`, `recruit --no-sandbox` and `sandbox`: a box as the default for new teammates (never the Maestro or a shell), and a note at `recruit` naming the keys a teammate on this machine can read
+- `resume`: events (asks, checks, verdicts, corrections, reminders, spending) are saved with the workspace and survive a restart; a Maestro that starts in a workspace with history gets the summary and what is still open
+- Challenge: the Auditor's `verify.py` must print the answer key and must differ from the planted bug's output
+- The Maestro bootstrap gives the full path of the program and says it has a shell tool (gpt-oss-120b began delegating after 55 s instead of 153 s and a reminder)
+- docs/models.md has three runs per Maestro (12 real runs): GLM 5.3 Flash 2 of 3, gpt-oss-120b 1 of 3, Qwen 3.7 Flash 1 of 3, Nemotron 3 Ultra (free) 0 of 3 with two runs that never started. No model is reliable yet; many failures are a single repeated message
+
+### Fixed
+- The `ps command` test took the shell's own transient rows (which contain the text of the command) for the program and tried to stop the root process; it now looks for the program itself
+
 ## [0.23.0] - 2026-11-03
 
 ### Added

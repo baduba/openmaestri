@@ -125,6 +125,7 @@ export function reportText(events) {
     `${count('forward')} handed to another teammate`,
     `${count('loop')} loop warnings`,
     `${count('nudge')} reminders to the Maestro`,
+    `${count('budget')} spending notices`,
   ];
   return `${rows.join('\n')}\n\nTotals: ${totals.join(', ')}.`;
 }
@@ -140,4 +141,14 @@ export function unresolvedChecks(events) {
 export function unverifiedNotice(open) {
   const what = open.map((e) => `${e.to}: ${e.note}`).join('; ');
   return `\n\n[openmaestri] Not verified: a check on the work of ${what} failed and was not fixed afterwards. This answer was given anyway; do not trust it until that check passes.`;
+}
+
+/** What a Maestro that starts late (a crash, a restart, a replacement) is told about the work so far: the last events and what is still open. */
+export function resumeText(events, open, spend) {
+  if (!events.length) return 'Nothing has happened in this workspace yet: no ask, check, verdict or correction was recorded. Start from the goal.';
+  const recent = events.slice(-15).map((e) => `${e.at.slice(0, 19).replace('T', ' ')}  ${e.kind}${e.to ? ` -> ${e.to}` : ''}${e.ok === false ? ' FAILED' : ''}${e.note ? `  ${e.note}` : ''}`);
+  const pending = open.length
+    ? `Still open (the last check on this work failed and was not fixed):\n${open.map((e) => `  ${e.to}: ${e.note}`).join('\n')}`
+    : 'Nothing is open: the last check on every teammate\'s work passed, or none was made.';
+  return `The work so far in this workspace (${events.length} recorded events, newest last):\n${recent.join('\n')}\n\n${pending}\n${spend}\nContinue from here; do not redo what already passed.`;
 }

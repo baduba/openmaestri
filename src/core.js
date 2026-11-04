@@ -7,7 +7,7 @@ import { Accounts, AccountError } from './accounts.js';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
-import { Store, dataDir } from './store.js';
+import { Store, dataDir, atomicWrite } from './store.js';
 import { GUIDE, NUDGE } from './prompts.js';
 import { Terminals } from './terminals.js';
 import { freePortBase, floorVars } from './ports.js';
@@ -24,7 +24,8 @@ import { runHook, describeHook, checkCommand, HookError } from './hooks.js';
 import { takeSnapshot, listSnapshots, rollback as rollbackFloor, dropSnapshots } from './snapshots.js';
 import { ForgeError, detectProvider, normalizeProvider, providerInfo, listChanges, formatChanges } from './forge.js';
 import { newScreenText, looksBusy } from './screen.js';
-import { AskLog, unresolvedChecks, unverifiedNotice, MAX_RETRIES, DEFAULT_RETRIES, REPEAT_WARN, REPEAT_STOP, VERDICT_FORMAT, parseVerdict, correction, clipLog, repeatNotice, reportText as eventsReport } from './gate.js';
+import { screenCost, budgetLimit, budgetState, spendText, money } from './budget.js';
+import { AskLog, unresolvedChecks, unverifiedNotice, resumeText, MAX_RETRIES, DEFAULT_RETRIES, REPEAT_WARN, REPEAT_STOP, VERDICT_FORMAT, parseVerdict, correction, clipLog, repeatNotice, reportText as eventsReport } from './gate.js';
 import { MAX_AGENTS, parseAgents, planText, reportText } from './taskrun.js';
 import { Usage, UsageError } from './usage.js';
 import { readUserEnv, TerminalError, commandAvailable, commandPath } from './terminals.js';
@@ -70,6 +71,8 @@ export class Core extends EventEmitter {
     this.notifyLog = new Map();
     this.askLog = new AskLog();
     this.events = new Map();
+    this.spend = new Map(); // terminal id -> the most its screen has shown as session cost
+    this.budgetState = new Map(); // workspace id -> 'ok' | 'warn' | 'cut'
     this.history = new History();
     this.portals = new Portals({ dataRoot, uploadRoots: () => this.uploadRoots() });
     this.chat = new Chat({ store: this.store, allowedRoots: (wsId) => this.chatRoots(wsId) });
@@ -116,10 +119,14 @@ export class Core extends EventEmitter {
     this.usage.on('changed', () => this.emit('usage-changed'));
     this.usageTimer = setInterval(() => { for (const [id] of this.terminals.rt) if (this.terminals.status(id) === 'working') this.usage.tick(id); }, 1000);
     this.usageTimer.unref();
+    this.budgetTimer = setInterval(() => this.checkBudget(), Number(process.env.OPENMAESTRI_BUDGET_TICK_MS) || 5000);
+    this.budgetTimer.unref();
   }
 
   stop() {
+    this.saveEvents();
     clearInterval(this.usageTimer);
+    clearInterval(this.budgetTimer);
     this.usage.close();
     this.prompts.close();
     this.portals.stop().catch(() => { /* shutting down */ });
@@ -337,8 +344,19 @@ const HANDLERS = {
 
   /** What happened between the Maestro and its teammates in this workspace, written from what the program saw. */
   report(ws, me, { json }) {
-    const events = this.events.get(ws.id) ?? [];
-    return { text: json ? JSON.stringify(events, null, 2) : eventsReport(events), data: events };
+    const events = this.eventsFor(ws.id);
+    const spend = spendText(this.spendOf(ws), budgetLimit());
+    return { text: json ? JSON.stringify({ events, spend }, null, 2) : `${eventsReport(events)}\n${spend}`, data: events };
+  },
+
+  /** `resume`: what happened here before this agent started, and what is still open. Read it when you take over after a restart or a crash. */
+  resume(ws) {
+    return { text: this.resumeBrief(ws) };
+  },
+
+  /** Read only on purpose: the limit is the human's, set when the daemon starts. */
+  budget(ws) {
+    return { text: spendText(this.spendOf(ws), budgetLimit()) };
   },
 
   /**
@@ -613,7 +631,7 @@ const HANDLERS = {
   },
 
   // ----- orchestration (maestro only) -----
-  async recruit(ws, me, { name, preset, role, dir, command, color, icon, replace, floor, model, noCheck, account, noHandoff, handoff, sandbox, noNetwork }) {
+  async recruit(ws, me, { name, preset, role, dir, command, color, icon, replace, floor, model, noCheck, account, noHandoff, handoff, sandbox, noSandbox, noNetwork }) {
     this.requireMaestro(me);
     const accountName = account ?? this.store.settings.presets.find((p) => p.name.toLowerCase() === String(preset ?? '').toLowerCase())?.account ?? null;
     if (accountName) this.accounts.env(accountName); // fails with a clear message when it does not exist
@@ -626,7 +644,11 @@ const HANDLERS = {
       if (!cmd.includes('OPENMAESTRI_DEEPSEEK_MODEL')) fail('this preset has no model setting. --model works with the DeepSeek presets');
       cmd = `OPENMAESTRI_DEEPSEEK_MODEL='${m}' ${cmd}`;
     }
-    const box = this.sandboxFrom(sandbox, noNetwork);
+    // the person can make a box the default for every teammate (OPENMAESTRI_DEFAULT_SANDBOX or defaultSandbox in the settings);
+    // the Maestro and a plain shell are never boxed by default, and --no-sandbox opts out for one recruit
+    const byDefault = sandbox === undefined && !noSandbox && !!cmd && !presetObj?.maestro ? this.defaultSandbox() : null;
+    const box = this.sandboxFrom(sandbox ?? byDefault, noNetwork);
+    if (byDefault && !commandPath('docker')) fail(`the default is to run teammates in a box (${byDefault}), but "docker" was not found. Install it, or recruit with --no-sandbox`);
     if (box) {
       if (presetObj?.maestro) fail('the Maestro cannot run in a box: it has to reach the app to coordinate. Put its workers in boxes instead');
       if (!cmd) fail('a plain shell cannot run in a box. Give the agent a --preset or a --command');
@@ -668,7 +690,20 @@ const HANDLERS = {
     const intro = [rolePrompt, cmd ? this.factsBrief(ws) : ''].filter(Boolean).join('\n\n');
     if (intro) setTimeout(() => { try { this.terminals.deliver(node.id, intro); } catch {} }, 3000);
     this.touch(ws);
-    return { text: node.name, data: { name: node.name } };
+    const exposed = !box && cmd && !presetObj?.maestro ? this.exposedKeys(node) : [];
+    const warn = exposed.length ? `\nNote: ${node.name} runs on this machine with access to your files and these keys: ${exposed.join(', ')}. For a model you do not trust, recruit it with --sandbox IMAGE, or make a box the default (OPENMAESTRI_DEFAULT_SANDBOX).` : '';
+    return { text: `${node.name}${warn}`, data: { name: node.name, exposed } };
+  },
+
+  /** Where the teammates run: in a box or on this machine, and which keys the ones on this machine can read. Read only: the default is the person's to set. */
+  sandbox(ws) {
+    const def = this.defaultSandbox();
+    const rows = ws.nodes.filter((n) => n.kind === 'terminal' && n.command).map((n) => {
+      if (n.sandbox) return `  ${n.name}: in a box (${n.sandbox.image})`;
+      const keys = this.exposedKeys(n);
+      return `  ${n.name}: on this machine${n.maestro ? ' (the Maestro cannot be boxed)' : ''}${keys.length ? `, can read the keys ${keys.join(', ')}` : ', no keys in its environment'}`;
+    });
+    return { text: `Default for new teammates: ${def ? `a box (${def})` : 'none; set OPENMAESTRI_DEFAULT_SANDBOX when the daemon starts'}\n${rows.join('\n') || '  (no agents yet)'}`, data: { default: def } };
   },
 
   /** `mcp [list] | add NAME ... | rm NAME | install "Agent" [--apply] [--remove]`: the MCP servers of this workspace. */
@@ -1254,7 +1289,7 @@ const HANDLERS = {
       else attachments.push(this.chat.attach(ws.id, f));
     }
     // an answer to the human over work that never passed its check says so, in words the program wrote
-    const open = !progress && me.maestro ? unresolvedChecks(this.events.get(ws.id) ?? []) : [];
+    const open = !progress && me.maestro ? unresolvedChecks(this.eventsFor(ws.id)) : [];
     if (open.length) { body += unverifiedNotice(open); this.noteEvent(ws, { kind: 'unverified', ok: false, note: `answered with ${open.length} failed check${open.length === 1 ? '' : 's'} open` }); }
     const msg = this.chat.append(ws.id, tid, { role: 'agent', sender: me.name, senderId: me.id, text: body, attachments, progress: !!progress });
     if (!progress) this.markAttention(ws, me.id);
@@ -1746,6 +1781,19 @@ Core.prototype.roleChange = function (ws, me, { role, agent, apply, trust }, rem
 /** The folder a Files node browses: its floor's folder, or the workspace folder. */
 /** Run one headless agent; tracked so shutdown and the concurrency limit see it. Never throws for a failed run. */
 /** The sandbox asked for on the command line: an image name, and --no-network. null for none. */
+/** The image every teammate runs in unless told otherwise: set by the person, never by an agent. */
+Core.prototype.defaultSandbox = function () {
+  const v = process.env.OPENMAESTRI_DEFAULT_SANDBOX || this.store.settings.defaultSandbox || '';
+  return typeof v === 'string' && v.trim() ? v.trim() : null;
+};
+
+/** The names (never the values) of the secret variables a terminal on this machine is given: the env file and its account. */
+Core.prototype.exposedKeys = function (node) {
+  const names = new Set(Object.keys(readUserEnv(path.join(this.dataRoot, 'env'), this.resolveSecret)));
+  if (node.account) { try { for (const k of Object.keys(this.accounts.env(node.account, this.resolveSecret))) names.add(k); } catch { /* the account is missing: nothing to name */ } }
+  return [...names].filter((k) => /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL)/i.test(k)).sort((a, b) => a.localeCompare(b));
+};
+
 Core.prototype.sandboxFrom = function (image, noNetwork) {
   if (!image) return null;
   return checkSandbox({ image: String(image), network: noNetwork ? 'none' : 'bridge' });
@@ -1886,11 +1934,73 @@ Core.prototype.runCheck = function (ws, target, command) {
   return runHook(command, { cwd, sandbox: box, docker: box ? this.dockerPath(ws) : null, extraEnv: this.floorEnv(ws, target) });
 };
 
+/** Per terminal, what its screen shows as session cost (the highest ever seen, since a screen can be cleared). */
+Core.prototype.spendOf = function (ws) {
+  return ws.nodes.filter((n) => n.kind === 'terminal').map((n) => {
+    const seen = this.terminals.rt.get(n.id) ? screenCost(this.terminals.lines(n.id, 40)) : null;
+    if (seen !== null) this.spend.set(n.id, Math.max(this.spend.get(n.id) ?? 0, seen));
+    return { name: n.name, id: n.id, cost: this.spend.get(n.id) ?? 0 };
+  });
+};
+
+/** Warn at 80% of the limit and stop every terminal of the workspace at 100%. The limit is set by the person, not by an agent. */
+Core.prototype.checkBudget = function () {
+  const limit = budgetLimit();
+  if (limit === null) return;
+  for (const ws of this.store.workspaces.values()) {
+    const per = this.spendOf(ws);
+    const total = per.reduce((a, x) => a + x.cost, 0);
+    const state = budgetState(total, limit);
+    if (state === 'ok' || this.budgetState.get(ws.id) === state || (state === 'warn' && this.budgetState.get(ws.id) === 'cut')) continue;
+    this.budgetState.set(ws.id, state);
+    const note = state === 'cut' ? `limit ${money(limit)} reached (${money(total)}): every terminal of this workspace was stopped` : `${money(total)} of the ${money(limit)} limit spent`;
+    this.noteEvent(ws, { kind: 'budget', ok: state !== 'cut', note });
+    this.emit('notify', { workspaceId: ws.id, from: 'openmaestri', message: `Spending: ${note}` });
+    if (state === 'cut') for (const n of ws.nodes) if (n.kind === 'terminal' && this.terminals.rt.get(n.id)?.status === 'running') this.terminals.kill(n.id);
+  }
+};
+
 /** What happened in a workspace, in order, for `report`. Kept in memory, newest 500, and the audit log has the commands. */
 Core.prototype.noteEvent = function (ws, e) {
-  const list = this.events.get(ws.id) ?? [];
+  const list = this.eventsFor(ws.id);
   list.push({ at: new Date().toISOString(), ...e });
   this.events.set(ws.id, list.slice(-500));
+  this.eventsDirty ??= new Set();
+  this.eventsDirty.add(ws.id);
+  clearTimeout(this.eventsTimer);
+  this.eventsTimer = setTimeout(() => this.saveEvents(), 1000);
+  this.eventsTimer.unref?.();
+};
+
+const eventsFile = (core, wsId) => path.join(core.store.wsDir(wsId), 'events.json');
+
+/** The events of a workspace, read from disk the first time they are needed: a restart or a crash does not erase what was asked, checked and rejected. */
+Core.prototype.eventsFor = function (id) {
+  if (!this.events.has(id)) {
+    let list = [];
+    try {
+      const raw = JSON.parse(fs.readFileSync(eventsFile(this, id), 'utf8'));
+      if (Array.isArray(raw)) list = raw.filter((e) => e && typeof e.kind === 'string' && typeof e.at === 'string').slice(-500);
+    } catch { /* no file yet, or not readable: start empty */ }
+    this.events.set(id, list);
+  }
+  return this.events.get(id);
+};
+
+Core.prototype.saveEvents = function () {
+  clearTimeout(this.eventsTimer);
+  for (const id of this.eventsDirty ?? []) {
+    try {
+      fs.mkdirSync(this.store.wsDir(id), { recursive: true });
+      atomicWrite(eventsFile(this, id), JSON.stringify(this.events.get(id) ?? []));
+    } catch { /* a full disk must not stop the work */ }
+  }
+  this.eventsDirty?.clear();
+};
+
+/** The text a Maestro gets when it joins late: see `resume`. */
+Core.prototype.resumeBrief = function (ws) {
+  return resumeText(this.eventsFor(ws.id), unresolvedChecks(this.eventsFor(ws.id)), spendText(this.spendOf(ws), budgetLimit()));
 };
 
 Core.prototype.preflightAgents = function (ws, agents, drivers, box = null) {

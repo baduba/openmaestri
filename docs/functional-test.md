@@ -53,6 +53,13 @@ With `--inject` the harness also plants a bug in `flag.py` (every row counts, th
 | the Dev was asked again after the rejection | the feedback went back to the author |
 | `flag.py` was fixed, not left as planted | the loop ended with a corrected work product |
 
+Two more checks apply with `--inject`, on the oracle itself:
+
+| Check | Why |
+|---|---|
+| the Auditor's `verify.py` prints the answer key | an empty or always-agreeing verifier proves nothing |
+| the Auditor's `verify.py` tells the planted bug apart | the check only means something if the oracle disagrees with the bug |
+
 The report lists the Auditor's verdicts in order, taken from what `ask` returned (a full-screen program redraws, so its screen at the end loses them), and how long each wait for an answer took. A run that passes with `REJECTED` before `APPROVED` is a real chain: delegate, produce, review, send back, fix, approve.
 
 The report also counts messages sent to each teammate, so a run that only needed one round shows it.
