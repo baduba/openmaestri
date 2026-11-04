@@ -11,7 +11,7 @@ import { main } from '../../src/server.js';
 import { maestroBootstrap } from '../../src/prompts.js';
 import { isCorrection } from '../../src/gate.js';
 import crypto from 'node:crypto';
-import { buildScenario, writeScenario, CHALLENGE, SOLO, buggyFlagScript } from './scenario.mjs';
+import { buildScenario, writeScenario, CHALLENGE, SOLO, FREE, buggyFlagScript } from './scenario.mjs';
 import { buildScenarioB, writeScenarioB, buggyFlagScriptB } from './scenario2.mjs';
 
 /** Scenario A (regions) or B (a ledger with traps): the data, the rules file and the script with the planted bug. */
@@ -56,7 +56,7 @@ export function recordLine(r, { maestro, worker, seed, inject }) {
   return {
     date: new Date().toISOString().slice(0, 10), maestro: model(maestro), worker: model(worker), seed, inject: !!inject,
     outcome: r.outcome, passed: r.passed, seconds: r.seconds, messages: r.roundTrips, repeated: r.repeated, leaked: r.leaked,
-    mode: r.baseline ? 'solo' : r.devReads ? 'team-reads' : r.relay ? 'team-relay' : 'team', scenario: r.scenario ?? 'a', correct: r.correct,
+    mode: (r.baseline ? 'solo' : r.free ? 'team-free' : r.devReads ? 'team-reads' : r.relay ? 'team-relay' : 'team') + (r.state ? '+state' : ''), scenario: r.scenario ?? 'a', correct: r.correct,
     gated: r.gated, gatesFailed: r.gatesFailed, cost: r.cost ?? null, verdicts: r.verdicts.join(','), failed: Object.entries(r.checks).filter(([, v]) => !v).map(([k]) => k),
   };
 }
@@ -73,6 +73,11 @@ export function soloChecks({ final, answered, scriptOut, key }) {
     'flagged regions match the answer key': sameList(answered, key),
     'flag.py exists and prints the answer key': scriptOut !== null && sameList(scriptOut, key),
   };
+}
+
+/** A Maestro given only the goal: the answer and the script must be right, and it has to have used a team at all (otherwise it did the work alone and the run says nothing about coordination). */
+export function freeChecks({ final, answered, scriptOut, key, asked }) {
+  return { ...soloChecks({ final, answered, scriptOut, key }), 'a teammate was recruited and asked': asked > 0 };
 }
 
 /** What a run has to show. The last three only apply when a bug was planted (`inject`). */
@@ -100,9 +105,12 @@ export function buildChecks({ inject, final, answered, scriptOut, key, team, toN
 }
 
 /**
- * @param {{maestro: string, worker: string, seed?: number, timeoutMs?: number, stallMs?: number, bootMs?: number, bootstrap?: boolean, inject?: boolean, baseline?: boolean, relay?: boolean, devReads?: boolean, scenario?: 'a' | 'b', record?: string, outDir?: string, log?: (s: string) => void}} o
+ * @param {{maestro: string, worker: string, seed?: number, timeoutMs?: number, stallMs?: number, bootMs?: number, bootstrap?: boolean, inject?: boolean, baseline?: boolean, relay?: boolean, devReads?: boolean, state?: boolean, free?: boolean, scenario?: 'a' | 'b', record?: string, outDir?: string, log?: (s: string) => void}} o
  */
-export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 * 60 * 1000, stallMs = 8 * 60 * 1000, bootMs = 15000, bootstrap = true, inject = false, baseline = false, relay = false, devReads = false, scenario = 'a', record, outDir, log = () => {} }) {
+export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 * 60 * 1000, stallMs = 8 * 60 * 1000, bootMs = 15000, bootstrap = true, inject = false, baseline = false, relay = false, devReads = false, state = false, free = false, scenario = 'a', record, outDir, log = () => {} }) {
+  // the state line is read by the daemon of this process, so the switch is this process's environment for the length of the run
+  const stateBefore = process.env.OPENMAESTRI_STATE_LINE;
+  if (state) process.env.OPENMAESTRI_STATE_LINE = '1';
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'om-challenge-'));
   const dir = path.join(root, 'work');
   fs.mkdirSync(dir);
@@ -178,7 +186,7 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
       // CHALLENGE_BOOTSTRAP replaces the first message (experiments); {CLI} is the absolute path of the openmaestri command
       const first = (process.env.CHALLENGE_BOOTSTRAP || maestroBootstrap('{CLI}')).replaceAll('{CLI}', core.terminals.env.cliBin ?? 'openmaestri');
       if (bootstrap) { core.terminals.deliver(boss.id, first); await sleep(Math.min(bootMs, 20000)); }
-      core.chatSend(ws, { text: `${CHALLENGE(dir, { relay, devReads })}\nUse the preset named Worker for both teammates.` });
+      core.chatSend(ws, { text: free ? FREE(dir) : `${CHALLENGE(dir, { relay, devReads })}\nUse the preset named Worker for both teammates.` });
     }
 
     const said = () => core.chat.history(ws.id, core.chat.active(ws.id), { turns: 200 }).filter((m) => m.role === 'agent' && !m.progress);
@@ -212,9 +220,9 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
     const listOf = (r) => (r.status === 0 ? r.stdout.split('\n').map((x) => x.trim()).filter(Boolean).sort(byName) : null);
     const verifyOut = inject && fs.existsSync(path.join(dir, 'verify.py')) ? listOf(spawnSync('/usr/bin/python3', ['verify.py'], { cwd: dir, encoding: 'utf8', timeout: 20000 })) : null;
     const buggyOut = inject ? listOf(spawnSync('/usr/bin/python3', ['-c', kit.buggy(sc.limits)], { cwd: dir, encoding: 'utf8', timeout: 20000 })) : null;
-    const checks = baseline ? soloChecks({ final, answered, scriptOut, key: sc.flagged }) : buildChecks({ inject, final, answered, scriptOut, key: sc.flagged, team, toName, reads, repeated, leaked, planted, verdicts, checksFailed, finalHash, verifyOut, buggyOut });
+    const checks = baseline ? soloChecks({ final, answered, scriptOut, key: sc.flagged }) : free ? freeChecks({ final, answered, scriptOut, key: sc.flagged, asked: trace.filter((x) => x.to !== 'Maestro').length }) : buildChecks({ inject, final, answered, scriptOut, key: sc.flagged, team, toName, reads, repeated, leaked, planted, verdicts, checksFailed, finalHash, verifyOut, buggyOut });
     const result = {
-      outcome, seconds: t(), baseline, relay, devReads, scenario, passed: Object.values(checks).every(Boolean), correct: isCorrect(checks), checks, key: sc.flagged, answered, scriptOut,
+      outcome, seconds: t(), baseline, relay, devReads, state, free, scenario, passed: Object.values(checks).every(Boolean), correct: isCorrect(checks), checks, key: sc.flagged, answered, scriptOut,
       roundTrips: trace.filter((x) => x.to !== 'Maestro').length, toDev: toName('Dev'), toAuditor: toName('Auditor'),
       finalAnswer: final, trace, events, asks, answers, verdicts, repeated, leaked, checksFailed, nudges: (core.events.get(ws.id) ?? []).filter((e) => e.kind === 'nudge').length, gated: answers.filter((a) => a.gate).length, gatesFailed: answers.filter((a) => a.gate && !a.gate.ok).length,
       // what the agents' screens show as spent (OpenCode prints it); null when none of them shows a cost
@@ -232,6 +240,7 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
     if (record) fs.appendFileSync(record, `${JSON.stringify(recordLine(result, { maestro, worker, seed, inject }))}\n`);
     return result;
   } finally {
+    if (stateBefore === undefined) delete process.env.OPENMAESTRI_STATE_LINE; else process.env.OPENMAESTRI_STATE_LINE = stateBefore;
     await app.close();
     fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 });
   }
@@ -283,6 +292,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     inject: args.includes('--inject'),
     baseline: args.includes('--baseline'),
     relay: args.includes('--relay'),
+    state: args.includes('--state'),
+    free: args.includes('--free'),
     devReads: args.includes('--dev-reads'),
     scenario: get('scenario', 'a'),
     record: get('record'),

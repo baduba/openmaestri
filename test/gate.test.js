@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { main } from '../src/server.js';
-import { clipLog, parseVerdict, correction, similarity, AskLog, repeatNotice, conflictNotice, relayPrompt, reportText, VERDICT_FORMAT } from '../src/gate.js';
+import { clipLog, parseVerdict, correction, similarity, AskLog, repeatNotice, conflictNotice, relayPrompt, stateLine, reportText, VERDICT_FORMAT } from '../src/gate.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const BLOCK = (status, reason) => `<<<VERDICT\nSTATUS: ${status}\nREASON: ${reason}\nVERDICT>>>`;
@@ -328,4 +328,32 @@ test('ask --check: the failure says which folder the check ran in', async (t) =>
   const { ask, dir } = await setup(t, { Dev: 'echo done' });
   const r = await ask({ name: 'Dev', prompt: 'write verify.py in the shared folder', check: 'python3 verify.py', retries: 0 });
   assert.ok(r.text.includes(`it ran in ${path.join(dir, 'Dev')}`), r.text);
+});
+
+test('stateLine: per teammate the messages, the last check and the last verdict, and what is still open', () => {
+  assert.equal(stateLine([]), '');
+  const ev = [
+    { kind: 'ask', to: 'Dev', ok: true },
+    { kind: 'check', to: 'Dev', ok: false, note: 'python3 flag.py exit 1' },
+    { kind: 'ask', to: 'Dev', ok: true },
+    { kind: 'check', to: 'Dev', ok: true, note: 'python3 flag.py exit 0' },
+    { kind: 'ask', to: 'Auditor', ok: true },
+    { kind: 'verdict', to: 'Auditor', ok: true, note: 'REJECTED Norte is wrong' },
+  ];
+  const line = stateLine(ev);
+  assert.match(line, /^\[openmaestri state\] Dev: 2 messages, last check PASSED \(python3 flag.py exit 0\)\. Auditor: 1 message, last verdict REJECTED\. Open: nothing\.$/);
+  assert.match(stateLine(ev.slice(0, 2)), /last check FAILED .*Open: Dev's check failed/);
+  assert.match(stateLine([{ kind: 'ask', to: 'Auditor', ok: true }, { kind: 'verdict', to: 'Auditor', ok: false, note: 'no block in the required shape' }]), /last reply had no valid verdict/);
+});
+
+test('ask: the state line closes the answer only when the person turned it on', async (t) => {
+  const { ask } = await setup(t, { Dev: 'echo ok > status.txt; echo "done"' });
+  const off = await ask({ name: 'Dev', prompt: 'write ok into status.txt', check: 'grep -q ok status.txt', retries: 0 });
+  assert.doesNotMatch(off.text, /openmaestri state/);
+  process.env.OPENMAESTRI_STATE_LINE = '1';
+  t.after(() => { delete process.env.OPENMAESTRI_STATE_LINE; });
+  const gated = await ask({ name: 'Dev', prompt: 'write ok into status.txt again please', check: 'grep -q ok status.txt', retries: 0 });
+  assert.match(gated.text, /\n\[openmaestri state\] Dev: 2 messages, last check PASSED .*Open: nothing\.$/);
+  const plain = await ask({ name: 'Dev', prompt: 'just say hello to me now' });
+  assert.match(plain.text, /\[openmaestri state\] Dev: 3 messages/);
 });
