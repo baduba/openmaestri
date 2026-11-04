@@ -72,3 +72,12 @@ test('challenge: an oracle that prints nothing, or the planted bug\'s answer, is
   assert.equal(same['the Auditor\'s verify.py tells the planted bug apart'], false, 'a verify.py that agrees with the bug is not an oracle');
   assert.equal(buildChecks({ ...base, verifyOut: null })['the Auditor\'s verify.py prints the answer key'], false, 'no verify.py at all');
 });
+
+test('challenge: the program\'s own correction sent twice is not a message the Maestro repeated', async () => {
+  const { repeatedCount } = await import('./challenge/run.mjs');
+  const { correction } = await import('../src/gate.js');
+  const fix = correction({ kind: 'check', command: 'diff a b', exitCode: 1, output: 'x' }).replace(/\s+/g, ' ');
+  const trace = [{ to: 'Dev', text: 'write flag.py' }, { to: 'Dev', text: fix }, { to: 'Dev', text: fix }];
+  assert.equal(repeatedCount(trace), 0);
+  assert.equal(repeatedCount([...trace, { to: 'Dev', text: 'write flag.py' }]), 1);
+});

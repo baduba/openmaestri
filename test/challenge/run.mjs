@@ -9,6 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { main } from '../../src/server.js';
 import { maestroBootstrap } from '../../src/prompts.js';
+import { isCorrection } from '../../src/gate.js';
 import crypto from 'node:crypto';
 import { buildScenario, writeScenario, CHALLENGE, buggyFlagScript } from './scenario.mjs';
 
@@ -25,9 +26,9 @@ export function verdictOf(text) {
   return /\bAPPROVED\b/.test(text) ? 'APPROVED' : '?';
 }
 
-/** Messages to a teammate that were sent more than once, word for word. */
+/** Messages the Maestro sent to a teammate more than once, word for word. The corrections the program sends by itself are not the Maestro's: a check that keeps failing the same way repeats them. */
 export function repeatedCount(trace) {
-  return trace.filter((x, i) => x.to !== 'Maestro' && trace.findIndex((y) => y.to === x.to && y.text === x.text) !== i).length;
+  return trace.filter((x, i) => x.to !== 'Maestro' && !isCorrection(x.text) && trace.findIndex((y) => y.to === x.to && y.text === x.text) !== i).length;
 }
 
 /** Messages to a teammate that carry two or more of the true per-region revenues: the Maestro dictating what the teammate should compute. */
