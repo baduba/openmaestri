@@ -108,3 +108,44 @@ test('challenge: the baseline is judged by the answer alone, and the summary put
   // lines recorded before the field existed: right when neither correctness check failed
   assert.match(summarize([{ maestro: 'm', worker: 'w', passed: false, failed: ['no message to a teammate was sent twice'] }, { maestro: 'm', worker: 'w', passed: false, failed: ['flag.py exists and prints the answer key'] }]), /\| m \| w \| 2 \| 0 \| 1 \|/);
 });
+
+test('challenge scenario B: the key agrees with an independent reading of the file, and the planted bug does not', async () => {
+  const { buildScenarioB, writeScenarioB, buggyFlagScriptB } = await import('./challenge/scenario2.mjs');
+  const sc = buildScenarioB(11);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-b-'));
+  writeScenarioB(dir, sc);
+  const reference = `
+import csv, datetime as dt, collections, re
+rows = list(csv.DictReader(open('data/sales.csv')))
+assert all(len(r) == 6 and None not in r for r in rows), 'a row did not parse into 6 columns'
+rules = open('data/rules.md').read()
+lim = int(re.search(r'revenue is greater than (\\d+)', rules).group(1))
+pct = int(re.search(r'more than (\\d+)%', rules).group(1))
+cb = {r['ref'] for r in rows if r['status'] == 'CHARGEBACK'}
+amt = lambda a: float(a.replace('.', '').replace(',', '.')) if ',' in a else float(a)
+tz = dt.timezone(dt.timedelta(hours=-3))
+seen, sales, chg, rev = set(), collections.Counter(), collections.Counter(), collections.Counter()
+for r in rows:
+    if r['status'] != 'SALE' or r['txn_id'] in seen: continue
+    seen.add(r['txn_id']); a = r['account']; sales[a] += 1
+    if r['txn_id'] in cb: chg[a] += 1; continue
+    t = dt.datetime.fromisoformat(r['ts'].replace('Z', '+00:00')).astimezone(tz)
+    if 8 <= t.hour < 18: rev[a] += amt(r['amount'])
+print('\\n'.join(sorted(a for a in sales if rev[a] > lim or chg[a] / sales[a] * 100 > pct)))
+`;
+  const ref = spawnSync('python3', ['-c', reference], { cwd: dir, encoding: 'utf8' });
+  assert.equal(ref.status, 0, ref.stderr);
+  assert.deepEqual(ref.stdout.split('\n').filter(Boolean), sc.flagged, 'the key and the independent reading disagree');
+  assert.ok(sc.flagged.length >= 2 && sc.flagged.length <= 3);
+  fs.writeFileSync(path.join(dir, 'flag.py'), buggyFlagScriptB(sc.limits));
+  const bug = spawnSync('python3', ['flag.py'], { cwd: dir, encoding: 'utf8' });
+  assert.equal(bug.status, 0, bug.stderr);
+  assert.notDeepEqual(bug.stdout.split('\n').filter(Boolean), sc.flagged);
+});
+
+test('challenge: a final answer with a literal backslash-n instead of a line break still names the same regions', async () => {
+  const { answeredNames } = await import('./challenge/run.mjs');
+  assert.deepEqual(answeredNames('VERDICT: APPROVED\nFLAGGED: Sul,Leste,Oeste\nROUNDS: 1'), ['Leste', 'Oeste', 'Sul']);
+  assert.deepEqual(answeredNames('VERDICT: APPROVED\\nFLAGGED: Leste,Oeste,Sul\\nROUNDS: 1'), ['Leste', 'Oeste', 'Sul'], 'a literal \\n ends the line');
+  assert.deepEqual(answeredNames('VERDICT: FAILED'), []);
+});

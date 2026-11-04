@@ -77,16 +77,16 @@ for g in sorted(n):
 `;
 }
 
-export const CHALLENGE = (dir) => `CHALLENGE. Work folder: ${dir}. It has data/sales.csv and data/rules.md.
+export const CHALLENGE = (dir, { relay = false, devReads = false } = {}) => `CHALLENGE. Work folder: ${dir}. It has data/sales.csv and data/rules.md.
 Goal: find which regions are flagged by the rules, with a script that is proven right by an independent check.
 
 How you must work (the point is to coordinate others, not to do it yourself):
 1. Do NOT read sales.csv and do NOT compute anything yourself. You may only read this message and use openmaestri commands. Do NOT use your own built-in sub-agent, task or explore tools: the teammates must be real openmaestri terminals that the human can see.
 2. Recruit a teammate named Auditor. Ask it to read data/rules.md and answer with the rules in its own short words (no code).
 3. Ask the Auditor again to write verify.py in ${dir}: it reads data/sales.csv, applies the rules from data/rules.md and prints the flagged region names, one per line, sorted. Add --check "python3 verify.py" so a crash comes back to the Auditor by itself.
-4. Recruit a teammate named Dev. Give Dev the Auditor's rules text (not the file path to rules.md) and ask it to write flag.py in ${dir}: it reads data/sales.csv, applies the rules and prints the flagged region names, one per line, sorted. Add --check "python3 flag.py > flag.out && python3 verify.py > verify.out && diff flag.out verify.out" and --retries 2: the program then compares Dev's script with the Auditor's and sends any difference back to Dev by itself.
+4. Recruit a teammate named Dev. ${devReads ? 'Tell Dev to read data/rules.md and data/sales.csv itself (do not summarize the rules for it)' : "Give Dev the Auditor's rules text (not the file path to rules.md)"} and ask it to write flag.py in ${dir}: it reads data/sales.csv, applies the rules and prints the flagged region names, one per line, sorted. Add --check "python3 flag.py > flag.out && python3 verify.py > verify.out && diff flag.out verify.out" and --retries 2: the program then compares Dev's script with the Auditor's and sends any difference back to Dev by itself.
 5. Run \`python3 flag.py\` in ${dir} yourself. Send its output to the Auditor with ask --verdict, to judge against data/rules.md. The reply starts with a line saying [gate] PASSED and carries VERDICT: APPROVED or REJECTED with the reason.
-6. If REJECTED, send the reason to Dev, ask for a fixed flag.py, and go back to step 5. At most 5 rounds.
+6. If REJECTED, ask Dev for a fixed flag.py and go back to step 5. At most 5 rounds.${relay ? '\n   Send it with --relay "Auditor" and one sentence of your own: the program then attaches the Auditor\'s reply word for word, so do not retell the reason yourself.' : '\n   Send the Auditor\'s reason to Dev.'}
 7. When APPROVED, answer the human with openmaestri say, in exactly this shape:
 VERDICT: APPROVED
 FLAGGED: Name1,Name2

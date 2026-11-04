@@ -11,8 +11,9 @@ export function summarize(lines) {
   const groups = new Map();
   for (const l of lines) {
     const mode = l.mode ?? 'team';
-    const key = `${l.maestro} | ${mode === 'solo' ? '' : l.worker} | ${mode}`;
-    const g = groups.get(key) ?? { maestro: l.maestro, worker: mode === 'solo' ? 'alone, no gates' : l.worker, runs: 0, passed: 0, right: 0, limited: 0, secs: 0, messages: 0, repeated: 0, rejected: 0, costsOfPasses: [] };
+    const task = l.scenario === 'b' ? 'B: ' : '';
+    const key = `${l.maestro} | ${mode === 'solo' ? '' : l.worker} | ${mode} | ${task}`;
+    const g = groups.get(key) ?? { maestro: l.maestro, worker: task + (mode === 'solo' ? 'alone, no gates' : mode === 'team-relay' ? `${l.worker} (relay)` : mode === 'team-reads' ? `${l.worker} (Dev reads the files)` : l.worker), runs: 0, passed: 0, right: 0, limited: 0, secs: 0, messages: 0, repeated: 0, rejected: 0, costsOfPasses: [] };
     g.runs++;
     // right answer and a script that prints it, whether or not the way of working was the one asked for (older lines: read it from the checks that failed)
     if (l.correct ?? !(l.failed ?? []).some((k) => k === 'flagged regions match the answer key' || k === 'flag.py exists and prints the answer key')) g.right++;

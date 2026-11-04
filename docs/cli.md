@@ -35,6 +35,7 @@ An agent sees only what is connected to it. A **Maestro** terminal sees the whol
 | `run "task" --agents a,b [--floors] [--dry-run] [--model M] [--timeout 10m]` | The same task to several one-shot agents in parallel, one report (also kept as a note). Maestro only. See [one-shot agents](oneshot.html) |
 | `agent <driver> "prompt" [--model M] [--floor NAME] [--timeout 10m] [--fallback d1,d2] [--check CMD]` | One-shot run of an agent CLI in its non-interactive mode (Maestro only); prints the answer. With `--check`, work that fails the command goes to the next driver of the chain. See [one-shot agents](oneshot.html) |
 | `fallback [list]`, `fallback set DRIVER d1,d2`, `fallback clear DRIVER` | Who answers when a driver's account is out of quota (Maestro only). See [one-shot agents](oneshot.html) |
+| `ask "Agent" "prompt" --relay "Other"` | Attaches the last reply of `Other` to the prompt, word for word, copied by the program (clipped to 40 + 60 lines). Use it to send a reviewer's rejection to the Dev: the reviewer's own words arrive, not a retelling of them. Fails if `Other` has not answered yet |
 | `ask "Agent" --raw "\x03"` | Raw keystrokes. Escapes: `\n` Enter, `\t` Tab, `\e` ESC, `\xNN` byte |
 | `check "Agent" [--lines N]` | Current screen of an agent |
 | `notify "message"` | Notification for the human |
