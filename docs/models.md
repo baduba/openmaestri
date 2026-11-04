@@ -61,20 +61,22 @@ What this says, and what it does not:
 
 ## A second task, where the lone agent can fail (scenario B)
 
-Scenario A is easy for a lone agent. Scenario B is a ledger with four traps: two ways of writing the amount (`1.250,50` and `1250.50`), two time zones, chargebacks that cancel a sale by reference (anywhere in the file), and repeated ids. Its answer key was checked against a second, independent reading of the file. Same teammates (`gpt-oss-120b`), same checks, five runs per Maestro, right answer and a `flag.py` that prints it:
+Scenario A is easy for a lone agent. Scenario B is a ledger with four traps: two ways of writing the amount (`1.250,50` and `1250.50`), two time zones, chargebacks that cancel a sale by reference (anywhere in the file), and repeated ids. The answer key of both data sets used (seeds 11 and 13) was checked against a second, independent reading of the file. The teammates were `gpt-oss-120b` in every team run; only the Maestro changed. A run counts when the final answer and the `flag.py` are both right.
 
 | How the work was done | Qwen 3.7 Flash | gpt-oss-120b | DeepSeek V4.1 Flash | Total |
 |---|---|---|---|---|
-| One agent alone | 0 of 5 | 4 of 5 | 4 of 5 | 8 of 15 |
-| Team, the Auditor's summary of the rules goes to the Dev | 1 of 5 | 3 of 5 | 3 of 5 | 7 of 15 |
-| Team, the Dev reads the rule file itself | 3 of 5 | 2 of 5 | 5 of 5 | 10 of 15 |
+| One agent alone | 1 of 10 | 7 of 10 | 9 of 10 | 17 of 30 |
+| Team, the Auditor's summary of the rules goes to the Dev (seed 11 only) | 1 of 5 | 3 of 5 | 3 of 5 | 7 of 15 |
+| Team, the Dev reads the rule file itself | 6 of 8 | 3 of 10 | 10 of 10 | 19 of 28 |
 
-Haiku 5.5 alone got 5 of 5, so the task does not trouble a good model; it troubles Qwen, which got 0 of 5 alone.
+Haiku 5.5 alone got 5 of 5 on seed 11. The Qwen team has 8 runs, not 10: the last two were cut to save time.
 
-- **The first sign that a team can pay for itself.** The weakest model solves nothing alone and solves 3 of 5 when it coordinates and a stronger worker writes the script. Five runs per cell is small, and `gpt-oss-120b` went the other way, so read this as a lead to test further, not a result.
-- **A summary is a lossy copy.** The challenge script used to say "give the Dev the Auditor's rules in its own words". With four traps, the summary dropped some of them (the chargebacks and the time window were missing from the Dev's message in most failed runs) and the team did worse than the lone agents. Telling the Dev to read the file itself gave 10 of 15. The Maestro's instructions now say to send sources and not summaries (rule 10), and `ask --relay` passes a reviewer's words on as written.
-- **The team is slow.** A lone agent took about a minute; the team took 5 to 18 minutes.
+- **The team helps a weak solver and a good coordinator.** Qwen alone fails (1 of 10); led by Qwen, with the work done by `gpt-oss-120b`, the team got 6 of 8. DeepSeek alone is already good (9 of 10) and got 10 of 10 as the team's Maestro, above what the worker (`gpt-oss-120b`, 7 of 10 alone) does by itself. So a coordinator can lift a cheaper worker.
+- **The team hurts when the Maestro is the weak link.** `gpt-oss-120b` alone got 7 of 10 and, as Maestro of the same worker, 3 of 10. The coordination added errors that its own solving did not have. Choosing the Maestro matters more than having one.
+- **A summary is a lossy copy.** The challenge used to say "give the Dev the Auditor's rules in its own words". With four traps, the summary dropped some (the chargebacks and the time window were missing from the Dev's message in most failed runs) and the team did worse than the lone agents (7 of 15). Telling the Dev to read the file itself raised it. The Maestro's instructions now say to send sources and not summaries (rule 11), and `ask --relay` passes a reviewer's words on as written.
+- **The team is slow.** A lone agent took about a minute; the team took 4 to 18 minutes.
 - **Relaying the reviewer's words did not fix scenario A.** With `--relay` the three Maestros that fail most (gpt-oss, Qwen, gpt-5.6-luna) passed 9 of 15 runs, against 6 of 15 before, short of the 11 asked for. luna went 5 of 5; the other two did not move.
+- **What this does not show.** Ten runs per cell on two data sets, one task of one kind, one worker model. The Qwen and gpt-oss differences are large enough to take seriously (Qwen 1 of 10 against 6 of 8, gpt-oss 7 of 10 against 3 of 10); the rest could be noise.
 
 ## Add your own runs
 

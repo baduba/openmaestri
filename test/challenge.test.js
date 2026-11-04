@@ -109,9 +109,9 @@ test('challenge: the baseline is judged by the answer alone, and the summary put
   assert.match(summarize([{ maestro: 'm', worker: 'w', passed: false, failed: ['no message to a teammate was sent twice'] }, { maestro: 'm', worker: 'w', passed: false, failed: ['flag.py exists and prints the answer key'] }]), /\| m \| w \| 2 \| 0 \| 1 \|/);
 });
 
-test('challenge scenario B: the key agrees with an independent reading of the file, and the planted bug does not', async () => {
+for (const seed of [11, 13]) test(`challenge scenario B (seed ${seed}): the key agrees with an independent reading of the file, and the planted bug does not`, async () => {
   const { buildScenarioB, writeScenarioB, buggyFlagScriptB } = await import('./challenge/scenario2.mjs');
-  const sc = buildScenarioB(11);
+  const sc = buildScenarioB(seed);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-b-'));
   writeScenarioB(dir, sc);
   const reference = `
