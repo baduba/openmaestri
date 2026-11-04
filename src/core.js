@@ -25,7 +25,7 @@ import { takeSnapshot, listSnapshots, rollback as rollbackFloor, dropSnapshots }
 import { ForgeError, detectProvider, normalizeProvider, providerInfo, listChanges, formatChanges } from './forge.js';
 import { newScreenText, looksBusy } from './screen.js';
 import { screenCost, budgetLimit, budgetState, spendText, money } from './budget.js';
-import { AskLog, unresolvedChecks, unverifiedNotice, resumeText, MAX_RETRIES, DEFAULT_RETRIES, REPEAT_WARN, REPEAT_STOP, VERDICT_FORMAT, parseVerdict, correction, clipLog, repeatNotice, reportText as eventsReport } from './gate.js';
+import { AskLog, unresolvedChecks, unverifiedNotice, resumeText, MAX_RETRIES, DEFAULT_RETRIES, REPEAT_WARN, REPEAT_STOP, VERDICT_FORMAT, parseVerdict, correction, clipLog, repeatNotice, conflictNotice, reportText as eventsReport } from './gate.js';
 import { MAX_AGENTS, parseAgents, planText, reportText } from './taskrun.js';
 import { Usage, UsageError } from './usage.js';
 import { readUserEnv, TerminalError, commandAvailable, commandPath } from './terminals.js';
@@ -400,7 +400,9 @@ const HANDLERS = {
     const head = g.ok
       ? `[gate] PASSED after ${g.attempts} attempt${g.attempts === 1 ? '' : 's'}${handedTo ? ` by ${handedTo}, after ${target.name} did not pass` : ''}${g.verdict ? `. VERDICT: ${g.verdict.status}: ${g.verdict.reason}` : ''}`
       : `[gate] FAILED after ${g.attempts} attempt${g.attempts === 1 ? '' : 's'}${handedTo ? ` (also tried ${handedTo})` : ''}: ${g.why}`;
-    return { text: `${warn}${head}\n${g.output || '(no output)'}`, data: { name: handedTo ?? target.name, state: g.state, output: g.output, gate: { ok: g.ok, attempts: g.attempts, why: g.why, verdict: g.verdict ?? null, handedTo } } };
+    const conflict = g.ok ? conflictNotice(this.eventsFor(ws.id), g.verdict) : '';
+    if (conflict) this.noteEvent(ws, { kind: 'conflict', to: target.name, ok: false, note: 'REJECTED after a check that passed' });
+    return { text: `${warn}${head}\n${g.output || '(no output)'}${conflict ? `\n${conflict}` : ''}`, data: { name: handedTo ?? target.name, state: g.state, output: g.output, gate: { ok: g.ok, attempts: g.attempts, why: g.why, verdict: g.verdict ?? null, handedTo } } };
   },
 
   /** A one-shot run of any agent CLI in its non-interactive mode: no terminal, the answer comes back as text. */
@@ -409,6 +411,7 @@ const HANDLERS = {
     if (check != null) checkCommand(check);
     const drivers = { ...DRIVERS, ...customDrivers(this.store.settings.drivers) };
     if (!driver) fail(`usage: agent <driver> "prompt". Drivers: ${Object.keys(drivers).join(', ')}`);
+    this.requireBudget(ws);
     if (this.headless.size >= MAX_HEADLESS) fail(`${this.headless.size} one-shot agents are already running (the limit is ${MAX_HEADLESS}); wait for one to finish`);
     const rec = floor ? ws.floors.find((f) => f.slug === floor || f.name.toLowerCase() === String(floor).toLowerCase()) : null;
     if (floor && !rec) fail(`no floor named "${floor}" (see: floor list)`);
@@ -1849,6 +1852,7 @@ Core.prototype.execAgent = async function ({ driver, drivers, fallback, accept =
 };
 
 Core.prototype.execOne = async function ({ driver, drivers, prompt, cwd, model, timeoutMs, ac = new AbortController(), ws, account, sandbox = null, extraEnv = {} }) {
+  ac.workspaceId = ws?.id; // so that reaching the spending limit can stop this run too
   this.headless.add(ac);
   try {
     const env = workerEnv(process.env, path.join(this.dataRoot, 'env'), this.resolveSecret, drivers[driver]);
@@ -1943,6 +1947,19 @@ Core.prototype.spendOf = function (ws) {
   });
 };
 
+/**
+ * Once the spending limit is reached, no new one-shot agent starts in the workspace. The dollars a one-shot agent
+ * spends are not visible to the program (its CLI prints no cost), so the cut is the only fence that applies to them.
+ */
+Core.prototype.requireBudget = function (ws) {
+  const limit = budgetLimit();
+  if (limit === null) return;
+  const total = this.spendOf(ws).reduce((a, x) => a + x.cost, 0);
+  if (budgetState(total, limit) !== 'cut' && this.budgetState.get(ws.id) !== 'cut') return;
+  this.noteEvent(ws, { kind: 'budget', ok: false, note: `a one-shot agent was refused: the limit ${money(limit)} is reached` });
+  throw new CommandError(`The spending limit ${money(limit)} was reached (${money(total)} shown on the agents' screens), so no new one-shot agent starts. The person who started the daemon sets it (OPENMAESTRI_BUDGET_USD); you cannot raise it.`);
+};
+
 /** Warn at 80% of the limit and stop every terminal of the workspace at 100%. The limit is set by the person, not by an agent. */
 Core.prototype.checkBudget = function () {
   const limit = budgetLimit();
@@ -1956,7 +1973,10 @@ Core.prototype.checkBudget = function () {
     const note = state === 'cut' ? `limit ${money(limit)} reached (${money(total)}): every terminal of this workspace was stopped` : `${money(total)} of the ${money(limit)} limit spent`;
     this.noteEvent(ws, { kind: 'budget', ok: state !== 'cut', note });
     this.emit('notify', { workspaceId: ws.id, from: 'openmaestri', message: `Spending: ${note}` });
-    if (state === 'cut') for (const n of ws.nodes) if (n.kind === 'terminal' && this.terminals.rt.get(n.id)?.status === 'running') this.terminals.kill(n.id);
+    if (state === 'cut') {
+      for (const n of ws.nodes) if (n.kind === 'terminal' && this.terminals.rt.get(n.id)?.status === 'running') this.terminals.kill(n.id);
+      for (const ac of this.headless) if (ac.workspaceId === ws.id) ac.abort(); // one-shot agents too
+    }
   }
 };
 
@@ -2028,6 +2048,7 @@ Core.prototype.runTask = async function (ws, me, { task, agents: rawAgents, floo
   if (floors && !(await repoTop(ws.dir))) fail('--floors needs the workspace folder to be a git repository; without one, agents would share the same folder');
   const plan = planText({ task: text, agents, floors: !!floors, model });
   if (dryRun) return { text: `${plan}\n\nDry run: nothing was started.` };
+  this.requireBudget(ws);
   if (this.headless.size + agents.length > MAX_HEADLESS) fail(`${this.headless.size} one-shot agents are already running; this run needs ${agents.length} of the ${MAX_HEADLESS} allowed`);
   const prompt = materializeMentions(text, this.prompterCtx(ws, me)).text;
   const tag = crypto.randomBytes(2).toString('hex');

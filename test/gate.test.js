@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { main } from '../src/server.js';
-import { clipLog, parseVerdict, correction, similarity, AskLog, repeatNotice, reportText, VERDICT_FORMAT } from '../src/gate.js';
+import { clipLog, parseVerdict, correction, similarity, AskLog, repeatNotice, conflictNotice, reportText, VERDICT_FORMAT } from '../src/gate.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const BLOCK = (status, reason) => `<<<VERDICT\nSTATUS: ${status}\nREASON: ${reason}\nVERDICT>>>`;
@@ -263,4 +263,31 @@ test('the Maestro bootstrap names the full path of the program, tells it to use 
   assert.match(text, /shell tool/);
   assert.match(text, /Do not ask them anything with a question tool/);
   assert.doesNotMatch(text, /Ask the human what the goal is/i);
+});
+
+test('conflictNotice: only a REJECTED right after a check that passed', () => {
+  const pass = { kind: 'check', to: 'Dev', ok: true, note: 'python3 verify.py exit 0' };
+  const fail = { kind: 'check', to: 'Dev', ok: false, note: 'python3 verify.py exit 3' };
+  const no = { status: 'REJECTED', reason: 'the list is wrong' };
+  assert.match(conflictNotice([pass], no), /last check on Dev passed .*reviewer rejected.*Run a command/);
+  assert.equal(conflictNotice([pass], { status: 'APPROVED', reason: 'fine' }), '', 'an approval is no conflict');
+  assert.equal(conflictNotice([fail], no), '', 'the check failed, so the reviewer agrees with the program');
+  assert.equal(conflictNotice([pass, fail], no), '', 'only the last check counts');
+  assert.equal(conflictNotice([], no), '', 'no check was made');
+  assert.equal(conflictNotice([pass], null), '');
+});
+
+test('ask --verdict after a check that passed: a REJECTED comes with the conflict note, an APPROVED does not', async (t) => {
+  const { ask, core, ws } = await setup(t, {
+    Dev: 'echo ok > status.txt; echo "done"',
+    Auditor: 'if [ $n -ge 2 ]; then echo "VERDICT: APPROVED - status.txt says ok"; else echo "VERDICT: REJECTED - the status is not what I expected"; fi',
+  });
+  await ask({ name: 'Dev', prompt: 'write ok into status.txt', check: 'grep -q ok status.txt', retries: 0 });
+  const rejected = await ask({ name: 'Auditor', prompt: 'review the status file written by Dev against the plan', verdict: true, retries: 0 });
+  assert.match(rejected.text, /VERDICT: REJECTED/);
+  assert.match(rejected.text, /\[openmaestri\] The program's last check on Dev passed/);
+  assert.ok(core.events.get(ws.id).some((e) => e.kind === 'conflict'));
+  const approved = await ask({ name: 'Auditor', prompt: 'review the log file again, it was rewritten by Dev', verdict: true, retries: 0 });
+  assert.match(approved.text, /VERDICT: APPROVED/);
+  assert.doesNotMatch(approved.text, /last check on Dev passed/);
 });

@@ -78,3 +78,24 @@ test('without a limit nothing is stopped, and an agent has no command to set one
   assert.equal(core.events.get(ws.id)?.filter((e) => e.kind === 'budget').length ?? 0, 0);
   await assert.rejects(core.command({ terminalId: maestro.id }, 'budget.set', { usd: 100 }), /unknown command/);
 });
+
+test('one-shot agents: once the limit is reached a new one is refused, and one that is running is stopped', async (t) => {
+  const { core, ws, agent, maestro } = await daemon(t, '0.35');
+  core.startTerminal(ws, maestro);
+  // a custom driver that sleeps, so one is still running when the limit is crossed
+  core.store.settings.drivers = { slow: { bin: 'bash', args: ['-c', 'sleep 30 # {prompt}'] } };
+  const running = core.command({ terminalId: maestro.id }, 'agent.run', { driver: 'slow', prompt: 'wait', timeoutMs: 60000 }).then((r) => r, (e) => e);
+  await sleep(600);
+  assert.equal([...core.headless].filter((ac) => ac.workspaceId === ws.id).length, 1, 'one is running');
+  agent('Dev', '0.40');
+  const result = await running;
+  assert.match(String(result.message ?? result.text), /was stopped/);
+  await assert.rejects(core.command({ terminalId: maestro.id }, 'agent.run', { driver: 'slow', prompt: 'again' }), /spending limit \$0\.350 was reached.*no new one-shot agent starts/);
+  await assert.rejects(core.command({ terminalId: maestro.id }, 'run', { task: 'anything', agents: 'slow' }), /spending limit/);
+});
+
+test('one-shot agents are not refused while the limit is not reached or no limit is set', async (t) => {
+  const { core, ws, maestro } = await daemon(t, '5');
+  core.requireBudget(ws);
+  core.startTerminal(ws, maestro);
+});
