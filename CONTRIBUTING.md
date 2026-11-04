@@ -33,7 +33,7 @@ OPENMAESTRI_DATA_DIR=/tmp/om-dev OPENMAESTRI_PORT=0 npm start
 3. Keep changes focused. One concern per pull request.
 4. Add or update tests. CLI behavior is tested by running `openmaestri` **inside** a terminal (see `test/e2e.test.js`); agents are faked with `test/fixtures/fake-agent.sh`, so tests need no API keys.
 5. Update docs (`docs/`, README) when behavior or commands change.
-6. Run `npm test` and `npm run lint` (or `scripts/sast.sh` for the full static-analysis suite), then open a pull request using the template.
+6. Run `scripts/check.sh` (syntax, lint and the whole test suite), then open a pull request using the template. The project does not depend on GitHub Actions for this: everything runs on your machine (see [docs/local-ci.md](docs/local-ci.md)).
 
 ## Code style
 
@@ -55,4 +55,4 @@ Follow [How to report a bug](docs/reporting-bugs.md). Run `openmaestri debug` in
 
 ## Releases (maintainers)
 
-Bump `version` in `package.json`, update `CHANGELOG.md`, tag `vX.Y.Z` and push the tag. The Release workflow runs the tests, builds the `.deb` and publishes the GitHub release.
+Bump `version` in `package.json`, update `CHANGELOG.md`, run `TAG=vX.Y.Z scripts/check.sh --release` (checks the version matches the tag, runs the tests, builds and smoke-tests the `.deb`), then tag `vX.Y.Z` and push the tag. The Release workflow repeats the tests, builds the `.deb` and publishes the GitHub release.

@@ -8,7 +8,6 @@
 
 **Put your coding agents on an infinite canvas. Wire them together. Let one Maestro orchestrate the rest, even with cheap open models like DeepSeek.**
 
-[![CI](https://github.com/baduba/openmaestri/actions/workflows/ci.yml/badge.svg)](https://github.com/baduba/openmaestri/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-f4c430?style=flat-square)](LICENSE)
 [![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-339933?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-4cc38a?style=flat-square)](CONTRIBUTING.md)

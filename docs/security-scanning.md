@@ -4,7 +4,7 @@ title: Security scanning
 
 # Security scanning
 
-Every pull request runs static analysis. You can run the same tools locally with one command:
+The checks run on your machine, not on GitHub (see [local-ci.md](local-ci.md)). One command runs every static-analysis tool:
 
 ```bash
 scripts/sast.sh
@@ -12,13 +12,13 @@ scripts/sast.sh
 
 | Tool | What it checks | Where |
 |---|---|---|
-| ESLint + `eslint-plugin-security` + `no-unsanitized` | unsafe patterns, regex DoS, `child_process`, DOM sinks | `npm run lint`, CI |
-| Semgrep (javascript, nodejs, security-audit, owasp-top-ten, secrets, command-injection, xss, github-actions) | taint and misuse rules, workflow hardening | CI, local |
+| ESLint + `eslint-plugin-security` + `no-unsanitized` | unsafe patterns, regex DoS, `child_process`, DOM sinks | `npm run lint` |
+| Semgrep (javascript, nodejs, security-audit, owasp-top-ten, secrets, command-injection, xss, github-actions) | taint and misuse rules, workflow hardening | local |
 | njsscan | Node.js specific rules | local |
-| CodeQL (`security-extended`) | data-flow analysis | CI (weekly and per PR) |
-| gitleaks | secrets in the tree and in git history | CI, local |
-| Trivy | vulnerable dependencies, secrets, misconfiguration | CI, local |
-| `npm audit` | known advisories, including dev dependencies | CI, local |
+| CodeQL (`security-extended`) | data-flow analysis | not local yet (the old workflow is disabled); Semgrep covers part of it |
+| gitleaks | secrets in the tree and in git history | local |
+| Trivy | vulnerable dependencies, secrets, misconfiguration | local |
+| `npm audit` | known advisories, including dev dependencies | local |
 | shellcheck | the shell scripts (packaging, shims, fixtures) | local |
 | ruff, bandit | Python (there is none today; enabled automatically if any appears) | local |
 

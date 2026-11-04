@@ -16,7 +16,10 @@ function formatAmount(cents, brazilian) {
   const whole = Math.floor(cents / 100);
   const frac = pad(cents % 100);
   if (!brazilian) return `${whole}.${frac}`;
-  return `${String(whole).replace(/\B(?=(\d{3})+(?!\d))/g, '.')},${frac}`;
+  const digits = String(whole);
+  let grouped = '';
+  for (let i = 0; i < digits.length; i++) grouped += ((digits.length - i) % 3 === 0 && i > 0 ? '.' : '') + digits[i];
+  return `${grouped},${frac}`;
 }
 const parseAmount = (raw) => (raw.includes(',') ? Number(raw.replaceAll('.', '').replace(',', '.')) : Number(raw));
 
