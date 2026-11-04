@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { main } from '../src/server.js';
-import { clipLog, parseVerdict, correction, similarity, AskLog, repeatNotice, conflictNotice, reportText, VERDICT_FORMAT } from '../src/gate.js';
+import { clipLog, parseVerdict, correction, similarity, AskLog, repeatNotice, conflictNotice, relayPrompt, reportText, VERDICT_FORMAT } from '../src/gate.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const BLOCK = (status, reason) => `<<<VERDICT\nSTATUS: ${status}\nREASON: ${reason}\nVERDICT>>>`;
@@ -290,4 +290,42 @@ test('ask --verdict after a check that passed: a REJECTED comes with the conflic
   const approved = await ask({ name: 'Auditor', prompt: 'review the log file again, it was rewritten by Dev', verdict: true, retries: 0 });
   assert.match(approved.text, /VERDICT: APPROVED/);
   assert.doesNotMatch(approved.text, /last check on Dev passed/);
+});
+
+test('relayPrompt: the reply is attached as it was, between marks, and a long one is clipped', () => {
+  const out = relayPrompt('Fix flag.py', 'Auditor', '  VERDICT: REJECTED - Norte is listed by mistake\n');
+  assert.match(out, /^Fix flag\.py\n\n--- Reply from Auditor, copied by the program and not rewritten ---\nVERDICT: REJECTED - Norte is listed by mistake\n--- end of the reply from Auditor ---$/);
+  const long = relayPrompt('x', 'A', Array.from({ length: 300 }, (_, i) => `line ${i}`).join('\n'));
+  assert.match(long, /line 0\n/);
+  assert.match(long, /line 299\n---/);
+  assert.match(long, /lines left out/);
+});
+
+test('correction names the folder the check ran in, when it is known', () => {
+  const base = { kind: 'check', command: 'python3 verify.py', exitCode: 2, output: 'no such file' };
+  assert.match(correction({ ...base, cwd: '/work/auditor' }), /Command: python3 verify\.py\nFolder it ran in: \/work\/auditor\nResult: exited with code 2/);
+  assert.doesNotMatch(correction(base), /Folder it ran in/);
+});
+
+test('ask --relay: the other teammate\'s last reply reaches the target word for word, and an unanswered one is refused', async (t) => {
+  const { ask, dir } = await setup(t, {
+    Auditor: 'echo "VERDICT: REJECTED - region Norte is listed but its revenue is under the limit"',
+    Dev: 'echo "$q" > got.txt; echo "ok"',
+  });
+  await assert.rejects(ask({ name: 'Dev', prompt: 'fix it using the review', relay: 'Auditor' }), /Auditor has not answered anything yet/);
+  await ask({ name: 'Auditor', prompt: 'review the flagged regions list Centro Leste Norte against the rules' });
+  const r = await ask({ name: 'Dev', prompt: 'please fix flag.py with this review', relay: 'Auditor' });
+  assert.equal(r.data.state, 'idle');
+  const got = fs.readFileSync(path.join(dir, 'Dev', 'got.txt'), 'utf8');
+  assert.match(got, /please fix flag\.py with this review/);
+  assert.match(got, /Reply from Auditor, copied by the program/);
+  assert.match(got, /VERDICT: REJECTED - region Norte is listed but its revenue is under the limit/);
+  await assert.rejects(ask({ name: 'Dev', prompt: 'again', relay: 'Dev' }), /another teammate/);
+  await assert.rejects(ask({ name: 'Dev', raw: 'x', relay: 'Auditor' }), /--raw sends keystrokes/);
+});
+
+test('ask --check: the failure says which folder the check ran in', async (t) => {
+  const { ask, dir } = await setup(t, { Dev: 'echo done' });
+  const r = await ask({ name: 'Dev', prompt: 'write verify.py in the shared folder', check: 'python3 verify.py', retries: 0 });
+  assert.match(r.text, new RegExp(`it ran in ${path.join(dir, 'Dev').replaceAll('/', '\\/')}`));
 });

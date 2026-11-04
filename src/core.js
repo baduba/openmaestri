@@ -25,7 +25,7 @@ import { takeSnapshot, listSnapshots, rollback as rollbackFloor, dropSnapshots }
 import { ForgeError, detectProvider, normalizeProvider, providerInfo, listChanges, formatChanges } from './forge.js';
 import { newScreenText, looksBusy } from './screen.js';
 import { screenCost, budgetLimit, budgetState, spendText, money } from './budget.js';
-import { AskLog, unresolvedChecks, unverifiedNotice, resumeText, MAX_RETRIES, DEFAULT_RETRIES, REPEAT_WARN, REPEAT_STOP, VERDICT_FORMAT, parseVerdict, correction, clipLog, repeatNotice, conflictNotice, reportText as eventsReport } from './gate.js';
+import { AskLog, unresolvedChecks, unverifiedNotice, resumeText, MAX_RETRIES, DEFAULT_RETRIES, REPEAT_WARN, REPEAT_STOP, VERDICT_FORMAT, parseVerdict, correction, clipLog, repeatNotice, conflictNotice, relayPrompt, reportText as eventsReport } from './gate.js';
 import { MAX_AGENTS, parseAgents, planText, reportText } from './taskrun.js';
 import { Usage, UsageError } from './usage.js';
 import { readUserEnv, TerminalError, commandAvailable, commandPath } from './terminals.js';
@@ -63,6 +63,7 @@ export class Core extends EventEmitter {
     this.mcp = new Mcp({ dir: (id) => this.store.wsDir(id) });
     this.resolveSecret = resolveSecret;
     this.headless = new Set();
+    this.lastReply = new Map(); // workspace/terminal -> what the terminal last answered to an ask (for --relay)
     this.accounts = new Accounts(path.join(dataRoot, 'accounts.json'));
     const accountEnv = (name) => { try { return this.accounts.env(name, resolveSecret); } catch (e) { console.warn(`[accounts] ${e.message}`); return {}; } };
     this.terminals = new Terminals({ socketPath, cliDir, cliBin, envFile: path.join(dataRoot, 'env'), resolveSecret, accountEnv, floorEnv: (w, n) => this.floorEnv(w, n), sandboxCommand: (n, c, d) => this.terminalBox(n, c, d) });
@@ -364,11 +365,12 @@ const HANDLERS = {
    * `verdict` (the answer must end in an exact verdict block) or `then` (another teammate to take the task if this one cannot
    * pass), the program does the judging: a failure goes back to the teammate up to `retries` times, in a fixed wording.
    */
-  async ask(ws, me, { name, prompt, raw, timeoutMs = 120000, quietMs, check, retries, verdict, handTo }) {
+  async ask(ws, me, { name, prompt, raw, timeoutMs = 120000, quietMs, check, retries, verdict, handTo, relay }) {
     if (check != null) this.requireMaestro(me); // the program will run this command on the machine
     const target = this.resolve(ws, me, name, ['terminal']);
     if (target.id === me.id) fail('an agent cannot ask itself');
     const gated = check != null || !!verdict || handTo != null;
+    if (raw != null && relay != null) fail('--raw sends keystrokes; --relay goes with a prompt');
     if (raw != null) {
       if (gated) fail('--raw sends keystrokes; --check, --verdict and --then go with a prompt');
       const r = await this.askOnce(ws, target, { raw, timeoutMs, quietMs });
@@ -379,6 +381,14 @@ const HANDLERS = {
     const other = handTo != null ? this.resolve(ws, me, handTo, ['terminal']) : null;
     if (other && (other.id === me.id || other.id === target.id)) fail('--then names another teammate, not the one asked or yourself');
     const repeats = this.askLog.note(ws.id, target.id, prompt);
+    if (relay != null) {
+      const from = this.resolve(ws, me, relay, ['terminal']);
+      if (from.id === target.id || from.id === me.id) fail('--relay names another teammate: not the one asked, and not yourself');
+      const reply = this.lastReply.get(`${ws.id}/${from.id}`);
+      if (!reply?.output) fail(`${from.name} has not answered anything yet, so there is nothing to relay. Ask ${from.name} first`);
+      prompt = relayPrompt(prompt, from.name, reply.output);
+      this.noteEvent(ws, { kind: 'relay', to: target.name, note: `reply of ${from.name}, ${reply.output.length} chars, copied by the program` });
+    }
     if (repeats + 1 >= REPEAT_STOP) {
       this.noteEvent(ws, { kind: 'loop', to: target.name, ok: false, note: `refused, ${repeats + 1}th similar message` });
       fail(repeatNotice(repeats, target.name));
@@ -1901,6 +1911,7 @@ Core.prototype.askOnce = async function (ws, target, { prompt, raw, timeoutMs = 
   const state = await this.terminals.waitIdle(target.id, { since, timeoutMs, quietMs: quietMs ?? (raw != null ? 800 : 2500), busy: () => looksBusy(this.terminals.lines(target.id, 60)) });
   // a full-screen program redraws in place: what it said is what is new on the screen, not what follows the old cursor line
   const output = newScreenText(before, this.terminals.lines(target.id), { echo: prompt }) || this.terminals.text(target.id, { fromLine });
+  if (state === 'idle' && output.trim()) this.lastReply.set(`${ws.id}/${target.id}`, { at: Date.now(), output });
   this.noteEvent(ws, { kind: 'ask', to: target.name, ok: state === 'idle', secs: Math.round((Date.now() - since) / 1000), note: state === 'idle' ? `${output.length} chars` : state });
   return { state, output };
 };
@@ -1920,10 +1931,10 @@ Core.prototype.gateAsk = async function (ws, target, { prompt, timeoutMs, quietM
     else if (check != null) {
       const r = await this.runCheck(ws, target, check);
       this.noteEvent(ws, { kind: 'check', to: target.name, ok: r.ok, secs: Math.round(r.ms / 1000), note: `${check.slice(0, 60)} ${r.ok ? 'exit 0' : r.timedOut ? 'timed out' : `exit ${r.exitCode}`}` });
-      if (!r.ok) failure = { kind: 'check', command: check, exitCode: r.exitCode, timedOut: r.timedOut, output: r.output, verdict };
+      if (!r.ok) failure = { kind: 'check', command: check, exitCode: r.exitCode, timedOut: r.timedOut, output: r.output, verdict, cwd: r.cwd };
     }
     if (!failure) return { ok: true, attempts: attempt, verdict: v, ...last };
-    why = failure.kind === 'format' ? 'no verdict line in the required shape' : `the check "${check}" ${failure.timedOut ? 'timed out' : `exited with ${failure.exitCode ?? '?'}`}${failure.output ? `:\n${clipLog(failure.output, 5, 15)}` : ''}`;
+    why = failure.kind === 'format' ? 'no verdict line in the required shape' : `the check "${check}" ${failure.timedOut ? 'timed out' : `exited with ${failure.exitCode ?? '?'}`}${failure.cwd ? ` (it ran in ${failure.cwd})` : ''}${failure.output ? `:\n${clipLog(failure.output, 5, 15)}` : ''}`;
     if (attempt > retries) break;
     this.noteEvent(ws, { kind: 'retry', to: target.name, note: failure.kind });
     text = correction(failure);
@@ -1932,10 +1943,11 @@ Core.prototype.gateAsk = async function (ws, target, { prompt, timeoutMs, quietM
 };
 
 /** A command that decides whether a teammate's work is accepted, run in the teammate's folder (and in its container) with no keys. */
-Core.prototype.runCheck = function (ws, target, command) {
+Core.prototype.runCheck = async function (ws, target, command) {
   const cwd = [target.cwd, ws.dir].find((d) => d && fs.existsSync(d)) ?? process.env.HOME;
   const box = target.sandbox ?? null;
-  return runHook(command, { cwd, sandbox: box, docker: box ? this.dockerPath(ws) : null, extraEnv: this.floorEnv(ws, target) });
+  const res = await runHook(command, { cwd, sandbox: box, docker: box ? this.dockerPath(ws) : null, extraEnv: this.floorEnv(ws, target) });
+  return { ...res, cwd: box ? '/work' : cwd }; // where it ran, so a script that is "not found" is not a mystery
 };
 
 /** Per terminal, what its screen shows as session cost (the highest ever seen, since a screen can be cleared). */

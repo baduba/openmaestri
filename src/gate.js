@@ -78,12 +78,17 @@ const FORMAT_FAILED = 'Your last reply was not accepted: it has no verdict line 
 /** True for a message the program itself sends back to a teammate (see `correction`), as opposed to one the Maestro wrote. */
 export const isCorrection = (text) => String(text).startsWith(CHECK_FAILED) || String(text).startsWith(FORMAT_FAILED);
 
+/** A prompt with another teammate's last reply attached word for word, written by the program: the Maestro does not retell what a reviewer said. */
+export function relayPrompt(prompt, from, reply) {
+  return `${prompt}\n\n--- Reply from ${from}, copied by the program and not rewritten ---\n${clipLog(String(reply).trim(), 40, 60)}\n--- end of the reply from ${from} ---`;
+}
+
 /** The message that goes back to the teammate when its work was not accepted. */
-export function correction({ kind, command, exitCode, timedOut, output, verdict }) {
+export function correction({ kind, command, exitCode, timedOut, output, verdict, cwd }) {
   if (kind === 'format') return `${FORMAT_FAILED}\n${VERDICT_FORMAT}\nLook at the data again and answer with that line.`;
   const how = timedOut ? 'timed out' : `exited with code ${exitCode ?? '?'}`;
   const tail = verdict ? `\n${VERDICT_FORMAT}` : '';
-  return `${CHECK_FAILED}\nCommand: ${command}\nResult: ${how}\nOutput (shortened):\n${clipLog(output)}\nFix the cause, then say what you changed.${tail}`;
+  return `${CHECK_FAILED}\nCommand: ${command}${cwd ? `\nFolder it ran in: ${cwd}` : ''}\nResult: ${how}\nOutput (shortened):\n${clipLog(output)}\nFix the cause, then say what you changed.${tail}`;
 }
 
 const words = (s) => new Set((String(s).toLowerCase().match(/[\p{L}\p{N}_./-]{3,}/gu) ?? []).map((w) => w.replace(/[./-]+$/, '')));

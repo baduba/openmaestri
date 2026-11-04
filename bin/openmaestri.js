@@ -22,6 +22,7 @@ Usage:
   openmaestri agent claude|codex|gemini|agy|kimi|opencode|aider|goose "prompt"   One-shot run of an agent CLI, prints its answer (no terminal)
   openmaestri ask "Agent" "prompt" [--timeout 120s]  Send a prompt to a connected agent, wait until it settles, print what it produced
   openmaestri ask "Agent" "prompt" [--check CMD] [--verdict] [--retries N] [--then "Other"]   The program judges the answer: CMD must exit 0 in the agent's folder, --verdict needs a verdict block; a failure goes back to the agent (at most 2 times), then to "Other"
+  openmaestri ask "Agent" "prompt" --relay "Other"   Attach the last reply of "Other" word for word (copied by the program), so a reviewer's words reach the Dev without being retold
   openmaestri resume                                What happened in this workspace before you started (asks, checks, verdicts, spending) and what is still open; it survives restarts
   openmaestri sandbox                               Where each teammate runs (a box or this machine) and which keys the ones on this machine can read; read only
   openmaestri budget                                What the agents' screens say was spent, against the limit the person set (OPENMAESTRI_BUDGET_USD); read only
@@ -134,7 +135,7 @@ export function build({ pos, flags }) {
       need(c1, 'ask "Agent" "prompt"');
       if (flags.raw !== undefined) return { cmd: 'ask', args: { name: c1, raw: String(flags.raw === true ? rest.join(' ') : flags.raw), timeoutMs } };
       need(rest.length, 'ask "Agent" "prompt"');
-      return { cmd: 'ask', args: { name: c1, prompt: rest.join(' '), timeoutMs, check: optStr(flags.check), retries: flags.retries === undefined ? undefined : Number(flags.retries), verdict: !!flags.verdict, handTo: optStr(flags.then) } };
+      return { cmd: 'ask', args: { name: c1, prompt: rest.join(' '), timeoutMs, check: optStr(flags.check), retries: flags.retries === undefined ? undefined : Number(flags.retries), verdict: !!flags.verdict, handTo: optStr(flags.then), relay: optStr(flags.relay) } };
     }
     case 'run': {
       need(c1 && flags.agents, 'run "task" --agents claude,codex [--floors] [--dry-run] [--model M] [--timeout 10m] [--sandbox IMAGE [--no-network]]');
