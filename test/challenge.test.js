@@ -81,3 +81,11 @@ test('challenge: the program\'s own correction sent twice is not a message the M
   assert.equal(repeatedCount(trace), 0);
   assert.equal(repeatedCount([...trace, { to: 'Dev', text: 'write flag.py' }]), 1);
 });
+
+test('challenge: two long messages that start alike but end differently are not a repeat', async () => {
+  const { repeatedCount } = await import('./challenge/run.mjs');
+  const head = 'Here are the rules: '.padEnd(300, 'x');
+  const a = { to: 'Dev', text: head.slice(0, 300), whole: 'h1' };
+  assert.equal(repeatedCount([a, { ...a, whole: 'h2' }]), 0);
+  assert.equal(repeatedCount([a, { ...a }]), 1);
+});
