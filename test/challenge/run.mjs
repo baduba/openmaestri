@@ -12,6 +12,10 @@ import { maestroBootstrap } from '../../src/prompts.js';
 import { isCorrection } from '../../src/gate.js';
 import crypto from 'node:crypto';
 import { buildScenario, writeScenario, CHALLENGE, SOLO, buggyFlagScript } from './scenario.mjs';
+import { buildScenarioB, writeScenarioB, buggyFlagScriptB } from './scenario2.mjs';
+
+/** Scenario A (regions) or B (a ledger with traps): the data, the rules file and the script with the planted bug. */
+const SCENARIOS = { a: { build: buildScenario, write: writeScenario, buggy: buggyFlagScript }, b: { build: buildScenarioB, write: writeScenarioB, buggy: buggyFlagScriptB } };
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -46,7 +50,7 @@ export function recordLine(r, { maestro, worker, seed, inject }) {
   return {
     date: new Date().toISOString().slice(0, 10), maestro: model(maestro), worker: model(worker), seed, inject: !!inject,
     outcome: r.outcome, passed: r.passed, seconds: r.seconds, messages: r.roundTrips, repeated: r.repeated, leaked: r.leaked,
-    mode: r.baseline ? 'solo' : r.relay ? 'team-relay' : 'team', correct: r.correct,
+    mode: r.baseline ? 'solo' : r.relay ? 'team-relay' : 'team', scenario: r.scenario ?? 'a', correct: r.correct,
     gated: r.gated, gatesFailed: r.gatesFailed, cost: r.cost ?? null, verdicts: r.verdicts.join(','), failed: Object.entries(r.checks).filter(([, v]) => !v).map(([k]) => k),
   };
 }
@@ -90,14 +94,15 @@ export function buildChecks({ inject, final, answered, scriptOut, key, team, toN
 }
 
 /**
- * @param {{maestro: string, worker: string, seed?: number, timeoutMs?: number, stallMs?: number, bootMs?: number, bootstrap?: boolean, inject?: boolean, baseline?: boolean, relay?: boolean, record?: string, outDir?: string, log?: (s: string) => void}} o
+ * @param {{maestro: string, worker: string, seed?: number, timeoutMs?: number, stallMs?: number, bootMs?: number, bootstrap?: boolean, inject?: boolean, baseline?: boolean, relay?: boolean, scenario?: 'a' | 'b', record?: string, outDir?: string, log?: (s: string) => void}} o
  */
-export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 * 60 * 1000, stallMs = 8 * 60 * 1000, bootMs = 15000, bootstrap = true, inject = false, baseline = false, relay = false, record, outDir, log = () => {} }) {
+export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 * 60 * 1000, stallMs = 8 * 60 * 1000, bootMs = 15000, bootstrap = true, inject = false, baseline = false, relay = false, scenario = 'a', record, outDir, log = () => {} }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'om-challenge-'));
   const dir = path.join(root, 'work');
   fs.mkdirSync(dir);
-  const sc = buildScenario(seed);
-  writeScenario(dir, sc);
+  const kit = SCENARIOS[scenario] ?? SCENARIOS.a;
+  const sc = kit.build(seed);
+  kit.write(dir, sc);
   const app = await main({ port: 0, dataRoot: path.join(root, 'data'), socketPath: path.join(root, 'ipc.sock'), quiet: true });
   const { core } = app;
   const started = Date.now();
@@ -130,7 +135,7 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
     let devAnswered = false;
     const plant = () => {
       if (!inject || planted || !devAnswered || !fs.existsSync(flagPath)) return;
-      fs.writeFileSync(flagPath, buggyFlagScript(sc.limits));
+      fs.writeFileSync(flagPath, kit.buggy(sc.limits));
       planted = fileHash(flagPath);
       events.push({ at: t(), text: 'harness planted a bug in flag.py (every row counts)' });
       log(`[${t()}s] harness planted a bug in flag.py`);
@@ -201,10 +206,10 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
     const reads = (core.terminals.text(boss.id, { lastLines: 2000 }).match(/ORD-\d{4},/g) ?? []).length;
     const listOf = (r) => (r.status === 0 ? r.stdout.split('\n').map((x) => x.trim()).filter(Boolean).sort(byName) : null);
     const verifyOut = inject && fs.existsSync(path.join(dir, 'verify.py')) ? listOf(spawnSync('/usr/bin/python3', ['verify.py'], { cwd: dir, encoding: 'utf8', timeout: 20000 })) : null;
-    const buggyOut = inject ? listOf(spawnSync('/usr/bin/python3', ['-c', buggyFlagScript(sc.limits)], { cwd: dir, encoding: 'utf8', timeout: 20000 })) : null;
+    const buggyOut = inject ? listOf(spawnSync('/usr/bin/python3', ['-c', kit.buggy(sc.limits)], { cwd: dir, encoding: 'utf8', timeout: 20000 })) : null;
     const checks = baseline ? soloChecks({ final, answered, scriptOut, key: sc.flagged }) : buildChecks({ inject, final, answered, scriptOut, key: sc.flagged, team, toName, reads, repeated, leaked, planted, verdicts, checksFailed, finalHash, verifyOut, buggyOut });
     const result = {
-      outcome, seconds: t(), baseline, relay, passed: Object.values(checks).every(Boolean), correct: isCorrect(checks), checks, key: sc.flagged, answered, scriptOut,
+      outcome, seconds: t(), baseline, relay, scenario, passed: Object.values(checks).every(Boolean), correct: isCorrect(checks), checks, key: sc.flagged, answered, scriptOut,
       roundTrips: trace.filter((x) => x.to !== 'Maestro').length, toDev: toName('Dev'), toAuditor: toName('Auditor'),
       finalAnswer: final, trace, events, asks, answers, verdicts, repeated, leaked, checksFailed, nudges: (core.events.get(ws.id) ?? []).filter((e) => e.kind === 'nudge').length, gated: answers.filter((a) => a.gate).length, gatesFailed: answers.filter((a) => a.gate && !a.gate.ok).length,
       // what the agents' screens show as spent (OpenCode prints it); null when none of them shows a cost
@@ -265,7 +270,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const r = await runChallenge({
     maestro: scripted ? `bash ${fx}/maestro.sh` : get('maestro'),
     worker: scripted ? `bash ${fx}/worker.sh` : get('worker', get('maestro')),
-    seed: Number(get('seed', 7)),
+    seed: Number(get('seed', get('scenario', 'a') === 'b' ? 11 : 7)),
     timeoutMs: Number(get('timeout', 30)) * 60 * 1000,
     stallMs: Number(get('stall', 8)) * 60 * 1000,
     bootMs: Number(get('boot', scripted ? 1500 : 15)) * (scripted ? 1 : 1000),
@@ -273,6 +278,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     inject: args.includes('--inject'),
     baseline: args.includes('--baseline'),
     relay: args.includes('--relay'),
+    scenario: get('scenario', 'a'),
     record: get('record'),
     outDir: get('out'),
     log: (s) => console.error(s),
