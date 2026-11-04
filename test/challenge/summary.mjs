@@ -10,9 +10,12 @@ const dollars = (n) => (n === null ? '-' : `$${n.toFixed(n < 1 ? 3 : 2)}`);
 export function summarize(lines) {
   const groups = new Map();
   for (const l of lines) {
-    const key = `${l.maestro} | ${l.worker}`;
-    const g = groups.get(key) ?? { maestro: l.maestro, worker: l.worker, runs: 0, passed: 0, limited: 0, secs: 0, messages: 0, repeated: 0, rejected: 0, costsOfPasses: [] };
+    const mode = l.mode ?? 'team';
+    const key = `${l.maestro} | ${mode === 'solo' ? '' : l.worker} | ${mode}`;
+    const g = groups.get(key) ?? { maestro: l.maestro, worker: mode === 'solo' ? 'alone, no gates' : l.worker, runs: 0, passed: 0, right: 0, limited: 0, secs: 0, messages: 0, repeated: 0, rejected: 0, costsOfPasses: [] };
     g.runs++;
+    // right answer and a script that prints it, whether or not the way of working was the one asked for (older lines: read it from the checks that failed)
+    if (l.correct ?? !(l.failed ?? []).some((k) => k === 'flagged regions match the answer key' || k === 'flag.py exists and prints the answer key')) g.right++;
     if (l.passed) { g.passed++; if (l.cost) g.costsOfPasses.push(l.cost); }
     if (l.outcome === 'provider-limit') g.limited++;
     g.secs += l.seconds ?? 0;
@@ -22,8 +25,8 @@ export function summarize(lines) {
     groups.set(key, g);
   }
   const rows = [...groups.values()].sort((a, b) => b.passed / b.runs - a.passed / a.runs || a.maestro.localeCompare(b.maestro));
-  const head = '| Maestro | Teammates | Runs | Passed | Stopped by a limit | Avg seconds | Avg messages | Repeated messages | Runs with a REJECTED | Median cost per pass |\n|---|---|---|---|---|---|---|---|---|---|';
-  return `${head}\n${rows.map((g) => `| ${g.maestro} | ${g.worker} | ${g.runs} | ${g.passed} | ${g.limited} | ${Math.round(g.secs / g.runs)} | ${(g.messages / g.runs).toFixed(1)} | ${g.repeated} | ${g.rejected} | ${dollars(median(g.costsOfPasses))} |`).join('\n')}`;
+  const head = '| Maestro | Teammates | Runs | Passed | Right answer | Stopped by a limit | Avg seconds | Avg messages | Repeated messages | Runs with a REJECTED | Median cost per pass |\n|---|---|---|---|---|---|---|---|---|---|---|';
+  return `${head}\n${rows.map((g) => `| ${g.maestro} | ${g.worker} | ${g.runs} | ${g.passed} | ${g.right} | ${g.limited} | ${Math.round(g.secs / g.runs)} | ${(g.messages / g.runs).toFixed(1)} | ${g.repeated} | ${g.rejected} | ${dollars(median(g.costsOfPasses))} |`).join('\n')}`;
 }
 
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').at(-1))) {

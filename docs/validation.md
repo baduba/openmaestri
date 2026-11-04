@@ -85,7 +85,11 @@ OPENMAESTRI_BUDGET_USD=0.50 openmaestri      # when you start the daemon
 openmaestri budget                           # read only, from any terminal
 ```
 
-The program cannot see the API calls an agent makes, but a full-screen agent prints the session cost on its status line (OpenCode: `13.2K (10%) · $0.02`). openmaestri reads that number from each terminal, keeps the highest it has seen, and adds them up per workspace. At 80% of the limit you get a notification and a line in the report; at 100% every terminal of the workspace is stopped. Only the person sets the limit: there is no command for an agent to raise it. One-shot agents (`agent`, `run`) have no screen, so they are not counted. The stronger fence is a limit on the key itself at your provider (OpenRouter lets you put a credit limit on a key); use both.
+The program cannot see the API calls an agent makes, but a full-screen agent prints the session cost on its status line (OpenCode: `13.2K (10%) · $0.02`). openmaestri reads that number from each terminal, keeps the highest it has seen, and adds them up per workspace. At 80% of the limit you get a notification and a line in the report; at 100% every terminal of the workspace is stopped. Only the person sets the limit: there is no command for an agent to raise it. One-shot agents (`agent`, `run`) have no screen, so the dollars they spend are not counted. What the limit does for them: once it is reached, a one-shot agent that is running is stopped and a new one is refused (`agent`, `run`), so the cut has no back door. The stronger fence is a limit on the key itself at your provider (OpenRouter lets you put a credit limit on a key); use both.
+
+## When the reviewer and the check disagree
+
+A check is a fact (the command exited 0) and a verdict is an opinion. When a reviewer answers `REJECTED` right after the last check passed, the reply to the Maestro ends with a line saying so and asking it to run something that shows whether the reviewer's claim is true before it sends the Dev back to redo work that passed. The reviewer may still be right (a check can be incomplete), so nothing is overruled: the Maestro is only told, once, that the two disagree. The `report` lists it as a `conflict`.
 
 ## Where teammates run
 

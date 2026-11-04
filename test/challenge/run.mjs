@@ -11,7 +11,7 @@ import { main } from '../../src/server.js';
 import { maestroBootstrap } from '../../src/prompts.js';
 import { isCorrection } from '../../src/gate.js';
 import crypto from 'node:crypto';
-import { buildScenario, writeScenario, CHALLENGE, buggyFlagScript } from './scenario.mjs';
+import { buildScenario, writeScenario, CHALLENGE, SOLO, buggyFlagScript } from './scenario.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -46,7 +46,22 @@ export function recordLine(r, { maestro, worker, seed, inject }) {
   return {
     date: new Date().toISOString().slice(0, 10), maestro: model(maestro), worker: model(worker), seed, inject: !!inject,
     outcome: r.outcome, passed: r.passed, seconds: r.seconds, messages: r.roundTrips, repeated: r.repeated, leaked: r.leaked,
+    mode: r.baseline ? 'solo' : 'team', correct: r.correct,
     gated: r.gated, gatesFailed: r.gatesFailed, cost: r.cost ?? null, verdicts: r.verdicts.join(','), failed: Object.entries(r.checks).filter(([, v]) => !v).map(([k]) => k),
+  };
+}
+
+/** The two checks that say the work is right, whoever did it. */
+const RIGHT = ['flagged regions match the answer key', 'flag.py exists and prints the answer key'];
+/** True when the answer and the script are right, whatever the way of working: the number the team and the baseline are compared by. */
+export const isCorrect = (checks) => RIGHT.every((k) => checks[k] === true);
+
+/** What a lone agent has to show: the right answer and a script that prints it. It had no teammates, so there is no process to check. */
+export function soloChecks({ final, answered, scriptOut, key }) {
+  return {
+    'the answer file says APPROVED': /VERDICT:\s*APPROVED/i.test(final),
+    'flagged regions match the answer key': sameList(answered, key),
+    'flag.py exists and prints the answer key': scriptOut !== null && sameList(scriptOut, key),
   };
 }
 
@@ -75,9 +90,9 @@ export function buildChecks({ inject, final, answered, scriptOut, key, team, toN
 }
 
 /**
- * @param {{maestro: string, worker: string, seed?: number, timeoutMs?: number, stallMs?: number, bootMs?: number, bootstrap?: boolean, inject?: boolean, record?: string, outDir?: string, log?: (s: string) => void}} o
+ * @param {{maestro: string, worker: string, seed?: number, timeoutMs?: number, stallMs?: number, bootMs?: number, bootstrap?: boolean, inject?: boolean, baseline?: boolean, record?: string, outDir?: string, log?: (s: string) => void}} o
  */
-export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 * 60 * 1000, stallMs = 8 * 60 * 1000, bootMs = 15000, bootstrap = true, inject = false, record, outDir, log = () => {} }) {
+export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 * 60 * 1000, stallMs = 8 * 60 * 1000, bootMs = 15000, bootstrap = true, inject = false, baseline = false, record, outDir, log = () => {} }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'om-challenge-'));
   const dir = path.join(root, 'work');
   fs.mkdirSync(dir);
@@ -141,20 +156,26 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
       return r;
     };
 
-    const boss = core.store.createNode(ws, 'terminal', { name: 'Maestro', maestro: true, cwd: dir, command: maestro });
+    // the baseline: one agent, the same task, no Maestro, no teammates, no gates; it leaves its answer in answer.txt
+    const boss = core.store.createNode(ws, 'terminal', { name: baseline ? 'Solo' : 'Maestro', maestro: !baseline, cwd: dir, command: maestro });
     core.startTerminal(ws, boss);
     await sleep(bootMs);
-    // CHALLENGE_BOOTSTRAP replaces the first message (experiments); {CLI} is the absolute path of the openmaestri command
-    const first = (process.env.CHALLENGE_BOOTSTRAP || maestroBootstrap('{CLI}')).replaceAll('{CLI}', core.terminals.env.cliBin ?? 'openmaestri');
-    if (bootstrap) { core.terminals.deliver(boss.id, first); await sleep(Math.min(bootMs, 20000)); }
-    core.chatSend(ws, { text: `${CHALLENGE(dir)}\nUse the preset named Worker for both teammates.` });
+    const answerFile = path.join(dir, 'answer.txt');
+    const solved = () => (fs.existsSync(answerFile) ? fs.readFileSync(answerFile, 'utf8') : '');
+    if (baseline) core.terminals.deliver(boss.id, SOLO(dir));
+    else {
+      // CHALLENGE_BOOTSTRAP replaces the first message (experiments); {CLI} is the absolute path of the openmaestri command
+      const first = (process.env.CHALLENGE_BOOTSTRAP || maestroBootstrap('{CLI}')).replaceAll('{CLI}', core.terminals.env.cliBin ?? 'openmaestri');
+      if (bootstrap) { core.terminals.deliver(boss.id, first); await sleep(Math.min(bootMs, 20000)); }
+      core.chatSend(ws, { text: `${CHALLENGE(dir)}\nUse the preset named Worker for both teammates.` });
+    }
 
     const said = () => core.chat.history(ws.id, core.chat.active(ws.id), { turns: 200 }).filter((m) => m.role === 'agent' && !m.progress);
     let outcome = 'timeout';
     let screenLen = 0;
     while (Date.now() - started < timeoutMs) {
       await sleep(2000);
-      if (said().some((m) => /VERDICT:/i.test(m.text))) { outcome = 'answered'; break; }
+      if (baseline ? /VERDICT:/i.test(solved()) : said().some((m) => /VERDICT:/i.test(m.text))) { outcome = 'answered'; break; }
       // fault injection that did not fit when the Dev answered (no flag.py yet) is done here, as soon as the file is there
       plant();
       const len = ws.nodes.reduce((n, x) => n + (x.kind === 'terminal' ? core.terminals.text(x.id, { lastLines: 400 }).length : 0), 0);
@@ -165,7 +186,7 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
       if (Date.now() - lastActivity > stallMs) { outcome = 'stalled'; break; }
     }
 
-    const final = said().findLast((m) => /VERDICT:/i.test(m.text))?.text ?? '';
+    const final = baseline ? solved() : said().findLast((m) => /VERDICT:/i.test(m.text))?.text ?? '';
     const flaggedLine = /FLAGGED:\s*(.*)/i.exec(final)?.[1] ?? '';
     const answered = flaggedLine.split(/[,\s]+/).map((x) => x.trim()).filter(Boolean).sort(byName);
     const ran = spawnSync('/usr/bin/python3', ['flag.py'], { cwd: dir, encoding: 'utf8', timeout: 20000 });
@@ -181,9 +202,9 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
     const listOf = (r) => (r.status === 0 ? r.stdout.split('\n').map((x) => x.trim()).filter(Boolean).sort(byName) : null);
     const verifyOut = inject && fs.existsSync(path.join(dir, 'verify.py')) ? listOf(spawnSync('/usr/bin/python3', ['verify.py'], { cwd: dir, encoding: 'utf8', timeout: 20000 })) : null;
     const buggyOut = inject ? listOf(spawnSync('/usr/bin/python3', ['-c', buggyFlagScript(sc.limits)], { cwd: dir, encoding: 'utf8', timeout: 20000 })) : null;
-    const checks = buildChecks({ inject, final, answered, scriptOut, key: sc.flagged, team, toName, reads, repeated, leaked, planted, verdicts, checksFailed, finalHash, verifyOut, buggyOut });
+    const checks = baseline ? soloChecks({ final, answered, scriptOut, key: sc.flagged }) : buildChecks({ inject, final, answered, scriptOut, key: sc.flagged, team, toName, reads, repeated, leaked, planted, verdicts, checksFailed, finalHash, verifyOut, buggyOut });
     const result = {
-      outcome, seconds: t(), passed: Object.values(checks).every(Boolean), checks, key: sc.flagged, answered, scriptOut,
+      outcome, seconds: t(), baseline, passed: Object.values(checks).every(Boolean), correct: isCorrect(checks), checks, key: sc.flagged, answered, scriptOut,
       roundTrips: trace.filter((x) => x.to !== 'Maestro').length, toDev: toName('Dev'), toAuditor: toName('Auditor'),
       finalAnswer: final, trace, events, asks, answers, verdicts, repeated, leaked, checksFailed, nudges: (core.events.get(ws.id) ?? []).filter((e) => e.kind === 'nudge').length, gated: answers.filter((a) => a.gate).length, gatesFailed: answers.filter((a) => a.gate && !a.gate.ok).length,
       // what the agents' screens show as spent (OpenCode prints it); null when none of them shows a cost
@@ -250,6 +271,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     bootMs: Number(get('boot', scripted ? 1500 : 15)) * (scripted ? 1 : 1000),
     bootstrap: !scripted,
     inject: args.includes('--inject'),
+    baseline: args.includes('--baseline'),
     record: get('record'),
     outDir: get('out'),
     log: (s) => console.error(s),

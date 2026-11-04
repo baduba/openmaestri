@@ -143,6 +143,14 @@ export function unresolvedChecks(events) {
   return [...last.values()].filter((e) => e.ok === false);
 }
 
+/** What the Maestro is told when a reviewer says REJECTED right after the program's own check passed: a check is a fact, a verdict is an opinion. */
+export function conflictNotice(events, verdict) {
+  if (verdict?.status !== 'REJECTED') return '';
+  const last = [...events].reverse().find((e) => e.kind === 'check');
+  if (!last || last.ok !== true) return '';
+  return `[openmaestri] The program's last check on ${last.to} passed (${last.note}), but this reviewer rejected. A check is a fact and a verdict is an opinion. Run a command that shows whether the reviewer's claim is true before you ask ${last.to} to redo work that passed.`;
+}
+
 /** What is appended to the Maestro's answer to the human when it answers with work that never passed its check. */
 export function unverifiedNotice(open) {
   const what = open.map((e) => `${e.to}: ${e.note}`).join('; ');

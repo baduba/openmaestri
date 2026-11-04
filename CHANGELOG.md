@@ -5,6 +5,9 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 ## [Unreleased]
 
 ### Added
+- A reviewer's `REJECTED` that comes right after the program's own check passed now carries a note to the Maestro (a check is a fact, a verdict is an opinion; run something that tests the claim before redoing work). Nothing is overruled and `report` lists it as a `conflict` (docs/validation.md)
+- The spending limit also covers one-shot agents: once it is reached, `agent` and `run` are refused and one-shot agents that are running are stopped. Their own dollars are still not visible
+- Challenge: `--baseline` runs one agent alone on the same task (no Maestro, teammates, check or gate) and the per-model table has a "Right answer" column, so the team can be compared with the baseline on the same footing
 - Challenge: `--record` keeps the cost the agents' screens show, and the per-model table has a "Median cost per pass" column (cost and quality are different things: in a public comparison of coding harnesses the cost of one pass varied 17 times)
 
 ### Fixed
