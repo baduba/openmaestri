@@ -52,8 +52,12 @@ test('challenge: a record line names the models, and the summary counts passes p
   assert.equal(line.maestro, 'openrouter/a/big');
   assert.equal(line.worker, 'openrouter/b/small');
   assert.deepEqual(line.failed, ['b']);
+  const priced = recordLine({ ...base, cost: 0.04 }, { maestro: 'opencode -m openrouter/a/big', worker: 'opencode -m openrouter/b/small', seed: 7 });
+  assert.equal(priced.cost, 0.04);
   const table = summarize([line, { ...line, passed: false, outcome: 'provider-limit' }]);
-  assert.match(table, /\| openrouter\/a\/big \| openrouter\/b\/small \| 2 \| 1 \| 1 \| 100 \| 5\.0 \| 0 \| 2 \|/);
+  assert.match(table, /\| openrouter\/a\/big \| openrouter\/b\/small \| 2 \| 1 \| 1 \| 100 \| 5\.0 \| 0 \| 2 \| - \|/);
+  // the median is over the runs that passed and show a cost; a model that never shows one gets a dash
+  assert.match(summarize([priced, { ...priced, cost: 0.02 }, { ...priced, cost: 0.9, passed: false }]), /\| \$0\.030 \|/);
 });
 
 test('challenge: an oracle that prints nothing, or the planted bug\'s answer, is caught by the harness', async () => {

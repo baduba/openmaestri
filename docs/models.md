@@ -28,6 +28,10 @@ With three runs, a model that passed 2 of 3 could have a true rate anywhere from
 
 What to do with this: pick GLM 5.3 Flash first, keep the loop guard and the reminder on, and do not rely on a free model for the Maestro. A paid model from another family is the next experiment.
 
+The 12 runs above were recorded before the table had a cost column, so it is empty for them. New runs fill it with the median cost of the runs that passed (a dash when the agent shows no cost, as the free models do).
+
+What the table still lacks, and a public comparison of coding harnesses points to the same gap: a baseline. One strong model alone on the same task, with no Maestro, no Auditor and no gate, tells whether the orchestration pays for itself. Until that run exists, the table says which Maestro is better than another, not that having a Maestro is better than not having one.
+
 ## Add your own runs
 
 ```bash
