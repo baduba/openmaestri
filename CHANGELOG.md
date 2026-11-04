@@ -8,6 +8,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 - Challenge: `--record` keeps the cost the agents' screens show, and the per-model table has a "Median cost per pass" column (cost and quality are different things: in a public comparison of coding harnesses the cost of one pass varied 17 times)
 
 ### Fixed
+- Challenge: two long messages to a teammate that only start alike are no longer counted as a repeat (the trace compared the first 300 characters; it now compares the whole message). docs/models.md has the second batch of cheap Maestros (12 more runs, DeepSeek V4.1 Flash among them)
 - Challenge: the repeated-message check counted the program's own correction (sent again when a check keeps failing the same way) as the Maestro repeating itself; it now counts only the Maestro's messages. The 24 recorded runs were scored again (docs/models.md)
 
 ## [0.24.0] - 2026-11-04

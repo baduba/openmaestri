@@ -28,7 +28,8 @@ export function verdictOf(text) {
 
 /** Messages the Maestro sent to a teammate more than once, word for word. The corrections the program sends by itself are not the Maestro's: a check that keeps failing the same way repeats them. */
 export function repeatedCount(trace) {
-  return trace.filter((x, i) => x.to !== 'Maestro' && !isCorrection(x.text) && trace.findIndex((y) => y.to === x.to && y.text === x.text) !== i).length;
+  const same = (x, y) => x.to === y.to && (x.whole ?? x.text) === (y.whole ?? y.text);
+  return trace.filter((x, i) => x.to !== 'Maestro' && !isCorrection(x.text) && trace.findIndex((y) => same(x, y)) !== i).length;
 }
 
 /** Messages to a teammate that carry two or more of the true per-region revenues: the Maestro dictating what the teammate should compute. */
@@ -100,7 +101,9 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
     const orig = core.terminals.deliver.bind(core.terminals);
     core.terminals.deliver = (id, text, opts) => {
       const node = ws.nodes.find((n) => n.id === id);
-      trace.push({ at: t(), to: node?.name ?? id, text: String(text).replace(/\s+/g, ' ').slice(0, 300) });
+      const whole = String(text).replace(/\s+/g, ' ');
+      // `text` is what the report shows; `whole` is what two messages are compared by, so a long message that only starts like another is not a repeat
+      trace.push({ at: t(), to: node?.name ?? id, text: whole.slice(0, 300), whole: crypto.createHash('sha256').update(whole).digest('hex') });
       lastActivity = Date.now();
       log(`[${t()}s] -> ${node?.name}: ${String(text).replace(/\s+/g, ' ').slice(0, 100)}`);
       return orig(id, text, opts);
