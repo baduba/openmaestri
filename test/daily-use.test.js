@@ -60,8 +60,10 @@ test('ps command: lists reachable terminals and stops a process inside one', asy
   const busy = ws.nodes.find((n) => n.name === 'Busy');
   for (const end = Date.now() + 8000; !core.terminals.pidOf(busy.id) && Date.now() < end;) await sleep(100);
   // the shell starts the program a moment later; on a loaded machine that moment is long, so wait for it to show up
+  // while the shell starts, its own rows also contain the text "sleep 60"; the program itself is the row whose whole command is `sleep 60`
+  const SLEEP_ROW = /^\s+(\d+)\s+\d+ MB\s+sleep 60\s*$/m;
   let out = await cmd(boss, 'ps', { all: true });
-  for (const end = Date.now() + 10000; !/sleep 60/.test(out.text) && Date.now() < end;) { await sleep(200); out = await cmd(boss, 'ps', { all: true }); }
+  for (const end = Date.now() + 10000; !SLEEP_ROW.test(out.text) && Date.now() < end;) { await sleep(200); out = await cmd(boss, 'ps', { all: true }); }
   assert.match(out.text, /Busy\s+\d+\s+\d+ proc\s+\d+ MB/);
   assert.match(out.text, /sleep 60/);
   await assert.rejects(cmd(worker, 'ps', {}), /only available to Maestro/);
@@ -69,9 +71,9 @@ test('ps command: lists reachable terminals and stops a process inside one', asy
   // a process can end between the listing and the stop (a loaded machine), so list again and retry
   let stopped = null;
   for (let i = 0; i < 3 && !stopped; i++) {
-    const line = (await cmd(boss, 'ps', { all: true })).text.split('\n').find((l) => l.includes('sleep 60'));
-    if (!line) break;
-    try { stopped = await cmd(boss, 'ps', { stop: 'Busy', pid: line.trim().split(/\s+/)[0] }); } catch (e) { if (!/ESRCH/.test(e.message)) throw e; }
+    const row = SLEEP_ROW.exec((await cmd(boss, 'ps', { all: true })).text);
+    if (!row) break;
+    try { stopped = await cmd(boss, 'ps', { stop: 'Busy', pid: row[1] }); } catch (e) { if (!/ESRCH/.test(e.message)) throw e; }
   }
   assert.match(stopped.text, /sent SIGTERM/);
   assert.ok(core.audit.read(5).some((e) => e.event === 'ps.stop'));
