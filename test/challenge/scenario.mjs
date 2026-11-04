@@ -93,3 +93,13 @@ FLAGGED: Name1,Name2
 ROUNDS: <how many times you ran flag.py>
 If you cannot get an approval, say VERDICT: FAILED and why.
 Rules for every message: never put sales figures or the answer in a message to a teammate (they must read the files and compute for themselves). Read the reply in the output of ask; do not send the same message again because the reply looked short or messy.`;
+
+/** The same task for one agent working alone: no teammates, no independent check, no gates. The baseline the team is compared with. */
+export const SOLO = (dir) => `SOLO TASK. Work folder: ${dir}. It has data/sales.csv and data/rules.md.
+Goal: find which regions are flagged by the rules in data/rules.md.
+Write flag.py in ${dir}: it reads data/sales.csv, applies the rules and prints the flagged region names, one per line, sorted. Run it and check the result.
+When you are done, write a file named answer.txt in ${dir}, in exactly this shape:
+VERDICT: APPROVED
+FLAGGED: Name1,Name2
+ROUNDS: <how many times you ran flag.py>
+If you cannot solve it, write VERDICT: FAILED and why. Do the work yourself, in this terminal.`;

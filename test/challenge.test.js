@@ -55,7 +55,7 @@ test('challenge: a record line names the models, and the summary counts passes p
   const priced = recordLine({ ...base, cost: 0.04 }, { maestro: 'opencode -m openrouter/a/big', worker: 'opencode -m openrouter/b/small', seed: 7 });
   assert.equal(priced.cost, 0.04);
   const table = summarize([line, { ...line, passed: false, outcome: 'provider-limit' }]);
-  assert.match(table, /\| openrouter\/a\/big \| openrouter\/b\/small \| 2 \| 1 \| 1 \| 100 \| 5\.0 \| 0 \| 2 \| - \|/);
+  assert.match(table, /\| openrouter\/a\/big \| openrouter\/b\/small \| 2 \| 1 \| 2 \| 1 \| 100 \| 5\.0 \| 0 \| 2 \| - \|/);
   // the median is over the runs that passed and show a cost; a model that never shows one gets a dash
   assert.match(summarize([priced, { ...priced, cost: 0.02 }, { ...priced, cost: 0.9, passed: false }]), /\| \$0\.030 \|/);
 });
@@ -88,4 +88,23 @@ test('challenge: two long messages that start alike but end differently are not 
   const a = { to: 'Dev', text: head.slice(0, 300), whole: 'h1' };
   assert.equal(repeatedCount([a, { ...a, whole: 'h2' }]), 0);
   assert.equal(repeatedCount([a, { ...a }]), 1);
+});
+
+test('challenge: the baseline is judged by the answer alone, and the summary puts it next to the team', async () => {
+  const { soloChecks, isCorrect, recordLine } = await import('./challenge/run.mjs');
+  const { summarize } = await import('./challenge/summary.mjs');
+  const good = soloChecks({ final: 'VERDICT: APPROVED\nFLAGGED: A,B', answered: ['A', 'B'], scriptOut: ['A', 'B'], key: ['A', 'B'] });
+  assert.equal(isCorrect(good), true);
+  assert.equal(isCorrect(soloChecks({ final: 'VERDICT: APPROVED', answered: ['A'], scriptOut: ['A', 'B'], key: ['A', 'B'] })), false, 'a wrong answer is not right');
+  assert.equal(isCorrect(soloChecks({ final: 'VERDICT: APPROVED', answered: ['A', 'B'], scriptOut: null, key: ['A', 'B'] })), false, 'no script, not right');
+  const model = 'opencode -m openrouter/a/big';
+  const solo = recordLine({ outcome: 'answered', baseline: true, passed: true, correct: true, seconds: 90, roundTrips: 0, repeated: 0, leaked: 0, gated: 0, gatesFailed: 0, verdicts: [], checks: good, cost: 0.02 }, { maestro: model, worker: model, seed: 7 });
+  assert.equal(solo.mode, 'solo');
+  assert.equal(solo.correct, true);
+  const team = { ...solo, mode: 'team', correct: true, passed: false, failed: ['no message to a teammate was sent twice'] };
+  const table = summarize([solo, team]);
+  assert.match(table, /alone, no gates \| 1 \| 1 \| 1 \|/);
+  assert.match(table, /openrouter\/a\/big \| 1 \| 0 \| 1 \|/, 'the team run was right but broke a process rule: right 1, passed 0');
+  // lines recorded before the field existed: right when neither correctness check failed
+  assert.match(summarize([{ maestro: 'm', worker: 'w', passed: false, failed: ['no message to a teammate was sent twice'] }, { maestro: 'm', worker: 'w', passed: false, failed: ['flag.py exists and prints the answer key'] }]), /\| m \| w \| 2 \| 0 \| 1 \|/);
 });
