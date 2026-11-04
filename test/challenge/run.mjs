@@ -76,8 +76,10 @@ export function soloChecks({ final, answered, scriptOut, key }) {
 }
 
 /** A Maestro given only the goal: the answer and the script must be right, and it has to have used a team at all (otherwise it did the work alone and the run says nothing about coordination). */
-export function freeChecks({ final, answered, scriptOut, key, asked }) {
-  return { ...soloChecks({ final, answered, scriptOut, key }), 'a teammate was recruited and asked': asked > 0 };
+/** What a screen shows when an agent went to read the challenge's own files (where the answer key is built) instead of the work folder. */
+export const PEEKED = /test\/challenge|scenario2?\.mjs|challenge\/run\.mjs|om-challenge-[A-Za-z0-9]+\/(?!work)/;
+export function freeChecks({ final, answered, scriptOut, key, asked, peeked = false }) {
+  return { ...soloChecks({ final, answered, scriptOut, key }), 'a teammate was recruited and asked': asked > 0, 'nobody opened the challenge files': !peeked };
 }
 
 /** What a run has to show. The last three only apply when a bug was planted (`inject`). */
@@ -220,9 +222,9 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
     const listOf = (r) => (r.status === 0 ? r.stdout.split('\n').map((x) => x.trim()).filter(Boolean).sort(byName) : null);
     const verifyOut = inject && fs.existsSync(path.join(dir, 'verify.py')) ? listOf(spawnSync('/usr/bin/python3', ['verify.py'], { cwd: dir, encoding: 'utf8', timeout: 20000 })) : null;
     const buggyOut = inject ? listOf(spawnSync('/usr/bin/python3', ['-c', kit.buggy(sc.limits)], { cwd: dir, encoding: 'utf8', timeout: 20000 })) : null;
-    const checks = baseline ? soloChecks({ final, answered, scriptOut, key: sc.flagged }) : free ? freeChecks({ final, answered, scriptOut, key: sc.flagged, asked: trace.filter((x) => x.to !== 'Maestro').length }) : buildChecks({ inject, final, answered, scriptOut, key: sc.flagged, team, toName, reads, repeated, leaked, planted, verdicts, checksFailed, finalHash, verifyOut, buggyOut });
+    const checks = baseline ? soloChecks({ final, answered, scriptOut, key: sc.flagged }) : free ? freeChecks({ final, answered, scriptOut, key: sc.flagged, asked: trace.filter((x) => x.to !== 'Maestro').length, peeked: ws.nodes.some((n) => n.kind === 'terminal' && PEEKED.test(core.terminals.text(n.id, { lastLines: 4000 }))) }) : buildChecks({ inject, final, answered, scriptOut, key: sc.flagged, team, toName, reads, repeated, leaked, planted, verdicts, checksFailed, finalHash, verifyOut, buggyOut });
     const result = {
-      outcome, seconds: t(), baseline, relay, devReads, state, free, scenario, passed: Object.values(checks).every(Boolean), correct: isCorrect(checks), checks, key: sc.flagged, answered, scriptOut,
+      outcome, seconds: t(), baseline, relay, devReads, state, free, scenario, passed: Object.values(checks).every(Boolean), correct: isCorrect(checks) && checks['nobody opened the challenge files'] !== false, checks, key: sc.flagged, answered, scriptOut,
       roundTrips: trace.filter((x) => x.to !== 'Maestro').length, toDev: toName('Dev'), toAuditor: toName('Auditor'),
       finalAnswer: final, trace, events, asks, answers, verdicts, repeated, leaked, checksFailed, nudges: (core.events.get(ws.id) ?? []).filter((e) => e.kind === 'nudge').length, gated: answers.filter((a) => a.gate).length, gatesFailed: answers.filter((a) => a.gate && !a.gate.ok).length,
       // what the agents' screens show as spent (OpenCode prints it); null when none of them shows a cost

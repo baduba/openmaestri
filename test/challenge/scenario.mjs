@@ -108,6 +108,7 @@ If you cannot solve it, write VERDICT: FAILED and why. Do the work yourself, in 
 export const FREE = (dir) => `TASK. Work folder: ${dir}. It has data/sales.csv and data/rules.md.
 Goal: find which names (regions or accounts, as the data calls them) are flagged by the rules in data/rules.md, and be sure the answer is right. The script that gives it must be flag.py in ${dir}: it reads data/sales.csv, applies the rules and prints the flagged names, one per line, sorted.
 You lead a team: decide yourself who to recruit, what to ask each one, what to check and when you are done. Use real openmaestri teammates (terminals the human can see), not your own built-in sub-agent tools. Use the preset named Worker for the teammates you recruit.
+Work only inside the work folder: do not open, list or search any file outside it, and do not search the machine. Everything you need is in the folder.
 When you are done, answer the human with openmaestri say, in exactly this shape:
 VERDICT: APPROVED
 FLAGGED: Name1,Name2

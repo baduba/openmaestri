@@ -160,6 +160,9 @@ test('challenge: a Maestro given only the goal is judged by the answer, the scri
   const alone = freeChecks({ ...args, asked: 0 });
   assert.equal(isCorrect(alone), true, 'right is right');
   assert.equal(alone['a teammate was recruited and asked'], false, 'but it did not use a team, and the run says so');
+  assert.equal(freeChecks({ ...args, asked: 3, peeked: true })['nobody opened the challenge files'], false);
+  const { PEEKED } = await import('./challenge/run.mjs');
+  assert.ok(PEEKED.test('Read ~/openmaestri/test/challenge/scenario2.mjs') && PEEKED.test('cat scenario.mjs') && !PEEKED.test('python3 flag.py in /tmp/om-challenge-abc/work/data'));
   const model = 'opencode -m openrouter/a/big';
   const line = recordLine({ outcome: 'answered', free: true, state: true, passed: true, correct: true, seconds: 200, roundTrips: 4, repeated: 0, leaked: 0, gated: 2, gatesFailed: 0, verdicts: [], checks: team, cost: 0.1 }, { maestro: model, worker: model, seed: 7 });
   assert.equal(line.mode, 'team-free+state');
