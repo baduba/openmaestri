@@ -8,7 +8,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { main } from '../../src/server.js';
-import { MAESTRO_BOOTSTRAP } from '../../src/prompts.js';
+import { maestroBootstrap } from '../../src/prompts.js';
 import crypto from 'node:crypto';
 import { buildScenario, writeScenario, CHALLENGE, buggyFlagScript } from './scenario.mjs';
 
@@ -141,7 +141,7 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
     core.startTerminal(ws, boss);
     await sleep(bootMs);
     // CHALLENGE_BOOTSTRAP replaces the first message (experiments); {CLI} is the absolute path of the openmaestri command
-    const first = (process.env.CHALLENGE_BOOTSTRAP || MAESTRO_BOOTSTRAP).replaceAll('{CLI}', core.terminals.env.cliBin ?? 'openmaestri');
+    const first = (process.env.CHALLENGE_BOOTSTRAP || maestroBootstrap('{CLI}')).replaceAll('{CLI}', core.terminals.env.cliBin ?? 'openmaestri');
     if (bootstrap) { core.terminals.deliver(boss.id, first); await sleep(Math.min(bootMs, 20000)); }
     core.chatSend(ws, { text: `${CHALLENGE(dir)}\nUse the preset named Worker for both teammates.` });
 

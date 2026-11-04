@@ -254,3 +254,13 @@ test('resume: a workspace with nothing recorded says so, and a damaged events fi
   t.after(() => again.close());
   assert.equal(again.core.eventsFor(ws.id).length, 0);
 });
+
+test('the Maestro bootstrap names the full path of the program, tells it to use its shell tool, and never tells it to ask the human', async () => {
+  const { maestroBootstrap } = await import('../src/prompts.js');
+  const text = maestroBootstrap('/opt/om/bin/openmaestri');
+  assert.match(text, /The program is \/opt\/om\/bin\/openmaestri/);
+  assert.match(text, /First run: \/opt\/om\/bin\/openmaestri guide/);
+  assert.match(text, /shell tool/);
+  assert.match(text, /Do not ask them anything with a question tool/);
+  assert.doesNotMatch(text, /Ask the human what the goal is/i);
+});

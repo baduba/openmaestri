@@ -13,7 +13,7 @@ import { WebSocketServer } from 'ws';
 import { Core, CommandError } from './core.js';
 import { dataDir, atomicWrite, safeId } from './store.js';
 import { startIpc, defaultSocketPath, ipcAlive } from './ipc.js';
-import { MAESTRO_BOOTSTRAP } from './prompts.js';
+import { maestroBootstrap } from './prompts.js';
 import { threadId } from './chat.js';
 import { redact as redactChat } from './memory.js';
 import { commandAvailable } from './terminals.js';
@@ -291,7 +291,7 @@ export async function main({ port = Number(process.env.OPENMAESTRI_PORT ?? 7777)
         if (node.kind === 'terminal') {
           core.startTerminal(w, node);
           // a Maestro running a real agent gets told what it is once the agent has booted
-          if (node.maestro && node.command) setTimeout(() => { try { core.terminals.deliver(node.id, [MAESTRO_BOOTSTRAP, core.factsBrief(w), core.eventsFor(w.id).length ? `Earlier in this workspace, before you started:\n${core.resumeBrief(w)}` : ''].filter(Boolean).join('\n\n')); } catch {} }, 5000).unref?.();
+          if (node.maestro && node.command) setTimeout(() => { try { core.terminals.deliver(node.id, [maestroBootstrap(core.terminals.env.cliBin), core.factsBrief(w), core.eventsFor(w.id).length ? `Earlier in this workspace, before you started:\n${core.resumeBrief(w)}` : ''].filter(Boolean).join('\n\n')); } catch {} }, 5000).unref?.();
         }
         core.touch(w);
         break;

@@ -50,11 +50,19 @@ How to orchestrate well
   10. When the human has already given the goal and the files, do not ask them to clarify: recruit and start. Use a question tool only when the goal itself is missing.
 `;
 
-export const MAESTRO_BOOTSTRAP =
-  'You are the Maestro of this openmaestri workspace: you coordinate other agents. ' +
-  'Run `openmaestri guide` now and follow it. You can run shell commands, and openmaestri is on your PATH. ' +
-  'The human writes the goal in the openmaestri chat, as a message that starts with [openmaestri chat, ...]. ' +
-  'Do not ask them anything with a question tool before that message arrives: wait for it, then plan, recruit teammates and coordinate them.';
+/**
+ * The first message a Maestro gets. A weak model may say "that command is not available" without trying; so it is told it has a shell
+ * tool, given the full path of the program (no guessing about PATH), and told to run the guide first. Measured with gpt-oss-120b as
+ * Maestro: it began delegating after 55 s with this wording and after 153 s, and a reminder, without it.
+ */
+export function maestroBootstrap(cli = 'openmaestri') {
+  return 'You are the Maestro of this openmaestri workspace: you coordinate other agents. ' +
+    `You have a shell tool; use it for every openmaestri command, and never say a command is unavailable before you have run it. The program is ${cli} (full path; plain openmaestri works too). ` +
+    `First run: ${cli} guide . Then wait for the human's message, which starts with [openmaestri chat, ...] and tells the goal. ` +
+    'Do not ask them anything with a question tool before that message arrives: wait for it, then plan, recruit teammates and coordinate them.';
+}
+
+export const MAESTRO_BOOTSTRAP = maestroBootstrap();
 
 /** What the Maestro is told, in fixed words, when the human wrote and it went quiet without answering. */
 export const NUDGE =
