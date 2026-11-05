@@ -11,7 +11,7 @@ The layer is the part of openmaestri that judges work with the program instead o
 | A failed check goes back to the teammate by itself, capped, with a clipped log | Done, tested |
 | A verdict that is missing or malformed fails closed | Done, tested |
 | The answer to the human says when a check was left failing | Done, tested |
-| A reviewer's REJECTED against a passing check is flagged to the Maestro | Done, merged after 0.24.0, not released yet |
+| A reviewer's REJECTED against a passing check is flagged to the Maestro | Done, released in 0.25.0 |
 | A loop of similar messages is warned at the 3rd and refused at the 5th | Done, tested |
 | A Maestro that stops answering is reminded, at most twice | Done, tested |
 | A spending limit stops terminals and one-shot agents, set only by the person | Done. Dollars of one-shot agents are not visible |
