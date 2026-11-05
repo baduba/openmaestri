@@ -4,6 +4,10 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed
+- `scripts/dast.sh` exited 1 even when the ZAP baseline had no failure: the summary line `FAIL-NEW: 0 ...` matched the check for a failure. Only a count above zero fails now
+- `routine create`: `--count` with a word, a decimal or zero was kept as NaN and the routine never ended; `--until` with text that is not a date was kept and the routine never stopped; `--every` past a year (for example `9999999999d`) gave a next run past the last date a Date can hold. All three are refused with a clear message
+
 ## [0.25.1] - 2026-11-05
 
 ### Fixed
@@ -18,6 +22,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 - The CI and Security GitHub workflows are disabled to save runner minutes. `scripts/check.sh` runs the same checks locally (syntax, lint, tests, SAST, `.deb` build and smoke test, DAST, Node 22 and 24 matrix, release check). See `docs/local-ci.md`.
 
 ### Added
+- A seeded fuzz test of the command line arguments (20,000 random argv: the parser never throws, never pollutes Object, and `build` only fails with a usage error)
 - The state line: with `OPENMAESTRI_STATE_LINE=1` every `ask` ends with one line the program writes (messages, last check and verdict per teammate, what is open). Off by default (docs/validation.md)
 - Challenge: `--free` (the Maestro gets only the goal and builds the plan), `--state`, a guard that an agent which opens the challenge's own files is not counted as right. Results for three other workers, for the Maestro planning alone and for the state line in docs/models.md
 - `ask "Agent" "prompt" --relay "Other"`: the program attaches Other's last reply word for word, so a reviewer's rejection reaches the Dev as written and not retold by the Maestro
