@@ -24,7 +24,7 @@ fail=0
 
 # Chromium for the UI test: installed once, cached in ~/.cache/ms-playwright.
 # shellcheck disable=SC2329  # called through step()
-ensure_chromium() { ls "$HOME"/.cache/ms-playwright/chromium-* >/dev/null 2>&1 || npx playwright-core install chromium; }
+ensure_chromium() { ls "$HOME"/.cache/ms-playwright/chromium-* >/dev/null 2>&1 || ./node_modules/.bin/playwright-core install chromium; }
 
 # The suite starts many daemons and browsers at once, so on a busy machine a timing-sensitive test can fail
 # while it passes alone. A failed file is rerun alone once; the summary says so, and a real failure fails twice.
@@ -32,10 +32,10 @@ ensure_chromium() { ls "$HOME"/.cache/ms-playwright/chromium-* >/dev/null 2>&1 |
 run_tests() {
   local log code; log=$(mktemp)
   npm test 2>&1 | tee "$log"; code=${PIPESTATUS[0]}
-  if [ "$code" = 0 ]; then rm -f "$log"; return 0; fi
+  if [[ "$code" == 0 ]]; then rm -f "$log"; return 0; fi
   local files; mapfile -t files < <(grep -oE '^test at test/[^:]+' "$log" | sed 's/^test at //' | sort -u)
   rm -f "$log"
-  [ "${#files[@]}" -gt 0 ] || return 1
+  [[ "${#files[@]}" -gt 0 ]] || return 1
   echo "-- rerunning ${#files[@]} failed file(s) alone: ${files[*]}"
   OPENMAESTRI_NO_WELCOME=1 node --test --test-timeout=240000 "${files[@]}" && echo "-- PASSED ON RERUN (flaky under load): ${files[*]}"
 }
@@ -51,8 +51,8 @@ smoke_deb() {
 
 # shellcheck disable=SC2329  # called through step()
 tag_matches() {
-  [ -n "${TAG:-}" ] || { echo "set TAG=vX.Y.Z"; return 1; }
-  test "v$(node -p "require('./package.json').version")" = "$TAG" || { echo "package.json says v$(node -p "require('./package.json').version"), tag is $TAG"; return 1; }
+  [[ -n "${TAG:-}" ]] || { echo "set TAG=vX.Y.Z"; return 1; }
+  [[ "v$(node -p "require('./package.json').version")" == "$TAG" ]] || { echo "package.json says v$(node -p "require('./package.json').version"), tag is $TAG"; return 1; }
 }
 
 # Tests on each Node version, in a copy without node_modules, so node-pty is built for that ABI and the working tree stays untouched.
@@ -72,17 +72,17 @@ matrix_test() {
   return "$rc"
 }
 
-[ "$release" = 1 ] && step "tag matches package.json" tag_matches
+[[ "$release" == 1 ]] && step "tag matches package.json" tag_matches
 step "syntax (npm run check)" npm run -s check
 step "lint (npm run lint)" npm run -s lint
 step "chromium for the UI test" ensure_chromium
-if [ "$matrix" = 1 ]; then step "tests on Node 22 and 24" matrix_test; else step "tests (npm test)" run_tests; fi
-if [ "$full" = 1 ]; then
+if [[ "$matrix" == 1 ]]; then step "tests on Node 22 and 24" matrix_test; else step "tests (npm test)" run_tests; fi
+if [[ "$full" == 1 ]]; then
   step "static analysis (scripts/sast.sh)" scripts/sast.sh
   step ".deb build" scripts/build-deb.sh
   step ".deb smoke test" smoke_deb
 fi
-[ "$dast" = 1 ] && step "dynamic tests (scripts/dast.sh)" scripts/dast.sh $dastflag
+[[ "$dast" == 1 ]] && step "dynamic tests (scripts/dast.sh)" scripts/dast.sh $dastflag
 
 echo; echo "== summary"; printf '%s\n' "${results[@]}"
 exit $fail
