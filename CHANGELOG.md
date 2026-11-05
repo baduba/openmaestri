@@ -4,6 +4,8 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-11-04
+
 ### Changed
 - The CI and Security GitHub workflows are disabled to save runner minutes. `scripts/check.sh` runs the same checks locally (syntax, lint, tests, SAST, `.deb` build and smoke test, DAST, Node 22 and 24 matrix, release check). See `docs/local-ci.md`.
 
