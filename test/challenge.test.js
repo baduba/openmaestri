@@ -260,3 +260,16 @@ test('challenge: scenario C records the traps, the diff mode has its own label, 
   assert.match(table, /C6: alone, no gates/);
   assert.equal(isCorrect(freeChecks({ ...args, asked: 4, peeked: true })), false, 'an agent that opened the challenge files did not solve it');
 });
+
+test('challenge: a vote over lone runs on the same data is the control for the team, and a tie is not an answer', async () => {
+  const { voteTable } = await import('./challenge/vote.mjs');
+  const { buildScenarioC } = await import('./challenge/scenario3.mjs');
+  const key = buildScenarioC(21, { traps: 5 }).flagged;
+  const wrong = key.slice(1);
+  const run = (answered, correct) => ({ mode: 'solo', maestro: 'm', scenario: 'c', traps: 5, seed: 21, answered, correct });
+  const table = voteTable([run(key, true), run(wrong, false), run(key, true), run(wrong, false), run(key, true)]);
+  assert.match(table, /\| m \| C \(5 traps\) \| 1 \| 5 \| 3 of 5 \| 1 of 1 \|/, 'three of five agree on the key: the vote is right');
+  const tied = voteTable([run(key, true), run(wrong, false), run(wrong, false), run(key, true)]);
+  assert.match(tied, /\| 2 of 4 \| 0 of 1 \|/, 'two against two is a tie, so no answer');
+  assert.doesNotMatch(voteTable([run(key, true), run(key, true)]), /\| m \|/, 'fewer than three runs make no vote');
+});

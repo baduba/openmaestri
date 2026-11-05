@@ -47,6 +47,8 @@ Legenda: [x] feito · [ ] pendente
 
 - [x] Rodada 15: três outros trabalhadores (Kimi 3/4, GLM 3/4, DeepSeek 4/4), Maestro montando o plano sozinho (DeepSeek 4/4, Haiku 2/2, Kimi 1/2, gpt-oss 0/2), linha de estado do programa (gpt-oss 7/8 com, 5/8 sem; dentro do ruído, fica desligada). Pendente: mais rodadas da linha de estado antes de ligar por padrão; Laya/decisões tipadas só depois
 
+- [x] Rodada 16 (3 pesquisas, cenário C, --diff, controle por votação): a equipe levanta um modelo fraco (gpt-oss 35% sozinho, 3 de 8 com votação, 6 de 8 em equipe) e NÃO vence um modelo forte barato sozinho (DeepSeek 8 de 8 com 10 armadilhas). Regra de parada atingida: o desenvolvimento passa para manutenção e conselho honesto na documentação
+
 ## F. Fase 1 de paridade (feito em feature/canvas-parity)
 - [x] Fichários (stacks), bands, partituras, desfazer/refazer, tidy, snap, paleta Ctrl+K, exportar/importar workspace
 - [x] Fase 2: floors com git worktree, landing, hooks, snapshots; revisão de PRs (v0.18.0)

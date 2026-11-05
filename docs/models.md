@@ -113,6 +113,34 @@ The two good Maestros recruited a reviewer and a Dev, asked for an independent c
 
 The direction is the one hoped for, but two runs of difference out of eight is inside the noise, so the line stays off by default. The 3 of 10 in the table above was measured with older code; the 5 of 8 of the control shows that the instructions and notes added since then, or luck, already moved this model. The verdict that kimi's plan asked to be "structured by the program" already was: the reviewer must end with `VERDICT: APPROVED or REJECTED - reason` and the program parses it, sends back once what does not parse and fails closed.
 
+## Does the team beat one agent alone? Scenario C and the stop rule (round 16)
+
+Three research rounds (Claude, kimi and agy, 2026-11-05, notes in `notes/planners/sintese15.md`) agreed on one mechanism that wins in the literature: two independent implementations compared by a program, with the reviewer blind to the other's code, and a lone-agent control with the same compute (a vote over several runs). Scenario C is the ledger of scenario B with a dial of 1 to 10 traps (number formats, time zones and a window, chargebacks, repeated ids, USD at 5.10 rounded half to even, partial refunds, VIP limits, weekend half, a cap per sale, small sales dropped). The key is checked in the tests against an independent Python reading with `Decimal`. The `--diff` mode has the Auditor write `verify.py` from the rules alone, the Dev write `flag.py`, and the Maestro run a `diff` of their outputs; it acts only when they differ.
+
+The stop rule was set before the runs: the team has to beat the same model alone, with the same compute, by 20 points or more, on a task where the lone agent is under 50%.
+
+Lone agent, 8 data sets per cell (right means the answer and `flag.py` are both right):
+
+| Model | 4 traps | 6 traps | 7 traps | 10 traps |
+|---|---|---|---|---|
+| DeepSeek V4.1 Flash | 8 of 8 | 7 of 8 | 6 of 8 | 8 of 8 |
+| GLM 5.3 Flash | | | 2 of 8 | |
+| `gpt-oss-120b` | | | 2 of 8 | |
+
+Seven traps, `gpt-oss-120b` (the model that fails alone):
+
+| How the work was done | Right |
+|---|---|
+| One run alone | 14 of 40 (35%) |
+| Majority vote over 4 runs, same data | 3 of 8 |
+| Team: Maestro DeepSeek, Dev and Auditor `gpt-oss-120b`, the program compares two scripts | **6 of 8** |
+
+- **The strong cheap model is not beaten.** DeepSeek V4.1 Flash alone got 8 of 8 even with ten traps (cost about a cent, about two minutes). The dial never took a strong model under 50%, so the rule cannot be met on this family of tasks: the team does not beat a strong model alone. If you can pay for one strong model, use one agent.
+- **The team lifts a weak model, and it is not just more compute.** `gpt-oss-120b` alone is right in about a third of the runs; a vote over four runs does not help (3 of 8); the team, with a good Maestro and two independent scripts, is right in 6 of 8, as good as DeepSeek alone at seven traps (6 of 8). Against the 40 lone runs the difference has p of about 0.05 (Fisher, one side); against the vote, p of 0.16 with only eight data sets. Read it as a strong hint, not as proof.
+- **What it costs.** A team run took one to four minutes and one to three cents (one run 16 cents); DeepSeek alone about a cent. The team only pays when the model you have to use is the weak one (open weights on your own machine, no access to a strong model).
+- **The two misses of the team**, read in the logs: on seed 701 both scripts agreed (the diff printed `SAME`) on an answer with one name too many, so the program had nothing to compare; that is the error two independent writers share, which the N-version literature predicts and a diff cannot see. On seed 301 the scripts never agreed in four rounds (eleven messages, 16 cents), and the Maestro answered with a list that matches neither script, `Centro,Leste,Litoral,Norte,Sul`, after saying the rule text decided for the Auditor's script: the arbitration step in the Maestro's instructions is the weak part.
+- **The weak Maestro is still the weak link:** every team here had a good Maestro (DeepSeek). The earlier tables show what a weak one does.
+
 ## Add your own runs
 
 ```bash
@@ -122,6 +150,12 @@ node test/challenge/summary.mjs < runs.jsonl
 
 # the same task for one agent alone, no Maestro and no gates
 node test/challenge/run.mjs --baseline --record runs.jsonl --maestro 'opencode -m openrouter/anthropic/claude-haiku-5.5'
+
+# scenario C, the traps dial; the team with the program comparing two independent scripts; and the control with the same compute
+node test/challenge/run.mjs --baseline --scenario c --traps 7 --record lone.jsonl --maestro 'opencode -m openrouter/openai/gpt-oss-120b'
+node test/challenge/run.mjs --diff --scenario c --traps 7 --record team.jsonl \
+  --maestro 'opencode -m openrouter/deepseek/deepseek-v4.1-flash' --worker 'opencode -m openrouter/openai/gpt-oss-120b'
+node test/challenge/vote.mjs < lone.jsonl   # majority vote over several lone runs on the same data
 
 # the Maestro gets only the goal and builds the plan; add --state for the program's state line
 node test/challenge/run.mjs --free --scenario b --record runs.jsonl \

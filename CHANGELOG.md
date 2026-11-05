@@ -4,6 +4,12 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed
+- The events of a workspace (asks, checks, verdicts) are written to disk when they happen and not one second later, so a crash right after a failed check does not lose it and `resume` does not say that nothing is open
+
+### Added
+- Challenge scenario C (`--scenario c --traps 1..10`): the ledger with a dial of traps, key checked against an independent `Decimal` reading; the `--diff` mode (the program compares two independent scripts, the Maestro acts on a difference); `test/challenge/vote.mjs` (majority vote over lone runs, the control with the same compute); the answer of every run is kept in the record. Results and the stop rule in docs/models.md
+
 ## [0.25.0] - 2026-11-04
 
 ### Changed

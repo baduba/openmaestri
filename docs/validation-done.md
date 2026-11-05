@@ -18,7 +18,7 @@ The layer is the part of openmaestri that judges work with the program instead o
 | The orchestration resumes after a crash | Done (`resume`) |
 | Real runs show it works with cheap models | Done: 66 runs, 9 Maestros, 6 baselines ([models](models.html)) |
 | The harness can tell the team from one agent alone | Done (`--baseline`) |
-| **The team beats one agent alone on some task** | **Not shown.** On the flag task one agent is as right, faster and cheaper |
+| **The team beats one agent alone on some task** | **Answered in round 16** ([models](models.html)): it lifts a weak model (`gpt-oss-120b` from about 35% to 6 of 8, a vote over four runs does not) and does not beat a strong cheap one (DeepSeek alone: 8 of 8 even with ten traps). Development stops here: maintenance and the honest advice in the docs |
 | Dangerous commands (`rm`, `git push`) approved by something other than the weak model | Not done. A box (`sandbox`) limits the damage; the commands are not filtered |
 | Other agents (codex, goose, aider) as teammates in the challenge | Not done; no real run of those drivers |
 
