@@ -5,6 +5,7 @@ import { exec } from 'node:child_process';
 import { uid } from './store.js';
 
 const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+export const MAX_EVERY_MS = 366 * 86400000;
 
 export function parseDuration(s) {
   const m = /^(\d+)\s*(s|m|h|d)$/.exec(String(s).trim());
@@ -18,10 +19,28 @@ function parseTime(t) {
   return [+m[1], +m[2]];
 }
 
+/** How many times a routine may fire: a whole number from 1, or none. A word or a decimal used to be kept as NaN, and a count that is NaN never ends. */
+export function parseCount(v) {
+  if (v == null) return null;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 1 || n > 1e6) throw new Error(`bad --count "${v}" (a whole number from 1)`);
+  return n;
+}
+
+/** The moment after which a routine stops, as an ISO date. A date that does not parse used to be kept, and then the routine never stopped. */
+export function parseUntil(v) {
+  if (v == null || v === '') return null;
+  const t = Date.parse(String(v).replace(' ', 'T'));
+  if (Number.isNaN(t)) throw new Error(`bad --until "${v}" (YYYY-MM-DD HH:MM)`);
+  return new Date(t).toISOString();
+}
+
 export function parseSchedule(opts) {
   if (opts.every) {
     const ms = parseDuration(opts.every);
     if (ms < 10000) throw new Error('--every must be at least 10s');
+    // a year is the longest period that means anything; beyond it the next run is past the last date a Date can hold and shows as Invalid Date
+    if (ms > MAX_EVERY_MS) throw new Error('--every must be at most 366d');
     return { kind: 'every', ms };
   }
   if (opts.daily) { parseTime(opts.daily); return { kind: 'daily', time: opts.daily }; }

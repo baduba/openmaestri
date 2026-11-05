@@ -28,6 +28,7 @@ docker run --rm --network host -v "$out:/zap/wrk:rw" ghcr.io/zaproxy/zaproxy:sta
 code=$?
 echo "ZAP exit code $code (0 clean, 1 failures, 2 warnings); report: $out/zap.json"
 grep -E "^(PASS|WARN-NEW|FAIL-NEW|INFO):|FAIL-NEW|WARN-NEW" "$out/zap.log" | sed 's/\[[0-9]*\]//' | sort | uniq -c | sort -rn | head -30
-if grep -q "^FAIL-NEW" "$out/zap.log"; then fail=1; fi
+# the summary line starts with "FAIL-NEW: 0" when nothing failed, so only a count above zero is a failure
+if grep -qE "^FAIL-NEW: [1-9][0-9]*[[:space:]]+FAIL-INPROG" "$out/zap.log"; then fail=1; fi
 kill -0 "$pid" 2>/dev/null || { echo "FAIL  the daemon died during the ZAP scan"; tail -5 "$data/log"; fail=1; }
 exit $fail

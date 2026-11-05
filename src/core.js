@@ -37,7 +37,7 @@ import { History } from './history.js';
 import { tidy as tidyLayout } from './layout.js';
 import { capturePartitura, instantiatePartitura, exportPartitura, importPartitura } from './transfer.js';
 import { createFloor, removeFloor, landFloor, floorStateOf, findFloor, groundOf, floorById, repoTop, git, withLock, FloorError } from './floors.js';
-import { Scheduler, parseSchedule, describeSchedule, nextRun } from './routines.js';
+import { Scheduler, parseSchedule, parseCount, parseUntil, describeSchedule, nextRun } from './routines.js';
 
 export class CommandError extends Error {}
 const fail = (msg) => { throw new CommandError(msg); };
@@ -1048,7 +1048,7 @@ const HANDLERS = {
     const target = terminal ? this.resolve(ws, me, terminal, ['terminal']) : me;
     const r = this.scheduler.create(ws, {
       name, command, terminalId: target.id, schedule: parseSchedule({ every, daily, weekly, once }),
-      count: count != null ? Number(count) : null, until, preRun, reminder, notify: !noNotify, enabled: !disabled,
+      count: parseCount(count), until: parseUntil(until), preRun, reminder, notify: !noNotify, enabled: !disabled,
     });
     return { text: `${r.name}: ${describeSchedule(r.schedule)}` };
   },
