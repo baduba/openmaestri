@@ -5,14 +5,14 @@ import path from 'node:path';
 
 const ACCOUNTS = ['Norte', 'Sul', 'Leste', 'Oeste', 'Centro', 'Litoral'];
 
-function rng(seed) {
+export function rng(seed) {
   let s = seed >>> 0;
   return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 2 ** 32; };
 }
 
-const pad = (n) => String(n).padStart(2, '0');
+export const pad = (n) => String(n).padStart(2, '0');
 /** "1.250,50" (dots for thousands, comma for decimals) or "1250.50". */
-function formatAmount(cents, brazilian) {
+export function formatAmount(cents, brazilian) {
   const whole = Math.floor(cents / 100);
   const frac = pad(cents % 100);
   if (!brazilian) return `${whole}.${frac}`;
@@ -24,7 +24,7 @@ function formatAmount(cents, brazilian) {
 const parseAmount = (raw) => (raw.includes(',') ? Number(raw.replaceAll('.', '').replace(',', '.')) : Number(raw));
 
 /** A moment written in UTC ("...Z") or with the -03:00 offset; both mean the same instant. */
-function stamp(utcMs, local) {
+export function stamp(utcMs, local) {
   const d = new Date(local ? utcMs - 3 * 3600 * 1000 : utcMs);
   const base = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:00`;
   return local ? `${base}-03:00` : `${base}Z`;

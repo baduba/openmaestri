@@ -114,3 +114,24 @@ VERDICT: APPROVED
 FLAGGED: Name1,Name2
 ROUNDS: <how many times you ran flag.py>
 If you cannot get a result you trust, say VERDICT: FAILED and why.`;
+
+/**
+ * The program decides, two independent implementations are compared: the Auditor writes verify.py from the rules alone (it never sees the
+ * Dev's code), the Dev writes flag.py, and the Maestro runs a diff of their outputs. Only when they differ does the Maestro act.
+ */
+export const CHALLENGE_DIFF = (dir) => `CHALLENGE. Work folder: ${dir}. It has data/sales.csv and data/rules.md.
+Goal: find which names (regions or accounts, as the data calls them) are flagged by the rules, with a script proven right by a second, independent script.
+
+How you must work:
+1. Do NOT read sales.csv and do NOT compute anything yourself. Use only openmaestri commands and your shell for the diff in step 4. Do NOT use your own built-in sub-agent, task or explore tools: the teammates must be real openmaestri terminals that the human can see. Use the preset named Worker for both teammates.
+2. Recruit a teammate named Auditor. Tell it to read data/rules.md and write verify.py in ${dir}: it reads data/sales.csv, applies the rules and prints the flagged names, one per line, sorted. Tell it not to look at flag.py and not to talk to Dev. Add --check "cd ${dir} && python3 verify.py".
+3. Recruit a teammate named Dev. Tell it to read data/rules.md and data/sales.csv itself (do not summarize the rules for it) and write flag.py in ${dir} with the same output. Do not show it verify.py. Add --check "cd ${dir} && python3 flag.py".
+4. The program decides, not a teammate. Run in ${dir}: diff <(python3 flag.py) <(python3 verify.py) && echo SAME
+   If it prints SAME, the two independent scripts agree: answer the human (step 6).
+5. If they differ, the diff lines are facts. Send the diff to each teammate separately, exactly as printed (do not retell it), and ask it to re-read data/rules.md, quote the rule line that explains the first differing name, and fix its own script if it was wrong. Then run the diff again. At most 4 rounds. If the scripts still differ, ask each teammate to quote the rule line it relies on and decide by the rule text.
+6. Answer the human with openmaestri say, in exactly this shape:
+VERDICT: APPROVED
+FLAGGED: Name1,Name2
+ROUNDS: <how many times you ran the diff>
+If you cannot get the scripts to agree, say VERDICT: FAILED and why.
+Rules for every message: never put sales figures or the answer in a message to a teammate. Read the reply in the output of ask; do not send the same message again because the reply looked short or messy.`;

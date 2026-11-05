@@ -357,3 +357,16 @@ test('ask: the state line closes the answer only when the person turned it on', 
   const plain = await ask({ name: 'Dev', prompt: 'just say hello to me now' });
   assert.match(plain.text, /\[openmaestri state\] Dev: 3 messages/);
 });
+
+test('an event is on disk the moment it is recorded, so a crash right after a failed check does not lose it', async (t) => {
+  const { core, ws } = await setup(t, { Dev: 'echo ok' });
+  core.noteEvent(ws, { kind: 'check', to: 'Dev', ok: false, note: 'python3 flag.py exit 1' });
+  const file = path.join(core.store.wsDir(ws.id), 'events.json');
+  const onDisk = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.equal(onDisk.at(-1).kind, 'check');
+  assert.equal(onDisk.at(-1).ok, false);
+  // what a restarted daemon would read says the failed check is still open
+  core.events.delete(ws.id);
+  const open = (await import('../src/gate.js')).unresolvedChecks(core.eventsFor(ws.id));
+  assert.equal(open.length, 1);
+});

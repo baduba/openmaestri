@@ -2006,9 +2006,8 @@ Core.prototype.noteEvent = function (ws, e) {
   this.events.set(ws.id, list.slice(-500));
   this.eventsDirty ??= new Set();
   this.eventsDirty.add(ws.id);
-  clearTimeout(this.eventsTimer);
-  this.eventsTimer = setTimeout(() => this.saveEvents(), 1000);
-  this.eventsTimer.unref?.();
+  // written at once, not after a delay: a crash (kill -9) must not lose the last check or verdict, or `resume` says nothing is open when something is
+  this.saveEvents();
 };
 
 const eventsFile = (core, wsId) => path.join(core.store.wsDir(wsId), 'events.json');

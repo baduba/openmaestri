@@ -168,3 +168,108 @@ test('challenge: a Maestro given only the goal is judged by the answer, the scri
   assert.equal(line.mode, 'team-free+state');
   assert.match(summarize([line]), /Maestro plans alone, state line/);
 });
+
+// the reference reads the rules file by itself (which rules are in it decides what it does), with Decimal and no float
+const REFERENCE_C = `
+import csv, datetime as dt, collections, re
+from decimal import Decimal, ROUND_HALF_EVEN
+rows = list(csv.DictReader(open('data/sales.csv')))
+assert all(len(r) == 7 and None not in r for r in rows), 'a row did not parse into 7 columns'
+rules = open('data/rules.md').read()
+lim = int(re.search(r'revenue is greater than (\\d+)', rules).group(1))
+pct = int(re.search(r'more than (\\d+)%', rules).group(1))
+has = lambda w: w in rules
+def cents(a):
+    a = a.replace('.', '').replace(',', '.') if ',' in a else a
+    return int((Decimal(a) * 100).to_integral_value())
+def brl(r):
+    c = cents(r['amount'])
+    if r['currency'] == 'USD' and has('5.10 per dollar'):
+        c = int((Decimal(c) * Decimal('5.10')).quantize(Decimal(1), rounding=ROUND_HALF_EVEN))
+    return c
+cb = {r['ref'] for r in rows if r['status'] == 'CHARGEBACK'} if has('A chargeback') else set()
+refund = collections.Counter()
+if has('A refund'):
+    for r in rows:
+        if r['status'] == 'REFUND': refund[r['ref']] += brl(r)
+tz = dt.timezone(dt.timedelta(hours=-3))
+def half(c):
+    return int((Decimal(c) / 2).quantize(Decimal(1), rounding=ROUND_HALF_EVEN))
+vip = set(re.findall(r'accounts (\\w+) and (\\w+) are VIP', rules)[0]) if has('VIP') else set()
+seen, sales, chg, rev = set(), collections.Counter(), collections.Counter(), collections.Counter()
+for r in rows:
+    if r['status'] != 'SALE': continue
+    if has('first one with that id') and r['txn_id'] in seen: continue
+    seen.add(r['txn_id']); a = r['account']; sales[a] += 1
+    if r['txn_id'] in cb: chg[a] += 1; continue
+    if has('08:00'):
+        t = dt.datetime.fromisoformat(r['ts'].replace('Z', '+00:00')).astimezone(tz)
+        if not (8 <= t.hour < 18): continue
+    c = brl(r)
+    c = c - min(refund[r['txn_id']], c)
+    if has('Saturday'):
+        t = dt.datetime.fromisoformat(r['ts'].replace('Z', '+00:00')).astimezone(tz)
+        if t.weekday() >= 5: c = half(c)
+    if has('3,000.00'): c = min(c, 300000)
+    if has('under BRL 20.00') and c < 2000: c = 0
+    rev[a] += c
+def limit(a): return int((Decimal(lim) * Decimal('1.5')).quantize(Decimal(1), rounding=ROUND_HALF_UP)) if a in vip else lim
+from decimal import ROUND_HALF_UP
+print('\\n'.join(sorted(a for a in sales if Decimal(rev[a]) / 100 > limit(a) or chg[a] / sales[a] * 100 > pct)))
+`;
+for (const [traps, seed] of [[3, 21], [5, 21], [7, 21], [7, 101], [8, 21], [9, 101], [10, 21], [10, 101], [10, 201]]) test(`challenge scenario C (${traps} traps, seed ${seed}): the key agrees with an independent reading of the file`, async () => {
+  const { buildScenarioC, writeScenarioC, buggyFlagScriptC } = await import('./challenge/scenario3.mjs');
+  const sc = buildScenarioC(seed, { traps });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-c-'));
+  writeScenarioC(dir, sc);
+  const ref = spawnSync('python3', ['-c', REFERENCE_C], { cwd: dir, encoding: 'utf8' });
+  assert.equal(ref.status, 0, ref.stderr);
+  assert.deepEqual(ref.stdout.split('\n').filter(Boolean), sc.flagged, 'the key and the independent reading disagree');
+  assert.ok(sc.flagged.length >= 2 && sc.flagged.length <= 3);
+  assert.equal((fs.readFileSync(path.join(dir, 'data', 'rules.md'), 'utf8').match(/^\d+\. /gm) ?? []).length, traps, 'one rule line per trap');
+  fs.writeFileSync(path.join(dir, 'flag.py'), buggyFlagScriptC(sc.limits));
+  const bug = spawnSync('python3', ['flag.py'], { cwd: dir, encoding: 'utf8' });
+  assert.equal(bug.status, 0, bug.stderr);
+  assert.notDeepEqual(bug.stdout.split('\n').filter(Boolean), sc.flagged);
+});
+
+test('scenario C: half to even on the dollar conversion, and the fewer the traps the fewer the kinds of rows', async () => {
+  const { usdToBrl, buildScenarioC } = await import('./challenge/scenario3.mjs');
+  assert.equal(usdToBrl(100), 510);
+  assert.equal(usdToBrl(5), 26, '5 cents of USD is 25.5 cents of BRL: an exact half goes to the even cent, 26');
+  assert.equal(usdToBrl(15), 76, '15 cents of USD is 76.5 cents of BRL: the even cent is 76');
+  assert.equal(usdToBrl(25), 128, '127.5 goes to 128');
+  assert.equal(buildScenarioC(21, { traps: 1 }).rows.some((r) => r.status !== 'SALE' || r.currency !== 'BRL'), false, 'one trap: only plain sales');
+  assert.equal(buildScenarioC(21, { traps: 5 }).rows.some((r) => r.status === 'REFUND'), false, 'no refunds before the sixth trap');
+});
+
+test('challenge: scenario C records the traps, the diff mode has its own label, and a run that opened the challenge files is not right', async () => {
+  const { recordLine, freeChecks, isCorrect } = await import('./challenge/run.mjs');
+  const { summarize } = await import('./challenge/summary.mjs');
+  const args = { final: 'VERDICT: APPROVED\nFLAGGED: A,B', answered: ['A', 'B'], scriptOut: ['A', 'B'], key: ['A', 'B'] };
+  const checks = freeChecks({ ...args, asked: 4 });
+  const model = 'opencode -m openrouter/a/big';
+  const base = { outcome: 'answered', passed: true, correct: true, seconds: 200, roundTrips: 4, repeated: 0, leaked: 0, gated: 0, gatesFailed: 0, verdicts: [], checks, cost: 0.03, scenario: 'c', traps: 6, answered: ['A', 'B'] };
+  const diffLine = recordLine({ ...base, diff: true }, { maestro: model, worker: model, seed: 21 });
+  assert.equal(diffLine.mode, 'team-diff');
+  assert.equal(diffLine.traps, 6);
+  assert.deepEqual(diffLine.answered, ['A', 'B'], 'the answer of every run is kept, so a vote over several lone runs can be computed later');
+  const solo = recordLine({ ...base, baseline: true }, { maestro: model, worker: model, seed: 21 });
+  const table = summarize([diffLine, solo]);
+  assert.match(table, /C6: .*two scripts compared by the program/);
+  assert.match(table, /C6: alone, no gates/);
+  assert.equal(isCorrect(freeChecks({ ...args, asked: 4, peeked: true })), false, 'an agent that opened the challenge files did not solve it');
+});
+
+test('challenge: a vote over lone runs on the same data is the control for the team, and a tie is not an answer', async () => {
+  const { voteTable } = await import('./challenge/vote.mjs');
+  const { buildScenarioC } = await import('./challenge/scenario3.mjs');
+  const key = buildScenarioC(21, { traps: 5 }).flagged;
+  const wrong = key.slice(1);
+  const run = (answered, correct) => ({ mode: 'solo', maestro: 'm', scenario: 'c', traps: 5, seed: 21, answered, correct });
+  const table = voteTable([run(key, true), run(wrong, false), run(key, true), run(wrong, false), run(key, true)]);
+  assert.match(table, /\| m \| C \(5 traps\) \| 1 \| 5 \| 3 of 5 \| 1 of 1 \|/, 'three of five agree on the key: the vote is right');
+  const tied = voteTable([run(key, true), run(wrong, false), run(wrong, false), run(key, true)]);
+  assert.match(tied, /\| 2 of 4 \| 0 of 1 \|/, 'two against two is a tie, so no answer');
+  assert.doesNotMatch(voteTable([run(key, true), run(key, true)]), /\| m \|/, 'fewer than three runs make no vote');
+});
