@@ -39,7 +39,8 @@ export function voteTable(lines, minVotes = 3) {
     rows.set(rowKey, row);
   }
   const head = '| Lone agent | Task | Data sets | Runs | One run right | Majority vote right |\n|---|---|---|---|---|---|';
-  const body = [...rows.values()].map((r) => `| ${r.model} | ${r.scenario.toUpperCase()}${r.traps ? ` (${r.traps} traps)` : ''} | ${r.seeds} | ${r.runs} | ${r.single} of ${r.runs} | ${r.voted} of ${r.seeds} |`);
+  const task = (r) => (r.traps ? `${r.scenario.toUpperCase()} (${r.traps} traps)` : r.scenario.toUpperCase());
+  const body = [...rows.values()].map((r) => `| ${r.model} | ${task(r)} | ${r.seeds} | ${r.runs} | ${r.single} of ${r.runs} | ${r.voted} of ${r.seeds} |`);
   return `${head}\n${body.join('\n')}`;
 }
 

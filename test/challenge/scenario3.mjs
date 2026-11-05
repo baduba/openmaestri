@@ -1,4 +1,4 @@
-// Scenario C of the orchestration challenge: the ledger of scenario B with a dial. `traps` (1 to 7) says how many rules have a
+// Scenario C of the orchestration challenge: the ledger of scenario B with a dial. `traps` (1 to 10) says how many rules have a
 // trap in them, so the difficulty for one agent alone can be set until it fails often. Same contract as the other scenarios
 // (flag.py prints the flagged names, one per line, sorted), so the harness, the checks and the summary work unchanged.
 // The traps, in the order they are switched on:
@@ -11,27 +11,13 @@
 //   10 a sale that ends up under BRL 20.00 counts for nothing (the order is: refund, weekend, cap, small)
 import fs from 'node:fs';
 import path from 'node:path';
+import { rng, formatAmount, stamp } from './scenario2.mjs';
 
 export const ACCOUNTS = ['Norte', 'Sul', 'Leste', 'Oeste', 'Centro', 'Litoral'];
 export const TRAPS = 10;
 const VIP = ['Leste', 'Litoral'];
 const USD_RATE_TENTHS = 51; // 5.10 BRL per USD, kept as an integer (tenths) so there is no float anywhere
 
-function rng(seed) {
-  let s = seed >>> 0;
-  return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 2 ** 32; };
-}
-
-const pad = (n) => String(n).padStart(2, '0');
-function formatAmount(cents, brazilian) {
-  const whole = Math.floor(cents / 100);
-  const frac = pad(cents % 100);
-  if (!brazilian) return `${whole}.${frac}`;
-  const digits = String(whole);
-  let grouped = '';
-  for (let i = 0; i < digits.length; i++) grouped += ((digits.length - i) % 3 === 0 && i > 0 ? '.' : '') + digits[i];
-  return `${grouped},${frac}`;
-}
 /** "1.250,50" or "1250.50" to cents. Without the first trap every amount is written the plain way. */
 const parseCents = (raw) => {
   const plain = raw.includes(',') ? raw.replaceAll('.', '').replace(',', '.') : raw;
@@ -52,12 +38,6 @@ export function usdToBrl(cents) {
   if (r > 5 || (r === 5 && q % 2 === 1)) q += 1;
   return q;
 }
-function stamp(utcMs, local) {
-  const d = new Date(local ? utcMs - 3 * 3600 * 1000 : utcMs);
-  const base = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:00`;
-  return local ? `${base}-03:00` : `${base}Z`;
-}
-
 /** The rule in numbers. `traps` is how many traps are on (the first ones), or a function n => boolean to switch single traps on and off. */
 export function evaluateC(rows, { revenue, chargebackPct }, traps = TRAPS) {
   const on = typeof traps === 'function' ? traps : (n) => traps >= n;
