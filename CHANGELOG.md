@@ -4,6 +4,8 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.25.1] - 2026-11-05
+
 ### Fixed
 - The events of a workspace (asks, checks, verdicts) are written to disk when they happen and not one second later, so a crash right after a failed check does not lose it and `resume` does not say that nothing is open
 
