@@ -7,11 +7,13 @@
 //   5 USD rows are converted at a fixed rate and rounded half to even, row by row
 //   6 a refund takes part of a sale back (in the currency of the sale, converted and rounded the same way)
 //   7 VIP accounts have a revenue limit one and a half times higher
+//   8 a sale made on a Saturday or Sunday (at UTC-3) counts half, rounded half to even   9 no single sale counts for more than BRL 3,000.00
+//   10 a sale that ends up under BRL 20.00 counts for nothing (the order is: refund, weekend, cap, small)
 import fs from 'node:fs';
 import path from 'node:path';
 
 export const ACCOUNTS = ['Norte', 'Sul', 'Leste', 'Oeste', 'Centro', 'Litoral'];
-export const TRAPS = 7;
+export const TRAPS = 10;
 const VIP = ['Leste', 'Litoral'];
 const USD_RATE_TENTHS = 51; // 5.10 BRL per USD, kept as an integer (tenths) so there is no float anywhere
 
@@ -36,6 +38,12 @@ const parseCents = (raw) => {
   const [w, f = '0'] = plain.split('.');
   return Number(w) * 100 + Number(f.padEnd(2, '0').slice(0, 2));
 };
+/** n divided by d, rounded half to even (integers). */
+export function halfEven(n, d) {
+  const q = Math.floor(n / d);
+  const r2 = (n - q * d) * 2;
+  return r2 > d || (r2 === d && q % 2 === 1) ? q + 1 : q;
+}
 /** Cents of USD to cents of BRL at 5.10, half to even. */
 export function usdToBrl(cents) {
   const n = cents * USD_RATE_TENTHS;
@@ -72,7 +80,11 @@ export function evaluateC(rows, { revenue, chargebackPct }, traps = TRAPS) {
     const base = parseCents(r.amount);
     const brl = r.currency === 'USD' && on(5) ? usdToBrl(base) : base;
     const back = on(6) ? Math.min(refunds.get(r.txn_id) ?? 0, brl) : 0;
-    s.revenue += brl - back;
+    let net = brl - back;
+    if (on(8)) { const day = new Date(Date.parse(r.ts) - 3 * 3600 * 1000).getUTCDay(); if (day === 0 || day === 6) net = halfEven(net, 2); }
+    if (on(9)) net = Math.min(net, 300000);
+    if (on(10) && net < 2000) net = 0;
+    s.revenue += net;
   }
   const limitOf = (a) => (on(7) && VIP.includes(a) ? Math.round(revenue * 1.5) : revenue);
   const flagged = ACCOUNTS.filter((a) => stats[a].revenue / 100 > limitOf(a) || (stats[a].sales && (stats[a].chargedBack / stats[a].sales) * 100 > chargebackPct)).sort((a, b) => a.localeCompare(b));
@@ -89,8 +101,9 @@ export function buildScenarioC(seed = 21, { traps = 5 } = {}) {
     for (let i = 1; i <= 320; i++) {
       const utcMs = day0 + Math.floor(rand() * 7) * 86400000 + Math.floor(rand() * 24) * 3600000 + Math.floor(rand() * 4) * 15 * 60000;
       const usd = T >= 5 && rand() < 0.3;
-      const cents = usd ? (30 + Math.floor(rand() * 900)) * 100 + Math.floor(rand() * 100) : (200 + Math.floor(rand() * 4800)) * 100 + Math.floor(rand() * 100);
-      const row = { txn_id: `T-${String(i).padStart(4, '0')}`, account: ACCOUNTS[Math.floor(rand() * ACCOUNTS.length)], ts: stamp(utcMs, T >= 2 && rand() < 0.5), amount: formatAmount(cents, rand() < 0.4), currency: usd ? 'USD' : 'BRL', status: 'SALE', ref: '' };
+      const tiny = T >= 10 && rand() < 0.1;
+      const cents = tiny ? (3 + Math.floor(rand() * 12)) * 100 + Math.floor(rand() * 100) : usd ? (30 + Math.floor(rand() * 900)) * 100 + Math.floor(rand() * 100) : (200 + Math.floor(rand() * 4800)) * 100 + Math.floor(rand() * 100);
+      const row = { txn_id: `T-${String(i).padStart(4, '0')}`, account: ACCOUNTS[Math.floor(rand() * ACCOUNTS.length)], ts: stamp(utcMs, T >= 2 && rand() < 0.5), amount: formatAmount(cents, rand() < 0.4), currency: usd && !tiny ? 'USD' : 'BRL', status: 'SALE', ref: '' };
       rows.push(row);
       sales.push({ row, utcMs, cents });
     }
@@ -125,6 +138,9 @@ const RULE_TEXT = {
   5: 'Rows with `currency` USD are converted to BRL at 5.10 per dollar and the result is rounded to the cent, half to even (an exact half goes to the even cent), row by row, before anything is added.',
   6: 'A refund (`status` REFUND) takes back part of the sale named in its `ref`: its amount is converted and rounded like a sale (rule on USD rows) and subtracted from that sale, never below zero. The refund row is not a sale itself.',
   7: `The accounts ${VIP.join(' and ')} are VIP: their revenue limit is one and a half times the limit below (rounded to a whole number).`,
+  8: 'A sale made on a Saturday or a Sunday (the day at UTC-3, after the conversion to BRL and after any refund) counts for half of its value, rounded half to even to the cent.',
+  9: 'No single sale counts for more than BRL 3,000.00 (applied after the refund and after the weekend rule).',
+  10: 'A sale whose value, after all the rules above, is under BRL 20.00 counts for nothing. The order of the value of a sale is: convert to BRL, take the refund off, apply the weekend rule, apply the BRL 3,000.00 cap, then drop it if it is under BRL 20.00.',
 };
 
 export function writeScenarioC(dir, sc) {

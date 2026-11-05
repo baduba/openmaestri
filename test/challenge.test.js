@@ -193,6 +193,8 @@ if has('A refund'):
     for r in rows:
         if r['status'] == 'REFUND': refund[r['ref']] += brl(r)
 tz = dt.timezone(dt.timedelta(hours=-3))
+def half(c):
+    return int((Decimal(c) / 2).quantize(Decimal(1), rounding=ROUND_HALF_EVEN))
 vip = set(re.findall(r'accounts (\\w+) and (\\w+) are VIP', rules)[0]) if has('VIP') else set()
 seen, sales, chg, rev = set(), collections.Counter(), collections.Counter(), collections.Counter()
 for r in rows:
@@ -204,12 +206,18 @@ for r in rows:
         t = dt.datetime.fromisoformat(r['ts'].replace('Z', '+00:00')).astimezone(tz)
         if not (8 <= t.hour < 18): continue
     c = brl(r)
-    rev[a] += c - min(refund[r['txn_id']], c)
+    c = c - min(refund[r['txn_id']], c)
+    if has('Saturday'):
+        t = dt.datetime.fromisoformat(r['ts'].replace('Z', '+00:00')).astimezone(tz)
+        if t.weekday() >= 5: c = half(c)
+    if has('3,000.00'): c = min(c, 300000)
+    if has('under BRL 20.00') and c < 2000: c = 0
+    rev[a] += c
 def limit(a): return int((Decimal(lim) * Decimal('1.5')).quantize(Decimal(1), rounding=ROUND_HALF_UP)) if a in vip else lim
 from decimal import ROUND_HALF_UP
 print('\\n'.join(sorted(a for a in sales if Decimal(rev[a]) / 100 > limit(a) or chg[a] / sales[a] * 100 > pct)))
 `;
-for (const [traps, seed] of [[3, 21], [5, 21], [5, 101], [7, 21], [7, 101]]) test(`challenge scenario C (${traps} traps, seed ${seed}): the key agrees with an independent reading of the file`, async () => {
+for (const [traps, seed] of [[3, 21], [5, 21], [7, 21], [7, 101], [8, 21], [9, 101], [10, 21], [10, 101], [10, 201]]) test(`challenge scenario C (${traps} traps, seed ${seed}): the key agrees with an independent reading of the file`, async () => {
   const { buildScenarioC, writeScenarioC, buggyFlagScriptC } = await import('./challenge/scenario3.mjs');
   const sc = buildScenarioC(seed, { traps });
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-c-'));
