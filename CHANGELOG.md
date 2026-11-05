@@ -8,6 +8,8 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 - The CI and Security GitHub workflows are disabled to save runner minutes. `scripts/check.sh` runs the same checks locally (syntax, lint, tests, SAST, `.deb` build and smoke test, DAST, Node 22 and 24 matrix, release check). See `docs/local-ci.md`.
 
 ### Added
+- The state line: with `OPENMAESTRI_STATE_LINE=1` every `ask` ends with one line the program writes (messages, last check and verdict per teammate, what is open). Off by default (docs/validation.md)
+- Challenge: `--free` (the Maestro gets only the goal and builds the plan), `--state`, a guard that an agent which opens the challenge's own files is not counted as right. Results for three other workers, for the Maestro planning alone and for the state line in docs/models.md
 - `ask "Agent" "prompt" --relay "Other"`: the program attaches Other's last reply word for word, so a reviewer's rejection reaches the Dev as written and not retold by the Maestro
 - A failed check names the folder it ran in
 - The Maestro's instructions say to send sources (paths, the human's words) and not summaries: in the new ledger task a summary of the rules lost details and the team did worse than a lone agent

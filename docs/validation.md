@@ -91,6 +91,10 @@ The program cannot see the API calls an agent makes, but a full-screen agent pri
 
 A check is a fact (the command exited 0) and a verdict is an opinion. When a reviewer answers `REJECTED` right after the last check passed, the reply to the Maestro ends with a line saying so and asking it to run something that shows whether the reviewer's claim is true before it sends the Dev back to redo work that passed. The reviewer may still be right (a check can be incomplete), so nothing is overruled: the Maestro is only told, once, that the two disagree. The `report` lists it as a `conflict`.
 
+## The state line
+
+A Maestro that loses the thread (a weak model, a long session) has to rebuild from memory what was asked, checked and rejected. With `OPENMAESTRI_STATE_LINE=1` in the environment of the daemon, every `ask` ends with one line the program writes from its own events: per teammate the messages sent, the last check and the last verdict, then what is still open. It is facts only, no advice. It is off by default: in the one comparison made (`gpt-oss-120b` as Maestro, 7 of 8 right with the line and 5 of 8 without, see models.md) the difference is inside the noise.
+
 ## Where teammates run
 
 ```bash
