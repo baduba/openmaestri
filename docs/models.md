@@ -78,6 +78,41 @@ Haiku 5.5 alone got 5 of 5 on seed 11. The Qwen team has 8 runs, not 10: the las
 - **Relaying the reviewer's words did not fix scenario A.** With `--relay` the three Maestros that fail most (gpt-oss, Qwen, gpt-5.6-luna) passed 9 of 15 runs, against 6 of 15 before, short of the 11 asked for. luna went 5 of 5; the other two did not move.
 - **What this does not show.** Ten runs per cell on two data sets, one task of one kind, one worker model. The Qwen and gpt-oss differences are large enough to take seriously (Qwen 1 of 10 against 6 of 8, gpt-oss 7 of 10 against 3 of 10); the rest could be noise.
 
+## Other workers, a Maestro with only the goal, and the state line (round 15)
+
+Three questions asked after scenario B, answered with 30 real runs plus 8 controls (scenario B, seeds 11 and 13, a bug planted in the Dev's first script, "right" means the answer and the `flag.py` are both right).
+
+**Does the team work with a worker other than `gpt-oss-120b`?** Maestro DeepSeek V4.1 Flash, the Dev reads the files, `--relay`, four runs per worker:
+
+| Worker | Right | Median cost per pass |
+|---|---|---|
+| DeepSeek V4.1 Flash | 4 of 4 | $0.03 |
+| Kimi K2.7 Code | 3 of 4 | $0.12 |
+| GLM 5.3 Flash | 3 of 4 | $0.03 |
+| `gpt-oss-120b` (the earlier table) | 10 of 10 | |
+
+Yes. Neither miss was the team's coordination: one Kimi run stopped at an OpenCode permission question (the Maestro tried to write into `/usr/local/bin`) before any message to a teammate, and one GLM script was wrong. Kimi as a worker costs four times as much as the others for the same result.
+
+**Can the Maestro build the plan itself?** The task is the goal only (`--free`): no steps, no roles, no gates, and the Maestro may read the files. The worker is `gpt-oss-120b`.
+
+| Maestro | Right | Messages to teammates |
+|---|---|---|
+| DeepSeek V4.1 Flash | 4 of 4 | 3 to 6 |
+| Haiku 5.5 | 2 of 2 | 2 to 4 |
+| Kimi K2.7 Code | 1 of 2 | 3 in the right run; the other worked alone, asked no teammate, and its answer never reached the human |
+| `gpt-oss-120b` | 0 of 2 | one wrong script, one answer that never reached the human |
+
+The two good Maestros recruited a reviewer and a Dev, asked for an independent check and got it right without being told how. The weak one still cannot. Eight runs is small, so read it as "it can", not as "it always does". The harness first let a Maestro wander out of the work folder and open the challenge's own files; the prompt now forbids it and a run that does so is not counted as right.
+
+**Does a line written by the program help a weak Maestro?** With `OPENMAESTRI_STATE_LINE=1` every `ask` ends with one line the program writes from what it saw, for example `[openmaestri state] Dev: 2 messages, last check PASSED (python3 flag.py exit 0). Auditor: 1 message, last verdict REJECTED. Open: nothing.` `gpt-oss-120b` as Maestro of `gpt-oss-120b`, same code, same machine, same seeds:
+
+| | Right | Passed (all 12 checks) | Seconds | Messages |
+|---|---|---|---|---|
+| Without the line | 5 of 8 | 2 of 8 | 434 | 7.0 |
+| With the line | 7 of 8 | 4 of 8 | 277 | 6.8 |
+
+The direction is the one hoped for, but two runs of difference out of eight is inside the noise, so the line stays off by default. The 3 of 10 in the table above was measured with older code; the 5 of 8 of the control shows that the instructions and notes added since then, or luck, already moved this model. The verdict that kimi's plan asked to be "structured by the program" already was: the reviewer must end with `VERDICT: APPROVED or REJECTED - reason` and the program parses it, sends back once what does not parse and fails closed.
+
 ## Add your own runs
 
 ```bash
@@ -87,6 +122,10 @@ node test/challenge/summary.mjs < runs.jsonl
 
 # the same task for one agent alone, no Maestro and no gates
 node test/challenge/run.mjs --baseline --record runs.jsonl --maestro 'opencode -m openrouter/anthropic/claude-haiku-5.5'
+
+# the Maestro gets only the goal and builds the plan; add --state for the program's state line
+node test/challenge/run.mjs --free --scenario b --record runs.jsonl \
+  --maestro 'opencode -m openrouter/anthropic/claude-haiku-5.5' --worker 'opencode -m openrouter/openai/gpt-oss-120b'
 
 # scenario B (the ledger with traps), team with the Dev reading the files and --relay for the reviewer's words
 node test/challenge/run.mjs --inject --relay --dev-reads --scenario b --record runs.jsonl \

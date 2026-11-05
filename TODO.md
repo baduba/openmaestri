@@ -45,6 +45,8 @@ Legenda: [x] feito · [ ] pendente
 - [x] Árvore de arquivos e editor no canvas (v0.9.0) · [x] lista de PRs e floors a partir de PR (gh/glab, v0.14.0) · [x] snapshots e rollback de floor (v0.15.0) · [x] hooks de floor (v0.18.0)
 - [x] Chaves nomeadas com chaveiro (secret://, v0.10.0) · [x] contas por agente e por preset (v0.17.0) · [x] Electron (v0.20.0) · [x] arrastar e soltar arquivos no chat (v0.18.0)
 
+- [x] Rodada 15: três outros trabalhadores (Kimi 3/4, GLM 3/4, DeepSeek 4/4), Maestro montando o plano sozinho (DeepSeek 4/4, Haiku 2/2, Kimi 1/2, gpt-oss 0/2), linha de estado do programa (gpt-oss 7/8 com, 5/8 sem; dentro do ruído, fica desligada). Pendente: mais rodadas da linha de estado antes de ligar por padrão; Laya/decisões tipadas só depois
+
 ## F. Fase 1 de paridade (feito em feature/canvas-parity)
 - [x] Fichários (stacks), bands, partituras, desfazer/refazer, tidy, snap, paleta Ctrl+K, exportar/importar workspace
 - [x] Fase 2: floors com git worktree, landing, hooks, snapshots; revisão de PRs (v0.18.0)

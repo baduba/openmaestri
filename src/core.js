@@ -25,7 +25,7 @@ import { takeSnapshot, listSnapshots, rollback as rollbackFloor, dropSnapshots }
 import { ForgeError, detectProvider, normalizeProvider, providerInfo, listChanges, formatChanges } from './forge.js';
 import { newScreenText, looksBusy } from './screen.js';
 import { screenCost, budgetLimit, budgetState, spendText, money } from './budget.js';
-import { AskLog, unresolvedChecks, unverifiedNotice, resumeText, MAX_RETRIES, DEFAULT_RETRIES, REPEAT_WARN, REPEAT_STOP, VERDICT_FORMAT, parseVerdict, correction, clipLog, repeatNotice, conflictNotice, relayPrompt, reportText as eventsReport } from './gate.js';
+import { AskLog, unresolvedChecks, unverifiedNotice, resumeText, MAX_RETRIES, DEFAULT_RETRIES, REPEAT_WARN, REPEAT_STOP, VERDICT_FORMAT, parseVerdict, correction, clipLog, repeatNotice, conflictNotice, relayPrompt, stateLine, reportText as eventsReport } from './gate.js';
 import { MAX_AGENTS, parseAgents, planText, reportText } from './taskrun.js';
 import { Usage, UsageError } from './usage.js';
 import { readUserEnv, TerminalError, commandAvailable, commandPath } from './terminals.js';
@@ -397,7 +397,7 @@ const HANDLERS = {
     if (warn) this.noteEvent(ws, { kind: 'loop', to: target.name, ok: false, note: `${repeats + 1}th similar message` });
     if (!gated) {
       const r = await this.askOnce(ws, target, { prompt, timeoutMs, quietMs });
-      return { text: `${warn}${r.output || '(no output)'}`, data: { name: target.name, state: r.state, output: r.output } };
+      return { text: `${warn}${r.output || '(no output)'}${this.stateTail(ws)}`, data: { name: target.name, state: r.state, output: r.output } };
     }
     const limit = Math.min(Math.max(Math.trunc(Number(retries ?? DEFAULT_RETRIES)) || 0, 0), MAX_RETRIES);
     let g = await this.gateAsk(ws, target, { prompt, timeoutMs, quietMs, check, verdict: !!verdict, retries: limit });
@@ -412,7 +412,7 @@ const HANDLERS = {
       : `[gate] FAILED after ${g.attempts} attempt${g.attempts === 1 ? '' : 's'}${handedTo ? ` (also tried ${handedTo})` : ''}: ${g.why}`;
     const conflict = g.ok ? conflictNotice(this.eventsFor(ws.id), g.verdict) : '';
     if (conflict) this.noteEvent(ws, { kind: 'conflict', to: target.name, ok: false, note: 'REJECTED after a check that passed' });
-    return { text: `${warn}${head}\n${g.output || '(no output)'}${conflict ? `\n${conflict}` : ''}`, data: { name: handedTo ?? target.name, state: g.state, output: g.output, gate: { ok: g.ok, attempts: g.attempts, why: g.why, verdict: g.verdict ?? null, handedTo } } };
+    return { text: `${warn}${head}\n${g.output || '(no output)'}${conflict ? `\n${conflict}` : ''}${this.stateTail(ws)}`, data: { name: handedTo ?? target.name, state: g.state, output: g.output, gate: { ok: g.ok, attempts: g.attempts, why: g.why, verdict: g.verdict ?? null, handedTo } } };
   },
 
   /** A one-shot run of any agent CLI in its non-interactive mode: no terminal, the answer comes back as text. */
@@ -1990,6 +1990,13 @@ Core.prototype.checkBudget = function () {
       for (const ac of this.headless) if (ac.workspaceId === ws.id) ac.abort(); // one-shot agents too
     }
   }
+};
+
+/** The state line that closes an ask, when the person turned it on (OPENMAESTRI_STATE_LINE=1): the program's own account of where the work stands. */
+Core.prototype.stateTail = function (ws) {
+  if (process.env.OPENMAESTRI_STATE_LINE !== '1') return '';
+  const line = stateLine(this.eventsFor(ws.id));
+  return line ? `\n${line}` : '';
 };
 
 /** What happened in a workspace, in order, for `report`. Kept in memory, newest 500, and the audit log has the commands. */

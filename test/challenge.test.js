@@ -149,3 +149,22 @@ test('challenge: a final answer with a literal backslash-n instead of a line bre
   assert.deepEqual(answeredNames('VERDICT: APPROVED\\nFLAGGED: Leste,Oeste,Sul\\nROUNDS: 1'), ['Leste', 'Oeste', 'Sul'], 'a literal \\n ends the line');
   assert.deepEqual(answeredNames('VERDICT: FAILED'), []);
 });
+
+test('challenge: a Maestro given only the goal is judged by the answer, the script and having used a team', async () => {
+  const { freeChecks, isCorrect, recordLine } = await import('./challenge/run.mjs');
+  const { summarize } = await import('./challenge/summary.mjs');
+  const args = { final: 'VERDICT: APPROVED\nFLAGGED: A,B', answered: ['A', 'B'], scriptOut: ['A', 'B'], key: ['A', 'B'] };
+  const team = freeChecks({ ...args, asked: 4 });
+  assert.equal(isCorrect(team), true);
+  assert.equal(team['a teammate was recruited and asked'], true);
+  const alone = freeChecks({ ...args, asked: 0 });
+  assert.equal(isCorrect(alone), true, 'right is right');
+  assert.equal(alone['a teammate was recruited and asked'], false, 'but it did not use a team, and the run says so');
+  assert.equal(freeChecks({ ...args, asked: 3, peeked: true })['nobody opened the challenge files'], false);
+  const { PEEKED } = await import('./challenge/run.mjs');
+  assert.ok(PEEKED.test('Read ~/openmaestri/test/challenge/scenario2.mjs') && PEEKED.test('cat scenario.mjs') && !PEEKED.test('python3 flag.py in /tmp/om-challenge-abc/work/data'));
+  const model = 'opencode -m openrouter/a/big';
+  const line = recordLine({ outcome: 'answered', free: true, state: true, passed: true, correct: true, seconds: 200, roundTrips: 4, repeated: 0, leaked: 0, gated: 2, gatesFailed: 0, verdicts: [], checks: team, cost: 0.1 }, { maestro: model, worker: model, seed: 7 });
+  assert.equal(line.mode, 'team-free+state');
+  assert.match(summarize([line]), /Maestro plans alone, state line/);
+});

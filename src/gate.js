@@ -148,6 +148,31 @@ export function unresolvedChecks(events) {
   return [...last.values()].filter((e) => e.ok === false);
 }
 
+/**
+ * Where the work stands, in one line, written by the program from what it saw: per teammate the messages sent, the
+ * last check and the last verdict, then what is still open. The Maestro gets it at the end of every ask, so a model
+ * that loses the thread has the facts in front of it and does not have to rebuild them from its own memory.
+ */
+export function stateLine(events) {
+  const mates = new Map();
+  const of = (name) => mates.get(name) ?? mates.set(name, { asks: 0, check: null, verdict: null }).get(name);
+  for (const e of events) {
+    if (!e.to) continue;
+    if (e.kind === 'ask') of(e.to).asks++;
+    else if (e.kind === 'check') of(e.to).check = e;
+    else if (e.kind === 'verdict') of(e.to).verdict = e;
+  }
+  if (!mates.size) return '';
+  const parts = [...mates].map(([name, m]) => {
+    const bits = [`${m.asks} message${m.asks === 1 ? '' : 's'}`];
+    if (m.check) bits.push(`last check ${m.check.ok ? 'PASSED' : 'FAILED'} (${m.check.note})`);
+    if (m.verdict) bits.push(m.verdict.ok ? `last verdict ${m.verdict.note.split(' ')[0]}` : 'last reply had no valid verdict');
+    return `${name}: ${bits.join(', ')}`;
+  });
+  const open = unresolvedChecks(events);
+  return `[openmaestri state] ${parts.join('. ')}. Open: ${open.length ? open.map((e) => `${e.to}'s check failed`).join('; ') : 'nothing'}.`;
+}
+
 /** What the Maestro is told when a reviewer says REJECTED right after the program's own check passed: a check is a fact, a verdict is an opinion. */
 export function conflictNotice(events, verdict) {
   if (verdict?.status !== 'REJECTED') return '';
