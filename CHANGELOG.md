@@ -10,6 +10,8 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ### Added
 - Starter team (docs/starter-team.md): three presets, Starter Maestro (DeepSeek V4.1 Flash), Starter Dev (DeepSeek V4.1 Flash) and Starter Auditor (gpt-oss-120b), through OpenCode and OpenRouter, on the models that passed the runs, each changeable by a variable, plus Starter Maestro (Haiku 5.5) and Starter Dev (gpt-oss-120b), the other models with a clean record. Existing installations get them once
+- `openmaestri selftest [--runs N] [--traps N] [--solo] [--budget USD]`: runs the ledger challenge (scenario C, the Dev and the Auditor compared by the program) with your models and says whether the team got it right, with a spending limit; `--solo` runs the Maestro model alone as a control. The deb package now ships the harness (`test/challenge`)
+- `test/challenge/run.mjs --wide N`: one Maestro and N workers who each write their own script, the program takes the biggest group of identical outputs (a team of 7 agents is `--wide 6`), to measure whether more agents buy anything
 - A seeded fuzz test of the command line arguments (20,000 random argv: the parser never throws, never pollutes Object, and `build` only fails with a usage error)
 
 ## [0.25.1] - 2026-11-05

@@ -47,4 +47,6 @@ Everything below is in [which models work](models.html), with the runs.
 - **Not tested: other kinds of work.** The runs are one family of tasks (read a ledger, apply rules, print a list). The starter team is a good place to begin, not a promise for any code.
 - **The cross-family choice of the Auditor is a hunch,** supported by the literature on correlated errors but not measured against a Dev and Auditor of the same model here.
 
+Check that the team works on your machine, with your key and your models: `openmaestri selftest` runs the ledger challenge (ten-rule scenario, seven traps) twice and says how many runs were right; `openmaestri selftest --solo` does the same with the Maestro model alone, so you see whether you need the team at all. Two runs show that it can work, not that it always does: use `--runs 6` before trusting it.
+
 A run costs a few cents. Set a limit before you start: `OPENMAESTRI_BUDGET_USD=1 openmaestri serve` (see [validation](validation.html)).

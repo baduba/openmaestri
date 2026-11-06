@@ -135,3 +135,23 @@ FLAGGED: Name1,Name2
 ROUNDS: <how many times you ran the diff>
 If you cannot get the scripts to agree, say VERDICT: FAILED and why.
 Rules for every message: never put sales figures or the answer in a message to a teammate. Read the reply in the output of ask; do not send the same message again because the reply looked short or messy.`;
+
+/**
+ * Many independent implementations, the program takes the plurality: `n` workers each write their own script from the rules alone, the Maestro
+ * runs them all and compares a short hash of each output. With the Maestro that is n + 1 agents (7 for n = 6). The question it answers is
+ * whether more agents than the Dev/Auditor pair buy anything.
+ */
+export const CHALLENGE_WIDE = (dir, n) => `CHALLENGE. Work folder: ${dir}. It has data/sales.csv and data/rules.md.
+Goal: find which names (regions or accounts, as the data calls them) are flagged by the rules, using ${n} independent scripts and trusting the answer most of them agree on.
+
+How you must work:
+1. Do NOT read sales.csv and do NOT compute anything yourself. Use only openmaestri commands and your shell for the comparison in step 3. Do NOT use your own built-in sub-agent, task or explore tools: the teammates must be real openmaestri terminals that the human can see. Use the preset named Worker for every teammate.
+2. Recruit ${n} teammates named ${Array.from({ length: n }, (_, i) => `W${i + 1}`).join(', ')}. Tell each one, separately, to read data/rules.md and data/sales.csv itself (do not summarize the rules for it) and write its own script in ${dir}: W1 writes s1.py, W2 writes s2.py and so on. Each script reads data/sales.csv, applies the rules and prints the flagged names, one per line, sorted. Tell them not to look at the other scripts. Add --check "cd ${dir} && python3 sN.py" with its own number.
+3. The program decides, not a teammate. Run in ${dir}: for i in ${Array.from({ length: n }, (_, i) => i + 1).join(' ')}; do echo "s$i $(python3 s$i.py 2>&1 | sha256sum | cut -c1-12)"; done
+   Scripts with the same code agree. If one group of at least 3 scripts is bigger than every other group, that group is the answer: copy one of its scripts to flag.py (cp sN.py flag.py) and go to step 5.
+4. Otherwise, or if a script crashes, the differences are facts. For the scripts outside the biggest group, run diff <(python3 sX.py) <(python3 sY.py) against one script of the biggest group and send the lines to the teammate exactly as printed, asking it to re-read data/rules.md, quote the rule that explains the first differing name and fix its own script if it was wrong. Then run step 3 again. At most 3 rounds. If there is still no group of at least 3 bigger than all the others, say VERDICT: FAILED.
+5. Answer the human with openmaestri say, in exactly this shape:
+VERDICT: APPROVED
+FLAGGED: Name1,Name2
+ROUNDS: <how many times you ran step 3>
+Rules for every message: never put sales figures or the answer in a message to a teammate. Read the reply in the output of ask; do not send the same message again because the reply looked short or messy.`;

@@ -88,7 +88,7 @@ Routine schedules: `--every 30m`, `--daily 09:00`, `--weekly mon,fri@09:00`, `--
 
 ## Other
 
-`say`, `recall` and `prompt parse|materialize` are the chat commands (see [Chat](chat.html)). `openmaestri doctor` checks the installation and prints how to fix what is missing (it works in any shell, with or without the app running). `openmaestri guide` prints the orchestration instructions for agents. `openmaestri debug` prints diagnostics (attach it to bug reports). `openmaestri version`.
+`say`, `recall` and `prompt parse|materialize` are the chat commands (see [Chat](chat.html)). `openmaestri doctor` checks the installation and prints how to fix what is missing (it works in any shell, with or without the app running). `openmaestri selftest` runs the ledger challenge with your models and says whether the team gets it right on your machine (needs OpenCode and `OPENROUTER_API_KEY` for the starter team; `--runs 2` by default, a few cents, `--budget 1` dollar limit, `--solo` for the control with one agent; see [starter team](starter-team.html)). `openmaestri guide` prints the orchestration instructions for agents. `openmaestri debug` prints diagnostics (attach it to bug reports). `openmaestri version`.
 
 ## Exit codes
 
