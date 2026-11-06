@@ -4,6 +4,9 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Changed
+- Docs: round 17 measured a team of seven agents (Maestro and six workers, plurality of scripts): 4 of 8 right against 6 of 8 for the trio on the same data. The starter team stays at three. `selftest` ran for real once (right, 299 s, 3 cents)
+
 ## [0.25.2] - 2026-11-06
 
 ### Fixed
