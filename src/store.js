@@ -35,7 +35,7 @@ export function atomicWrite(file, text) {
   fs.renameSync(tmp, file);
 }
 
-export const PRESETS_VERSION = 3;
+export const PRESETS_VERSION = 4;
 export const DEFAULT_PRESETS = [
   { name: 'Shell', command: '', maestro: false },
   { name: 'Claude', command: 'claude', maestro: false },
@@ -54,6 +54,9 @@ export const DEFAULT_PRESETS = [
   { name: 'Starter Maestro (DeepSeek V4.1 Flash)', command: 'opencode -m "openrouter/${OPENMAESTRI_STARTER_MAESTRO:-deepseek/deepseek-v4.1-flash}"', maestro: true },
   { name: 'Starter Dev (DeepSeek V4.1 Flash)', command: 'opencode -m "openrouter/${OPENMAESTRI_STARTER_DEV:-deepseek/deepseek-v4.1-flash}"', maestro: false },
   { name: 'Starter Auditor (gpt-oss-120b)', command: 'opencode -m "openrouter/${OPENMAESTRI_STARTER_AUDITOR:-openai/gpt-oss-120b}"', maestro: false },
+  // The other models with a clean record in the runs (docs/starter-team.md), to swap into the trio: Haiku 5.5 never failed as Maestro or alone, gpt-oss-120b never failed as a worker on the first task.
+  { name: 'Starter Maestro (Haiku 5.5)', command: 'opencode -m "openrouter/${OPENMAESTRI_STARTER_MAESTRO_ALT:-anthropic/claude-haiku-5.5}"', maestro: true },
+  { name: 'Starter Dev (gpt-oss-120b)', command: 'opencode -m "openrouter/${OPENMAESTRI_STARTER_DEV_ALT:-openai/gpt-oss-120b}"', maestro: false },
 ];
 
 const NODE_DEFAULTS = {

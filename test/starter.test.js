@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Store, DEFAULT_PRESETS, PRESETS_VERSION } from '../src/store.js';
 
-const STARTERS = ['Starter Maestro (DeepSeek V4.1 Flash)', 'Starter Dev (DeepSeek V4.1 Flash)', 'Starter Auditor (gpt-oss-120b)'];
+const STARTERS = ['Starter Maestro (DeepSeek V4.1 Flash)', 'Starter Dev (DeepSeek V4.1 Flash)', 'Starter Auditor (gpt-oss-120b)', 'Starter Maestro (Haiku 5.5)', 'Starter Dev (gpt-oss-120b)'];
 
 test('the starter team: one Maestro and two workers, on the models that passed the runs, each changeable by a variable', () => {
   const by = Object.fromEntries(DEFAULT_PRESETS.map((p) => [p.name, p]));
@@ -15,7 +15,10 @@ test('the starter team: one Maestro and two workers, on the models that passed t
   assert.equal(by[STARTERS[2]].maestro, false);
   assert.match(by[STARTERS[0]].command, /openrouter\/\$\{OPENMAESTRI_STARTER_MAESTRO:-deepseek\/deepseek-v4\.1-flash\}/);
   assert.match(by[STARTERS[2]].command, /OPENMAESTRI_STARTER_AUDITOR:-openai\/gpt-oss-120b/);
-  assert.equal(DEFAULT_PRESETS.filter((p) => p.maestro).length, 3, 'the starter adds exactly one Maestro preset');
+  assert.equal(by[STARTERS[3]].maestro, true);
+  assert.equal(by[STARTERS[4]].maestro, false);
+  assert.match(by[STARTERS[3]].command, /anthropic\/claude-haiku-5\.5/);
+  assert.equal(DEFAULT_PRESETS.filter((p) => p.maestro).length, 4, 'the starter adds two Maestro presets, the default and Haiku');
 });
 
 test('an existing installation gets the starter presets once, and a preset it deleted later does not come back', () => {
@@ -36,5 +39,6 @@ test('an existing installation gets the starter presets once, and a preset it de
     const second = new Store(root);
     second.load();
     assert.equal(second.settings.presets.some((p) => p.name === STARTERS[2]), false);
+    assert.ok(second.settings.presets.some((p) => p.name === STARTERS[3]));
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
