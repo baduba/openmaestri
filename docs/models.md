@@ -138,6 +138,22 @@ Seven traps, `gpt-oss-120b` (the model that fails alone):
 - **The strong cheap model is not beaten.** DeepSeek V4.1 Flash alone got 8 of 8 even with ten traps (cost about a cent, about two minutes). The dial never took a strong model under 50%, so the rule cannot be met on this family of tasks: the team does not beat a strong model alone. If you can pay for one strong model, use one agent.
 - **The team lifts a weak model, and it is not just more compute.** `gpt-oss-120b` alone is right in about a third of the runs; a vote over four runs does not help (3 of 8); the team, with a good Maestro and two independent scripts, is right in 6 of 8, as good as DeepSeek alone at seven traps (6 of 8). Against the 40 lone runs the difference has p of about 0.05 (Fisher, one side); against the vote, p of 0.16 with only eight data sets. Read it as a strong hint, not as proof.
 - **What it costs.** A team run took one to four minutes and one to three cents (one run 16 cents); DeepSeek alone about a cent. The team only pays when the model you have to use is the weak one (open weights on your own machine, no access to a strong model).
+
+## Seven agents instead of three (round 17)
+
+The question left open by round 16: if two workers help a weak model, do six help more? Seven agents is a Maestro (DeepSeek V4.1 Flash) and six workers (`gpt-oss-120b`) who each write their own script from the rules; the Maestro runs all six and takes the biggest group of identical outputs, at least three scripts and bigger than every other group (`run.mjs --wide 6`). Same eight data sets as the trio (scenario C, seven traps, seeds 21 to 701), 2026-11-06, one run at a time. Raw lines in `notes/runs-round17/wide6.jsonl`.
+
+| Team | Right | Seconds | Messages | Cost |
+|---|---|---|---|---|
+| Maestro + Dev + Auditor (the trio) | **6 of 8** | one to four minutes | | 1 to 3 cents |
+| Maestro + 6 workers (seven agents) | 4 of 8 | 363 on average | 12 to 21 | 1 to 19 cents (shown on 6 of 8 runs) |
+
+- **More agents did not help; the direction is against it.** The seven were right at seeds 21, 101, 401 and 501 and wrong at 201, 301, 601 and 701. The trio was wrong at 301 and 701 only. Four against six out of eight is inside the noise (Fisher, one side, p about 0.3), so read it as "no gain shown, and no reason to expect one", not as proof that seven is worse.
+- **Plurality of weak scripts may not be independence.** `gpt-oss-120b` is right about a third of the time alone, and its mistakes need not be scattered: six copies of one model can share the same blind spot and agree on a wrong answer. The final answer was wrong at seeds 201, 301 and 601; I did not read the six scripts of those runs to see whether the biggest group was wrong or the Maestro misjudged the groups, so this is a likely reason and not a finding. The trio compares a script with one written to a different brief (the Auditor's `verify.py` from the rules alone) and acts on the difference.
+- **Failures were not all about the answer.** Seed 701 stalled with no message sent: the Maestro never recruited anyone. Seed 201 also had an agent open the challenge's own files. Seven terminals cost more time (about six minutes a run on average, against one to four for the trio) and more messages for a Maestro to hold.
+- **Self-test.** `openmaestri selftest --runs 1 --traps 4` on the same machine with the starter team: right, 299 seconds, 11 messages, 3 cents.
+
+Stop rule from round 16: more agents have to beat the trio by 20 points. They did not (they were 25 points under), so the starter team stays at three, and the research on team size ends here. What stays open is not research but use: the team helps when the model you have to use is weak, and a strong cheap model alone (DeepSeek, 8 of 8 at ten traps) is as good.
 - **The two misses of the team**, read in the logs: on seed 701 both scripts agreed (the diff printed `SAME`) on an answer with one name too many, so the program had nothing to compare; that is the error two independent writers share, which the N-version literature predicts and a diff cannot see. On seed 301 the scripts never agreed in four rounds (eleven messages, 16 cents), and the Maestro answered with a list that matches neither script, `Centro,Leste,Litoral,Norte,Sul`, after saying the rule text decided for the Auditor's script: the arbitration step in the Maestro's instructions is the weak part.
 - **The weak Maestro is still the weak link:** every team here had a good Maestro (DeepSeek). The earlier tables show what a weak one does.
 
