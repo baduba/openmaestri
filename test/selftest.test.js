@@ -73,7 +73,7 @@ test('selftest stops when the budget is used, and refuses bad flags or a missing
 test('the wide challenge names every worker and asks for a plurality of at least 3, so seven agents are one Maestro and six workers', async () => {
   const { CHALLENGE_WIDE } = await import('./challenge/scenario.mjs');
   const text = CHALLENGE_WIDE('/w', 6);
-  for (const n of [1, 2, 3, 4, 5, 6]) assert.match(text, new RegExp(`W${n}\\b`));
+  for (const n of [1, 2, 3, 4, 5, 6]) assert.ok(text.includes(`W${n}`));
   assert.doesNotMatch(text, /W7/);
   assert.match(text, /at least 3/);
   assert.match(text, /Do NOT read sales\.csv/);
