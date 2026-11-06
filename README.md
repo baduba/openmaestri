@@ -157,7 +157,7 @@ An app that opens shells must be careful. The web UI listens on loopback only, r
 
 ## Documentation
 
-- [Getting started](docs/getting-started.md) · [CLI reference](docs/cli.md) · [DeepSeek and open models](docs/deepseek.md)
+- [Getting started](docs/getting-started.md) · [CLI reference](docs/cli.md) · [DeepSeek and open models](docs/deepseek.md) · [Starter team](docs/starter-team.md)
 - [Architecture](docs/architecture.md) · [Troubleshooting](docs/troubleshooting.md) · [How to report a bug](docs/reporting-bugs.md)
 - Site: https://baduba.github.io/openmaestri/
 

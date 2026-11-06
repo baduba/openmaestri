@@ -26,6 +26,7 @@ A spatial canvas terminal workspace for AI agents. Open source, local, works wit
 8. [Orchestration challenge](functional-test.html): a functional test where a Maestro coordinates teammates through several round trips.
 9. [Checking a teammate's work](validation.html): `ask --check`, `--verdict`, corrections, fallback and the report.
 10. [Which models work as Maestro](models.html): real runs per model.
+11. [Starter team](starter-team.html): three presets (a Maestro and two workers) on the models that passed, and what we did and did not test.
 11. [Project memory](project-memory.html): decisions and lessons that outlive any one agent.
 12. [MCP servers and library docs](mcp.html): one list of tools for every teammate.
 13. [Saved prompts, usage and roles](agents.html): reuse prompts, see tokens and cost, install roles.
