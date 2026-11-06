@@ -35,7 +35,7 @@ export function atomicWrite(file, text) {
   fs.renameSync(tmp, file);
 }
 
-export const PRESETS_VERSION = 2;
+export const PRESETS_VERSION = 3;
 export const DEFAULT_PRESETS = [
   { name: 'Shell', command: '', maestro: false },
   { name: 'Claude', command: 'claude', maestro: false },
@@ -49,6 +49,11 @@ export const DEFAULT_PRESETS = [
   { name: 'Goose', command: 'goose', maestro: false },
   { name: 'Maestro (OpenCode + DeepSeek)', command: 'opencode -m "deepseek/${OPENMAESTRI_DEEPSEEK_MODEL:-deepseek-flash}"', maestro: true },
   { name: 'Maestro (Claude)', command: 'claude', maestro: true },
+  // The starter team (docs/starter-team.md): the models that passed the challenge runs, through OpenCode and OpenRouter (OPENROUTER_API_KEY in ~/.openmaestri/env).
+  // Each model can be changed with its variable; `opencode models openrouter` lists valid ids.
+  { name: 'Starter Maestro (DeepSeek V4.1 Flash)', command: 'opencode -m "openrouter/${OPENMAESTRI_STARTER_MAESTRO:-deepseek/deepseek-v4.1-flash}"', maestro: true },
+  { name: 'Starter Dev (DeepSeek V4.1 Flash)', command: 'opencode -m "openrouter/${OPENMAESTRI_STARTER_DEV:-deepseek/deepseek-v4.1-flash}"', maestro: false },
+  { name: 'Starter Auditor (gpt-oss-120b)', command: 'opencode -m "openrouter/${OPENMAESTRI_STARTER_AUDITOR:-openai/gpt-oss-120b}"', maestro: false },
 ];
 
 const NODE_DEFAULTS = {
