@@ -51,13 +51,33 @@ export function leakedCount(trace, stats) {
 
 const fileHash = (file) => (fs.existsSync(file) ? crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex') : null);
 
+/** The first task message for the way of working chosen. */
+function taskText({ dir, free, wide, diff, relay, devReads }) {
+  if (free) return FREE(dir);
+  if (wide) return CHALLENGE_WIDE(dir, wide);
+  if (diff) return CHALLENGE_DIFF(dir);
+  return `${CHALLENGE(dir, { relay, devReads })}\nUse the preset named Worker for both teammates.`;
+}
+
+/** The way of working a run was done in, as the per-model table names it. */
+function modeOf(r) {
+  let mode = 'team';
+  if (r.baseline) mode = 'solo';
+  else if (r.wide) mode = `team-wide${r.wide}`;
+  else if (r.free) mode = 'team-free';
+  else if (r.diff) mode = 'team-diff';
+  else if (r.devReads) mode = 'team-reads';
+  else if (r.relay) mode = 'team-relay';
+  return mode + (r.state ? '+state' : '');
+}
+
 /** One line per run for the per-model table (`summary.mjs`): who played which part and how it went. */
 export function recordLine(r, { maestro, worker, seed, inject }) {
   const model = (cmd) => /-m\s+(\S+)/.exec(cmd)?.[1] ?? cmd.trim().split(/\s+/).at(-1);
   return {
     date: new Date().toISOString().slice(0, 10), maestro: model(maestro), worker: model(worker), seed, inject: !!inject,
     outcome: r.outcome, passed: r.passed, seconds: r.seconds, messages: r.roundTrips, repeated: r.repeated, leaked: r.leaked,
-    mode: (r.baseline ? 'solo' : r.wide ? `team-wide${r.wide}` : r.free ? 'team-free' : r.diff ? 'team-diff' : r.devReads ? 'team-reads' : r.relay ? 'team-relay' : 'team') + (r.state ? '+state' : ''), scenario: r.scenario ?? 'a', traps: r.traps ?? null, answered: r.answered ?? null, correct: r.correct,
+    mode: modeOf(r), scenario: r.scenario ?? 'a', traps: r.traps ?? null, answered: r.answered ?? null, correct: r.correct,
     gated: r.gated, gatesFailed: r.gatesFailed, cost: r.cost ?? null, verdicts: r.verdicts.join(','), failed: Object.entries(r.checks).filter(([, v]) => !v).map(([k]) => k),
   };
 }
@@ -189,7 +209,7 @@ export async function runChallenge({ maestro, worker, seed = 7, timeoutMs = 30 *
       // CHALLENGE_BOOTSTRAP replaces the first message (experiments); {CLI} is the absolute path of the openmaestri command
       const first = (process.env.CHALLENGE_BOOTSTRAP || maestroBootstrap('{CLI}')).replaceAll('{CLI}', core.terminals.env.cliBin ?? 'openmaestri');
       if (bootstrap) { core.terminals.deliver(boss.id, first); await sleep(Math.min(bootMs, 20000)); }
-      core.chatSend(ws, { text: free ? FREE(dir) : wide ? CHALLENGE_WIDE(dir, wide) : diff ? CHALLENGE_DIFF(dir) : `${CHALLENGE(dir, { relay, devReads })}\nUse the preset named Worker for both teammates.` });
+      core.chatSend(ws, { text: taskText({ dir, free, wide, diff, relay, devReads }) });
     }
 
     const said = () => core.chat.history(ws.id, core.chat.active(ws.id), { turns: 200 }).filter((m) => m.role === 'agent' && !m.progress);
