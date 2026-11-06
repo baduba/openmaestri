@@ -17,6 +17,7 @@ mkdir -p "$APP" "$STAGE/$PKG/DEBIAN" "$STAGE/$PKG/usr/bin" \
          "$STAGE/$PKG/usr/share/doc/openmaestri"
 
 cp -r src bin web desktop assets package.json package-lock.json LICENSE "$APP/"
+mkdir -p "$APP/test" && cp -r test/challenge "$APP/test/" # the harness `openmaestri selftest` uses
 rm -rf "$APP/desktop/node_modules"
 # production dependencies only; node-pty compiles here
 ( cd "$APP" && npm ci --omit=dev --no-audit --no-fund >/dev/null )

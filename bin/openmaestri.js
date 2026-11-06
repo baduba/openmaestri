@@ -79,6 +79,8 @@ Usage:
   openmaestri secrets set|list|status|rm            Keep API keys outside the env file (secret://name); run in your own shell
   openmaestri persist list | stop --yes             The tmux sessions behind persistent terminals; run in your own shell
   openmaestri desktop                               Open the optional desktop window (one-time: npm --prefix desktop install)
+  openmaestri selftest [--runs N] [--traps N] [--solo] [--maestro CMD] [--worker CMD] [--budget USD]
+                                                     Run the ledger challenge with your models and say if the team gets it right (costs a few cents)
   openmaestri doctor                                 Check what is installed and how to fix what is missing (works anywhere)
   openmaestri guide                                  How agents should use openmaestri (give this to your agent)
   openmaestri debug
@@ -565,6 +567,7 @@ async function run(argv) {
     return rows.some((r) => r.level === 'fail') ? 1 : 0;
   }
   const insideTerminal = !!process.env.OPENMAESTRI_SOCKET;
+  if (parsed.pos[0] === 'selftest' && !insideTerminal) return (await import('../src/selftest.js')).selftest(parsed.flags);
   if (parsed.pos[0] === 'secrets') return secretsCommand(parsed, insideTerminal);
   if (parsed.pos[0] === 'audit') return auditCommand(parsed, insideTerminal);
   if (parsed.pos[0] === 'accounts') return accountsCommand(parsed, insideTerminal);
