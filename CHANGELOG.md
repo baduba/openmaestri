@@ -4,6 +4,8 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.25.2] - 2026-11-06
+
 ### Fixed
 - `scripts/dast.sh` exited 1 even when the ZAP baseline had no failure: the summary line `FAIL-NEW: 0 ...` matched the check for a failure. Only a count above zero fails now
 - `routine create`: `--count` with a word, a decimal or zero was kept as NaN and the routine never ended; `--until` with text that is not a date was kept and the routine never stopped; `--every` past a year (for example `9999999999d`) gave a next run past the last date a Date can hold. All three are refused with a clear message
