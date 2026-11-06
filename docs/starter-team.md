@@ -12,7 +12,16 @@ A ready team made of the models that passed our challenge runs: one Maestro and 
 | **Starter Dev (DeepSeek V4.1 Flash)** | `deepseek/deepseek-v4.1-flash` | Writes the code |
 | **Starter Auditor (gpt-oss-120b)** | `openai/gpt-oss-120b` | Writes an independent check from the spec, without seeing the Dev's code |
 
-Each model can be changed with a variable in `~/.openmaestri/env`: `OPENMAESTRI_STARTER_MAESTRO`, `OPENMAESTRI_STARTER_DEV`, `OPENMAESTRI_STARTER_AUDITOR` (a model id as OpenRouter writes it; `opencode models openrouter` lists them).
+Two more presets hold the other models with a clean record in our runs, to swap into the trio:
+
+| Preset | Model | Why it is here |
+|---|---|---|
+| **Starter Maestro (Haiku 5.5)** | `anthropic/claude-haiku-5.5` | Never failed in our runs: 3 of 3 as Maestro, 5 of 5 alone, 2 of 2 building the plan itself. About 3 cents a pass, like DeepSeek |
+| **Starter Dev (gpt-oss-120b)** | `openai/gpt-oss-120b` | The worker in every team run: 10 of 10 on the first ledger task. Almost free |
+
+Left out on purpose: Kimi K2.7 Code (3 of 4 as a worker, four times the cost), GLM 5.3 Flash (3 of 4), gpt-5.6-luna (2 of 3 as Maestro), Gemini 3.8 Flash (3 of 3 but ten times the cost), Qwen 3.7 Flash and the free models (they fail).
+
+Each model can be changed with a variable in `~/.openmaestri/env`: `OPENMAESTRI_STARTER_MAESTRO`, `OPENMAESTRI_STARTER_DEV`, `OPENMAESTRI_STARTER_AUDITOR`, and `OPENMAESTRI_STARTER_MAESTRO_ALT` / `OPENMAESTRI_STARTER_DEV_ALT` for the two extra presets (a model id as OpenRouter writes it; `opencode models openrouter` lists them).
 
 ## Set it up
 
